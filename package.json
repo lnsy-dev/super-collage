@@ -1,0 +1,16 @@
+{
+  "name": "super-collage",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "cd rust && wasm-pack build --target web --out-dir ../src/wasm",
+    "build": "npm run build:wasm",
+    "dev": "concurrently --names WASM,SERVE --prefix-colors cyan,magenta \"npm run watch:wasm\" \"npm run serve\"",
+    "watch:wasm": "cd rust && cargo watch -s 'wasm-pack build --target web --out-dir ../src/wasm'",
+    "serve": "browser-sync start --server . --files 'src/**/*.js,src/**/*.css,index.html,src/wasm/*.js' --no-notify --cors"
+  },
+  "devDependencies": {
+    "browser-sync": "^3.0.3",
+    "concurrently": "^9.1.2"
+  }
+}
