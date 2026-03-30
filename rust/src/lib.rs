@@ -80,6 +80,29 @@ pub fn extract_render_data(data: &[f32]) -> Vec<f32> {
     out
 }
 
+/// Alpha-weighted subtractive (multiply) blend. Both slices are flat RGBA u8 of equal length.
+/// For each pixel: base_channel = base_channel × lerp(255, overlay_channel, overlay_alpha/255) / 255
+/// This simulates transparent riso ink on paper: overlapping inks darken subtractively.
+#[wasm_bindgen]
+pub fn blend_subtractive(base: &[u8], overlay: &[u8]) -> Vec<u8> {
+    let mut result = base.to_vec();
+    let mut i = 0;
+    while i < result.len() {
+        let oa = overlay[i + 3] as u32;
+        if oa > 0 {
+            let mr = 255 * (255 - oa) + overlay[i]     as u32 * oa;
+            let mg = 255 * (255 - oa) + overlay[i + 1] as u32 * oa;
+            let mb = 255 * (255 - oa) + overlay[i + 2] as u32 * oa;
+            result[i]     = ((result[i]     as u32 * mr) / (255 * 255)) as u8;
+            result[i + 1] = ((result[i + 1] as u32 * mg) / (255 * 255)) as u8;
+            result[i + 2] = ((result[i + 2] as u32 * mb) / (255 * 255)) as u8;
+            // alpha channel left unchanged (paper is always opaque)
+        }
+        i += 4;
+    }
+    result
+}
+
 fn lcg(state: u32) -> u32 {
     state.wrapping_mul(1664525).wrapping_add(1013904223)
 }
