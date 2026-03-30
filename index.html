@@ -2290,8 +2290,8 @@ document.addEventListener('keydown', e => {
 
 /* ─── INIT ──────────────────────────────────────────────────────── */
 async function init() {
-  const wasmMod = await import('/src/wasm/super_collage.js');
-  await wasmMod.default('/src/wasm/super_collage_bg.wasm');
+  const wasmMod = await import('./src/wasm/super_collage.js');
+  await wasmMod.default('./src/wasm/super_collage_bg.wasm');
   blendSubtractive = wasmMod.blend_subtractive;
   await DB.open();
   Renderer.init();
