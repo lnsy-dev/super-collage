@@ -460,6 +460,34 @@ input[type="number"] {
   margin-bottom: 10px;
 }
 .input-row label { font-size: 14px; flex-shrink: 0; }
+.size-row {
+  margin-bottom: 10px;
+}
+.size-row-label {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--dark-gray);
+}
+.size-options {
+  display: flex;
+  gap: 6px;
+}
+.size-options label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 2px solid var(--dark-gray);
+  padding: 4px 8px;
+  background: var(--white);
+}
+.size-options label:has(input:checked) {
+  border-color: var(--black);
+  background: var(--black);
+  color: var(--white);
+}
+.size-options input[type="radio"] { display: none; }
 .mac-input {
   flex: 1;
   font-family: var(--font);
@@ -523,7 +551,15 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
       <div class="input-row">
         <label>New:</label>
         <input type="text" class="mac-input" id="new-project-name" placeholder="Project name…" maxlength="40">
-        <button class="mac-btn primary" id="btn-create-project">Create</button>
+        <button type="button" class="mac-btn primary" id="btn-create-project">Create</button>
+      </div>
+      <div class="size-row">
+        <div class="size-row-label">Paper size:</div>
+        <div class="size-options">
+          <label><input type="radio" name="new-page-size" value="letter" checked> 8.5 × 11</label>
+          <label><input type="radio" name="new-page-size" value="legal"> 8.5 × 14</label>
+          <label><input type="radio" name="new-page-size" value="half-letter"> 5.5 × 8.5</label>
+        </div>
       </div>
     </div>
     <div class="dialog-footer">
@@ -812,8 +848,14 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
    Canvas: 3300 × 5100 px  (600 dpi · 5.5" × 8.5")
 ════════════════════════════════════════════════════════════════════ */
 
-const CANVAS_W = 3300;
-const CANVAS_H = 5100;
+let CANVAS_W = 3300;
+let CANVAS_H = 5100;
+
+const PAGE_SIZE_DIMS = {
+  'letter':      { w: 5100, h: 6600 },
+  'legal':       { w: 5100, h: 8400 },
+  'half-letter': { w: 3300, h: 5100 },
+};
 let blendSubtractive = null; // loaded from WASM at init
 
 const RISO_COLORS = [
@@ -1458,10 +1500,11 @@ const ExportEngine = {
       ctx.putImageData(imgData, 0, 0);
 
       const blob = await ec.convertToBlob({ type: 'image/png' });
-      const safeName = colorName.toLowerCase().replace(/\s+/g, '-');
+      const projectSlug = document.getElementById('status-project').textContent.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `plate-${safeName}.png`;
+      a.href = url; a.download = `${projectSlug}-${colorSlug}.png`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       await new Promise(r => setTimeout(r, 400));
@@ -1518,7 +1561,8 @@ const ExportEngine = {
     const blob = await outCanvas.convertToBlob({ type: 'image/png' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'composite-preview.png';
+    const projectSlug = document.getElementById('status-project').textContent.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    a.href = url; a.download = `${projectSlug}-composite.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     prog.textContent = 'Done!';
@@ -2045,13 +2089,20 @@ async function loadProjectList() {
   }
 }
 
-document.getElementById('btn-create-project').addEventListener('click', async () => {
+document.getElementById('btn-create-project').addEventListener('click', async e => {
+  const btn = e.currentTarget;
   const name = document.getElementById('new-project-name').value.trim();
   if (!name) { document.getElementById('new-project-name').focus(); return; }
-  const project = { id: crypto.randomUUID(), name, createdAt: Date.now(), updatedAt: Date.now(), layerOrder: [] };
-  await DB.put('projects', project);
-  document.getElementById('new-project-name').value = '';
-  await openProject(project.id);
+  btn.disabled = true;
+  try {
+    const pageSize = document.querySelector('input[name="new-page-size"]:checked')?.value || 'letter';
+    const project = { id: crypto.randomUUID(), name, pageSize, createdAt: Date.now(), updatedAt: Date.now(), layerOrder: [] };
+    await DB.put('projects', project);
+    document.getElementById('new-project-name').value = '';
+    await openProject(project.id);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 document.getElementById('btn-open-project').addEventListener('click', () => {
@@ -2068,7 +2119,7 @@ document.getElementById('btn-delete-project').addEventListener('click', async ()
 
 // Enter key in project name input
 document.getElementById('new-project-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('btn-create-project').click();
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
 });
 
 async function openProject(projectId) {
@@ -2109,7 +2160,12 @@ async function openProject(projectId) {
   }
 
   document.getElementById('main-app').style.display = 'flex';
-  document.getElementById('canvas-title').textContent = `${project.name} — 5.5" × 8.5" @ 600dpi`;
+  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"' };
+  const sizeLabel = pageSizeLabels[project.pageSize] || '8.5" × 11"';
+  const dims = PAGE_SIZE_DIMS[project.pageSize] || PAGE_SIZE_DIMS['letter'];
+  CANVAS_W = dims.w;
+  CANVAS_H = dims.h;
+  document.getElementById('canvas-title').textContent = `${project.name} — ${sizeLabel} @ 600dpi`;
   document.getElementById('status-project').textContent = project.name;
   document.getElementById('no-layer-msg').style.display = State.layers.length ? 'none' : '';
 
