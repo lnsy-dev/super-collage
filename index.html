@@ -822,11 +822,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                   <input type="range" id="prop-contrast" min="-100" max="100" value="0">
                   <span class="prop-value" id="val-contrast">0</span>
                 </div>
-                <div class="prop-row">
-                  <span class="prop-label">Sat</span>
-                  <input type="range" id="prop-saturation" min="-100" max="100" value="-100">
-                  <span class="prop-value" id="val-saturation">-100</span>
-                </div>
+
               </div>
 
               <!-- HALFTONE -->
@@ -835,6 +831,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                 <div class="prop-row">
                   <div class="halftone-opts">
                     <button class="halftone-opt active" data-halftone="none">None</button>
+                    <button class="halftone-opt" data-halftone="grayscale">Gray</button>
                     <button class="halftone-opt" data-halftone="dither">Dither</button>
                     <button class="halftone-opt" data-halftone="magazine">Dots</button>
                     <button class="halftone-opt" data-halftone="grunge">Grunge</button>
@@ -856,7 +853,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                   <input type="range" id="prop-hatch-length" min="10" max="200" value="60">
                   <span class="prop-value" id="val-hatch-length">60</span>
                 </div>
-                <div class="prop-row">
+                <div class="prop-row" id="halftone-angle-row">
                   <span class="prop-label">Angle</span>
                   <input type="range" id="prop-halftone-angle" min="0" max="180" value="45">
                   <span class="prop-value" id="val-halftone-angle">45</span>
@@ -1230,26 +1227,45 @@ const ImageProcessor = {
     const ctx = work.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(layer._originalCanvas, 0, 0);
     let px = ctx.getImageData(0, 0, nw, nh);
-    px = this.toGrayscale(px, layer.saturation);
+    px = this.toGrayscale(px);
     px = this.applyBrightness(px, layer.brightness);
     px = this.applyContrast(px, layer.contrast);
-    if (layer.halftoneType !== 'none') {
-      px = this.applyHalftone(px, nw, nh, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle, layer.hatchLineHeight, layer.hatchLineLength);
+    if (layer.halftoneType === 'grayscale') {
+      const d = px.data;
+      if (layer.colorMode === 'gradient' && layer.gradient) {
+        const gradCanvas = generateGradientCanvas(nw, nh, layer.gradient);
+        const gradData = gradCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+          d[i] = gradData[i]; d[i+1] = gradData[i+1]; d[i+2] = gradData[i+2];
+          d[i+3] = Math.round(255 - gray);
+        }
+      } else {
+        const cr = parseInt(layer.color.slice(1, 3), 16);
+        const cg = parseInt(layer.color.slice(3, 5), 16);
+        const cb = parseInt(layer.color.slice(5, 7), 16);
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+          d[i] = cr; d[i+1] = cg; d[i+2] = cb;
+          d[i+3] = Math.round(255 - gray);
+        }
+      }
+    } else {
+      if (layer.halftoneType !== 'none') {
+        px = this.applyHalftone(px, nw, nh, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle, layer.hatchLineHeight, layer.hatchLineLength);
+      }
+      px = this.colorize(px, layer.color, layer);
     }
-    px = this.colorize(px, layer.color, layer);
     ctx.putImageData(px, 0, 0);
     layer._processedCanvas = work;
     layer._dirty = false;
   },
 
-  toGrayscale(px, saturation) {
+  toGrayscale(px) {
     const d = px.data;
-    const mix = Math.max(0, Math.min(1, (saturation + 100) / 100));
     for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-      d[i]   = Math.round(gray + (d[i]   - gray) * mix);
-      d[i+1] = Math.round(gray + (d[i+1] - gray) * mix);
-      d[i+2] = Math.round(gray + (d[i+2] - gray) * mix);
+      const gray = Math.round(0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2]);
+      d[i] = d[i+1] = d[i+2] = gray;
     }
     return px;
   },
@@ -2267,16 +2283,17 @@ const UI = {
     };
     setRange('prop-brightness', 'val-brightness', layer.brightness);
     setRange('prop-contrast',   'val-contrast',   layer.contrast);
-    setRange('prop-saturation', 'val-saturation', layer.saturation);
     setRange('prop-halftone-size', 'val-halftone-size', layer.halftoneSize);
     setRange('prop-halftone-angle', 'val-halftone-angle', layer.halftoneAngle);
     setRange('prop-hatch-height', 'val-hatch-height', layer.hatchLineHeight ?? 10);
     setRange('prop-hatch-length', 'val-hatch-length', layer.hatchLineLength ?? 60);
 
     const isHatch = layer.halftoneType === 'crosshatch';
-    document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch);
+    const isGrayscale = layer.halftoneType === 'grayscale';
+    document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch || isGrayscale);
     document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
     document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
+    document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
 
     document.querySelectorAll('.halftone-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.halftone === layer.halftoneType));
@@ -2545,7 +2562,6 @@ function wireControls() {
   numField('prop-rot', 'rotation');
   rangeField('prop-brightness', 'brightness', 'val-brightness');
   rangeField('prop-contrast',   'contrast',   'val-contrast');
-  rangeField('prop-saturation', 'saturation', 'val-saturation');
   rangeField('prop-halftone-size', 'halftoneSize', 'val-halftone-size');
   rangeField('prop-halftone-angle', 'halftoneAngle', 'val-halftone-angle');
   rangeField('prop-hatch-height', 'hatchLineHeight', 'val-hatch-height');
@@ -2558,9 +2574,11 @@ function wireControls() {
       l._dirty = true;
       document.querySelectorAll('.halftone-opt').forEach(b => b.classList.toggle('active', b === btn));
       const isHatch = btn.dataset.halftone === 'crosshatch';
-      document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch);
+      const isGrayscale = btn.dataset.halftone === 'grayscale';
+      document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch || isGrayscale);
       document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
       document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
+      document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
       DB.saveLayer(l);
       Renderer.schedule();
     });
