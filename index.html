@@ -237,6 +237,11 @@ body {
 .layer-row--mask { padding-left: 16px; }
 .layer-row--masked { border-left: 2px solid #888; }
 .layer-vis { cursor: pointer; font-size: 18px; flex-shrink: 0; }
+.layer-lock { cursor: pointer; font-size: 14px; flex-shrink: 0; opacity: 0.4; }
+.layer-lock:hover { opacity: 1; }
+.layer-lock.locked { opacity: 1; }
+.layer-row.locked-row { opacity: 0.6; }
+.layer-row.locked-row .layer-name { font-style: italic; }
 .layer-color-dot {
   width: 9px; height: 9px;
   border: 1px solid var(--black);
@@ -1119,7 +1124,7 @@ const DB = {
 
   layerRecord(layer) {
     return {
-      id: layer.id, projectId: layer.projectId, name: layer.name, visible: layer.visible,
+      id: layer.id, projectId: layer.projectId, name: layer.name, visible: layer.visible, locked: layer.locked || false,
       x: layer.x, y: layer.y, width: layer.width, height: layer.height,
       naturalWidth: layer.naturalWidth, naturalHeight: layer.naturalHeight,
       rotation: layer.rotation, flipH: layer.flipH, flipV: layer.flipV,
@@ -1150,6 +1155,7 @@ function makeLayer(data = {}) {
     projectId: data.projectId || (State.project && State.project.id),
     name: data.name || 'Layer',
     visible: data.visible !== false,
+    locked: data.locked || false,
     x: data.x ?? 0,
     y: data.y ?? 0,
     width: data.width || 100,
@@ -1813,7 +1819,7 @@ const Renderer = {
   hitTestLayer(mx, my) {
     for (let i = State.layers.length - 1; i >= 0; i--) {
       const l = State.layers[i];
-      if (!l.visible) continue;
+      if (!l.visible || l.locked) continue;
       const local = Transform.toLocal(mx, my, l, State.zoom);
       if (local.x >= 0 && local.x <= l.width && local.y >= 0 && local.y <= l.height) return l;
     }
@@ -1934,9 +1940,57 @@ function buildGradientWeightMap(nw, nh, gradient, stopIdx) {
 
 /* ─── EXPORT ENGINE ──────────────────────────────────────────────── */
 const ExportEngine = {
+  // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
+  // OffscreenCanvas, applying both painted mask (_maskCanvas) and image mask (imageMaskId).
+  _renderLayerToBuffer(layer, sourceCanvas) {
+    const buf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
+    const bCtx = buf.getContext('2d');
+    bCtx.save();
+    bCtx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
+    bCtx.rotate(layer.rotation * Math.PI / 180);
+    bCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
+    bCtx.translate(-layer.width / 2, -layer.height / 2);
+    if (layer._maskCanvas) {
+      const tmp = new OffscreenCanvas(layer.width, layer.height);
+      const tCtx = tmp.getContext('2d');
+      tCtx.drawImage(sourceCanvas, 0, 0, layer.width, layer.height);
+      tCtx.globalCompositeOperation = 'destination-in';
+      tCtx.drawImage(layer._maskCanvas, 0, 0, layer.width, layer.height);
+      bCtx.drawImage(tmp, 0, 0);
+    } else {
+      bCtx.drawImage(sourceCanvas, 0, 0, layer.width, layer.height);
+    }
+    bCtx.restore();
+    if (layer.imageMaskId) {
+      const maskLayer = State.layers.find(l => l.id === layer.imageMaskId);
+      if (maskLayer) {
+        if (maskLayer._dirty || !maskLayer._processedCanvas) ImageProcessor.processLayer(maskLayer);
+        if (maskLayer._processedCanvas) {
+          const maskBuf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
+          const mCtx = maskBuf.getContext('2d');
+          mCtx.save();
+          mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
+          mCtx.rotate(maskLayer.rotation * Math.PI / 180);
+          mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
+          mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
+          mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width, maskLayer.height);
+          mCtx.restore();
+          const maskImgData = mCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+          const md = maskImgData.data;
+          for (let i = 0; i < md.length; i += 4) md[i + 3] = 255 - md[i + 3];
+          mCtx.putImageData(maskImgData, 0, 0);
+          bCtx.globalCompositeOperation = 'destination-in';
+          bCtx.drawImage(maskBuf, 0, 0);
+        }
+      }
+    }
+    return buf;
+  },
+
   async export() {
     const prog = document.getElementById('export-progress');
-    const visibleLayers = State.layers.filter(l => l.visible);
+    // Exclude mask layers — they render as part of their paired base layer
+    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor);
     if (!visibleLayers.length) return;
 
     // Build plate map: color → { solidLayers[], gradContributions[] }
@@ -1972,22 +2026,7 @@ const ExportEngine = {
       // Solid layers
       for (const layer of plate.solidLayers) {
         if (!layer._processedCanvas) continue;
-        ctx.save();
-        ctx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
-        ctx.rotate(layer.rotation * Math.PI / 180);
-        ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
-        ctx.translate(-layer.width / 2, -layer.height / 2);
-        if (!layer._maskCanvas) {
-          ctx.drawImage(layer._processedCanvas, 0, 0, layer.width, layer.height);
-        } else {
-          const tmp = new OffscreenCanvas(layer.width, layer.height);
-          const tCtx = tmp.getContext('2d');
-          tCtx.drawImage(layer._processedCanvas, 0, 0, layer.width, layer.height);
-          tCtx.globalCompositeOperation = 'destination-in';
-          tCtx.drawImage(layer._maskCanvas, 0, 0, layer.width, layer.height);
-          ctx.drawImage(tmp, 0, 0);
-        }
-        ctx.restore();
+        ctx.drawImage(this._renderLayerToBuffer(layer, layer._processedCanvas), 0, 0);
       }
 
       // Gradient layer contributions (weighted by stop color dominance)
@@ -2005,23 +2044,7 @@ const ExportEngine = {
           d[i*4 + 3] = Math.round(d[i*4 + 3] * weightMap[i]);
         }
         wCtx.putImageData(imgData, 0, 0);
-
-        ctx.save();
-        ctx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
-        ctx.rotate(layer.rotation * Math.PI / 180);
-        ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
-        ctx.translate(-layer.width / 2, -layer.height / 2);
-        if (!layer._maskCanvas) {
-          ctx.drawImage(weightedCanvas, 0, 0, layer.width, layer.height);
-        } else {
-          const tmp = new OffscreenCanvas(layer.width, layer.height);
-          const tCtx = tmp.getContext('2d');
-          tCtx.drawImage(weightedCanvas, 0, 0, layer.width, layer.height);
-          tCtx.globalCompositeOperation = 'destination-in';
-          tCtx.drawImage(layer._maskCanvas, 0, 0, layer.width, layer.height);
-          ctx.drawImage(tmp, 0, 0);
-        }
-        ctx.restore();
+        ctx.drawImage(this._renderLayerToBuffer(layer, weightedCanvas), 0, 0);
       }
 
       // Remap to greyscale ink on white (solid layers stay binary; gradients get smooth greyscale)
@@ -2052,35 +2075,15 @@ const ExportEngine = {
     // Start with white paper
     let accumulator = new Uint8Array(CANVAS_W * CANVAS_H * 4).fill(255);
 
-    const visibleLayers = State.layers.filter(l => l.visible && l._processedCanvas);
+    // Exclude mask layers — they render as part of their paired base layer
+    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor && l._processedCanvas);
     for (let li = 0; li < visibleLayers.length; li++) {
       const layer = visibleLayers[li];
       prog.textContent = `Blending layer ${li + 1} / ${visibleLayers.length}…`;
       await new Promise(r => setTimeout(r, 0));
 
-      // Render this layer at full resolution into an OffscreenCanvas (white bg)
-      const layerCanvas = new OffscreenCanvas(CANVAS_W, CANVAS_H);
-      const lCtx = layerCanvas.getContext('2d');
-      lCtx.fillStyle = '#fff';
-      lCtx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-      lCtx.save();
-      lCtx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
-      lCtx.rotate(layer.rotation * Math.PI / 180);
-      lCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
-      lCtx.translate(-layer.width / 2, -layer.height / 2);
-      if (!layer._maskCanvas) {
-        lCtx.drawImage(layer._processedCanvas, 0, 0, layer.width, layer.height);
-      } else {
-        const tmp = new OffscreenCanvas(layer.width, layer.height);
-        const tCtx = tmp.getContext('2d');
-        tCtx.drawImage(layer._processedCanvas, 0, 0, layer.width, layer.height);
-        tCtx.globalCompositeOperation = 'destination-in';
-        tCtx.drawImage(layer._maskCanvas, 0, 0, layer.width, layer.height);
-        lCtx.drawImage(tmp, 0, 0);
-      }
-      lCtx.restore();
-
-      const layerData = lCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+      const layerBuf = this._renderLayerToBuffer(layer, layer._processedCanvas);
+      const layerData = layerBuf.getContext('2d').getImageData(0, 0, CANVAS_W, CANVAS_H);
       accumulator = blendSubtractive(accumulator, new Uint8Array(layerData.data.buffer));
     }
 
@@ -2405,6 +2408,7 @@ const UI = {
       if (State.selectedIds.includes(l.id)) rowClass += ' selected';
       if (l.isMaskFor)   rowClass += ' layer-row--mask';
       if (l.imageMaskId) rowClass += ' layer-row--masked';
+      if (l.locked)      rowClass += ' locked-row';
       const row = document.createElement('div');
       row.className = rowClass;
 
@@ -2437,8 +2441,26 @@ const UI = {
         if (n?.trim()) { l.name = n.trim(); DB.saveLayer(l); this.refreshLayerList(); }
       });
 
-      row.append(vis, dot, name);
+      const lock = document.createElement('span');
+      lock.className = 'layer-lock' + (l.locked ? ' locked' : '');
+      lock.textContent = l.locked ? '🔒' : '🔓';
+      lock.title = l.locked ? 'Unlock layer' : 'Lock layer';
+      lock.addEventListener('click', e => {
+        e.stopPropagation();
+        l.locked = !l.locked;
+        if (l.locked && State.selectedIds.includes(l.id)) {
+          State.selectedIds = State.selectedIds.filter(id => id !== l.id);
+          State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
+          UI.refreshProperties();
+          Renderer.drawOverlay();
+        }
+        DB.saveLayer(l);
+        this.refreshLayerList();
+      });
+
+      row.append(vis, lock, dot, name);
       row.addEventListener('click', e => {
+        if (l.locked) return;
         if (e.shiftKey) {
           const idx = State.selectedIds.indexOf(l.id);
           if (idx === -1) {
@@ -2660,7 +2682,7 @@ function onPointerDown(e) {
     return;
   }
 
-  if (layer) {
+  if (layer && !layer.locked) {
     const handle = Renderer.hitTestHandle(x, y, layer);
     if (handle) {
       pushUndo(snapshotLayer(layer));
