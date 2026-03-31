@@ -66,6 +66,8 @@ body {
   cursor: pointer;
   margin-right: 6px;
 }
+
+
 .mac-window .titlebar .close-box:hover { background: var(--black); }
 .mac-window .titlebar .title-text {
   flex: 1;
@@ -368,6 +370,7 @@ input[type="number"] {
 .mac-btn.primary { background: var(--black); color: var(--white); border-color: var(--black); }
 .mac-btn.primary:hover { background: var(--dark-gray); }
 .mac-btn.sm { font-size: 10px; padding: 3px 5px; }
+.mac-btn.active { background: var(--black); color: var(--white); border-color: var(--black); }
 
 /* ─── STATUS BAR ─────────────────────────────────────────────────── */
 #status-bar {
@@ -397,6 +400,7 @@ input[type="number"] {
   z-index: 5000;
 }
 .dialog-overlay.hidden { display: none; }
+.hidden { display: none; }
 .mac-dialog {
   background: var(--white);
   border: 2px solid var(--black);
@@ -584,6 +588,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
 .grad-angle-row, .grad-center-row {
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
+
 </style>
 </head>
 <body>
@@ -713,10 +718,6 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
 
     <!-- TOOLBAR -->
     <div class="mac-window" id="toolbar-window">
-      <div class="titlebar">
-        <div class="close-box"></div>
-        <div class="title-text">Tools</div>
-      </div>
       <div class="window-content" style="padding:5px 4px;gap:4px;align-items:center;">
         <button class="tool-btn active" data-tool="select" title="Select (V)">&#9654;</button>
         <button class="tool-btn" data-tool="move" title="Move (M)">&#10021;</button>
@@ -754,6 +755,9 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
           <button class="mac-btn sm" data-action="zoom-in">+</button>
           <button class="mac-btn sm" data-action="zoom-fit">Fit</button>
           <button class="mac-btn sm" data-action="zoom-100">1:1</button>
+          <div class="tool-separator"></div>
+          <button class="mac-btn sm" data-action="orient-portrait" id="btn-portrait" title="Portrait">&#9647;</button>
+          <button class="mac-btn sm" data-action="orient-landscape" id="btn-landscape" title="Landscape">&#9645;</button>
         </div>
       </div>
     </div>
@@ -763,10 +767,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
 
       <!-- LAYERS -->
       <div class="mac-window" id="layers-window">
-        <div class="titlebar">
-          <div class="close-box"></div>
-          <div class="title-text">Layers</div>
-        </div>
+  
         <div class="window-content">
           <div id="layer-list"></div>
           <div id="layer-buttons">
@@ -836,13 +837,24 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                     <button class="halftone-opt active" data-halftone="none">None</button>
                     <button class="halftone-opt" data-halftone="dither">Dither</button>
                     <button class="halftone-opt" data-halftone="magazine">Dots</button>
+                    <button class="halftone-opt" data-halftone="grunge">Grunge</button>
                     <button class="halftone-opt" data-halftone="crosshatch">Hatch</button>
                   </div>
                 </div>
-                <div class="prop-row">
+                <div class="prop-row" id="halftone-size-row">
                   <span class="prop-label">Size</span>
                   <input type="range" id="prop-halftone-size" min="2" max="40" value="8">
                   <span class="prop-value" id="val-halftone-size">8</span>
+                </div>
+                <div class="prop-row hidden" id="hatch-height-row">
+                  <span class="prop-label">Thickness</span>
+                  <input type="range" id="prop-hatch-height" min="1" max="30" value="10">
+                  <span class="prop-value" id="val-hatch-height">10</span>
+                </div>
+                <div class="prop-row hidden" id="hatch-length-row">
+                  <span class="prop-label">Length</span>
+                  <input type="range" id="prop-hatch-length" min="10" max="200" value="60">
+                  <span class="prop-value" id="val-hatch-length">60</span>
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Angle</span>
@@ -883,6 +895,8 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                   <div class="grad-center-row" id="grad-center-row" style="display:none;">
                     <span class="prop-label">CX</span>
                     <input type="range" id="grad-cx" min="0" max="100" value="50" style="flex:1;">
+                  </div>
+                  <div class="grad-center-row" id="grad-center-row" style="display:none;">
                     <span class="prop-label">CY</span>
                     <input type="range" id="grad-cy" min="0" max="100" value="50" style="flex:1;">
                   </div>
@@ -1103,6 +1117,8 @@ function makeLayer(data = {}) {
     halftoneType: data.halftoneType || 'none',
     halftoneSize: data.halftoneSize ?? 8,
     halftoneAngle: data.halftoneAngle ?? 45,
+    hatchLineHeight: data.hatchLineHeight ?? 10,
+    hatchLineLength: data.hatchLineLength ?? 60,
     color: data.color || '#212121',
     colorMode: data.colorMode || 'solid',
     gradient: data.gradient ? JSON.parse(JSON.stringify(data.gradient)) : {
@@ -1218,7 +1234,7 @@ const ImageProcessor = {
     px = this.applyBrightness(px, layer.brightness);
     px = this.applyContrast(px, layer.contrast);
     if (layer.halftoneType !== 'none') {
-      px = this.applyHalftone(px, nw, nh, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+      px = this.applyHalftone(px, nw, nh, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle, layer.hatchLineHeight, layer.hatchLineLength);
     }
     px = this.colorize(px, layer.color, layer);
     ctx.putImageData(px, 0, 0);
@@ -1261,10 +1277,11 @@ const ImageProcessor = {
     return px;
   },
 
-  applyHalftone(px, w, h, type, size, angle) {
+  applyHalftone(px, w, h, type, size, angle, lineHeight, lineLength) {
     if (type === 'dither')    return this.bayerDither(px, w, h, size);
     if (type === 'magazine')  return this.magazineDots(px, w, h, size, angle ?? 45);
-    if (type === 'crosshatch')return this.hatch(px, w, h, size, angle ?? 45);
+    if (type === 'grunge')    return this.grungeDots(px, w, h, size, angle ?? 45);
+    if (type === 'crosshatch')return this.hatch(px, w, h, size, angle ?? 45, lineHeight ?? 10, lineLength ?? 60);
     return px;
   },
 
@@ -1327,13 +1344,101 @@ const ImageProcessor = {
     return ctx.getImageData(0, 0, w, h);
   },
 
-  hatch(px, w, h, cellSize, angleDeg) {
+  grungeDots(px, w, h, cellSize, angleDeg) {
+    // Seeded pseudo-random so output is stable per render
+    let seed = 42;
+    const rand = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; };
+
     const out = new OffscreenCanvas(w, h);
     const ctx = out.getContext('2d');
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'black';
+    ctx.fillStyle = 'black';
+
+    const d = px.data;
     const angle = (angleDeg ?? 45) * Math.PI / 180;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const cx = w / 2, cy = h / 2;
+    const half = Math.floor(cellSize / 2);
+    const range = Math.ceil(Math.sqrt(w * w + h * h) / 2) + cellSize;
+
+    for (let gy = -range; gy < range; gy += cellSize) {
+      for (let gx = -range; gx < range; gx += cellSize) {
+        // Random positional jitter up to ~30% of cell
+        const jx = (rand() - 0.5) * cellSize * 0.2;
+        const jy = (rand() - 0.5) * cellSize * 0.2;
+        const rx = gx * cos - gy * sin + cx + jx;
+        const ry = gx * sin + gy * cos + cy + jy;
+        if (rx < -cellSize || rx > w + cellSize || ry < -cellSize || ry > h + cellSize) continue;
+
+        let sum = 0, cnt = 0;
+        for (let dy = -half; dy <= half; dy++) {
+          for (let dx = -half; dx <= half; dx++) {
+            const sx = Math.round(rx + dx), sy = Math.round(ry + dy);
+            if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+              const i = (sy * w + sx) * 4;
+              sum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+              cnt++;
+            }
+          }
+        }
+        const avg = cnt ? sum / cnt : 255;
+        const darkness = 1 - avg / 255;
+        if (darkness < 0.05) continue;
+
+        // Base radius with random size variation (~±35%)
+        const baseR = darkness * (cellSize * 0.55);
+        const r = baseR * (0.95 + rand() * 0.1);
+        if (r < 0.4) continue;
+
+        // Randomly choose shape: circle, slightly squashed ellipse, or splat
+        const shapeChoice = rand();
+        ctx.beginPath();
+        if (shapeChoice < 0.55) {
+          // Plain circle (most common)
+          ctx.arc(rx, ry, r, 0, Math.PI * 2);
+        } else if (shapeChoice < 0.82) {
+          // Squashed / rotated ellipse
+          const rot = rand() * Math.PI;
+          const xScale = 0.6 + rand() * 0.8;
+          const yScale = 0.6 + rand() * 0.8;
+          ctx.save();
+          ctx.translate(rx, ry);
+          ctx.rotate(rot);
+          ctx.scale(xScale, yScale);
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
+          ctx.restore();
+        } else {
+          // Rough splat: draw a polygon with ragged radius
+          const sides = 5 + Math.floor(rand() * 4); // 5–8 sides
+          ctx.save();
+          ctx.translate(rx, ry);
+          ctx.rotate(rand() * Math.PI * 2);
+          for (let s = 0; s < sides; s++) {
+            const a = (s / sides) * Math.PI * 2;
+            const rr = r * (0.7 + rand() * 0.6);
+            const px2 = Math.cos(a) * rr, py2 = Math.sin(a) * rr;
+            s === 0 ? ctx.moveTo(px2, py2) : ctx.lineTo(px2, py2);
+          }
+          ctx.closePath();
+          ctx.restore();
+        }
+        ctx.fill();
+      }
+    }
+    return ctx.getImageData(0, 0, w, h);
+  },
+
+  hatch(px, w, h, cellSize, angleDeg, lineHeight, lineLength) {
+    const out = new OffscreenCanvas(w, h);
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'black';
+    const angle = (angleDeg ?? 45) * Math.PI / 180;
+    const halfLen = lineLength ?? 60;
+    const maxThick = lineHeight ?? 10;
+    const STEPS = 40;
     const d = px.data;
     for (let gy = 0; gy < h; gy += cellSize) {
       for (let gx = 0; gx < w; gx += cellSize) {
@@ -1351,17 +1456,38 @@ const ImageProcessor = {
         const darkness = 1 - avg / 255;
         if (darkness < 0.08) continue;
         const cx2 = gx + cellSize / 2, cy2 = gy + cellSize / 2;
-        ctx.lineWidth = Math.max(0.5, darkness * cellSize * 0.85);
+        // Max half-width at the thickest point, scaled by darkness
+        const maxHalfWidth = darkness * maxThick * 0.5;
+
         ctx.save();
-        ctx.beginPath();
-        ctx.rect(gx, gy, cellSize, cellSize);
-        ctx.clip();
         ctx.translate(cx2, cy2);
         ctx.rotate(angle);
+
+        // Draw tapered filled shape: thick at center, tapering to points at ends
+        // Uses ease-in-out (smoothstep) for curved transition
         ctx.beginPath();
-        ctx.moveTo(-cellSize, 0);
-        ctx.lineTo(cellSize, 0);
-        ctx.stroke();
+        // Upper contour left to right
+        for (let i = 0; i <= STEPS; i++) {
+          const t = i / STEPS;
+          const x = -halfLen + t * 2 * halfLen;
+          // Smoothstep easing: peaks at center (t=0.5), zero at both ends
+          const u = 2 * t - 1; // -1..1
+          const ease = 1 - u * u * u * u; // quartic ease for curved taper
+          const yw = maxHalfWidth * ease;
+          if (i === 0) ctx.moveTo(x, -yw);
+          else ctx.lineTo(x, -yw);
+        }
+        // Lower contour right to left
+        for (let i = STEPS; i >= 0; i--) {
+          const t = i / STEPS;
+          const x = -halfLen + t * 2 * halfLen;
+          const u = 2 * t - 1;
+          const ease = 1 - u * u * u * u;
+          const yw = maxHalfWidth * ease;
+          ctx.lineTo(x, yw);
+        }
+        ctx.closePath();
+        ctx.fill();
         ctx.restore();
       }
     }
@@ -2144,6 +2270,13 @@ const UI = {
     setRange('prop-saturation', 'val-saturation', layer.saturation);
     setRange('prop-halftone-size', 'val-halftone-size', layer.halftoneSize);
     setRange('prop-halftone-angle', 'val-halftone-angle', layer.halftoneAngle);
+    setRange('prop-hatch-height', 'val-hatch-height', layer.hatchLineHeight ?? 10);
+    setRange('prop-hatch-length', 'val-hatch-length', layer.hatchLineLength ?? 60);
+
+    const isHatch = layer.halftoneType === 'crosshatch';
+    document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch);
+    document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
+    document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
 
     document.querySelectorAll('.halftone-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.halftone === layer.halftoneType));
@@ -2175,6 +2308,12 @@ const UI = {
     State.zoom = Math.max(0.04, Math.min(2, z));
     Renderer.resize();
     this.refreshZoom();
+  },
+
+  refreshOrientation() {
+    const isPortrait = CANVAS_H >= CANVAS_W;
+    document.getElementById('btn-portrait').classList.toggle('active', isPortrait);
+    document.getElementById('btn-landscape').classList.toggle('active', !isPortrait);
   },
 };
 
@@ -2360,6 +2499,14 @@ async function handleAction(action) {
     case 'zoom-out': State.zoom = Math.max(0.04, State.zoom / 1.25); Renderer.resize(); UI.refreshZoom(); break;
     case 'zoom-fit': UI.fitZoom(); break;
     case 'zoom-100': State.zoom = 1; Renderer.resize(); UI.refreshZoom(); break;
+    case 'orient-portrait':
+      if (CANVAS_W > CANVAS_H) { const t = CANVAS_W; CANVAS_W = CANVAS_H; CANVAS_H = t; }
+      if (State.project) { State.project.orientation = 'portrait'; DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) }); }
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
+    case 'orient-landscape':
+      if (CANVAS_H > CANVAS_W) { const t = CANVAS_W; CANVAS_W = CANVAS_H; CANVAS_H = t; }
+      if (State.project) { State.project.orientation = 'landscape'; DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) }); }
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
     case 'undo': undo(); break;
     case 'redo': redo(); break;
     case 'new-project':  showProjectDialog(); break;
@@ -2401,6 +2548,8 @@ function wireControls() {
   rangeField('prop-saturation', 'saturation', 'val-saturation');
   rangeField('prop-halftone-size', 'halftoneSize', 'val-halftone-size');
   rangeField('prop-halftone-angle', 'halftoneAngle', 'val-halftone-angle');
+  rangeField('prop-hatch-height', 'hatchLineHeight', 'val-hatch-height');
+  rangeField('prop-hatch-length', 'hatchLineLength', 'val-hatch-length');
 
   document.querySelectorAll('.halftone-opt').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2408,6 +2557,10 @@ function wireControls() {
       l.halftoneType = btn.dataset.halftone;
       l._dirty = true;
       document.querySelectorAll('.halftone-opt').forEach(b => b.classList.toggle('active', b === btn));
+      const isHatch = btn.dataset.halftone === 'crosshatch';
+      document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch);
+      document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
+      document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
       DB.saveLayer(l);
       Renderer.schedule();
     });
@@ -2658,11 +2811,14 @@ async function openProject(projectId) {
   const dims = PAGE_SIZE_DIMS[project.pageSize] || PAGE_SIZE_DIMS['letter'];
   CANVAS_W = dims.w;
   CANVAS_H = dims.h;
+  if (project.orientation === 'landscape' && CANVAS_H > CANVAS_W) { const t = CANVAS_W; CANVAS_W = CANVAS_H; CANVAS_H = t; }
+  if (project.orientation === 'portrait'  && CANVAS_W > CANVAS_H) { const t = CANVAS_W; CANVAS_W = CANVAS_H; CANVAS_H = t; }
   document.getElementById('canvas-title').textContent = `${project.name} — ${sizeLabel} @ 600dpi`;
   document.getElementById('status-project').textContent = project.name;
   document.getElementById('no-layer-msg').style.display = State.layers.length ? 'none' : '';
 
   UI.fitZoom();
+  UI.refreshOrientation();
   UI.refreshLayerList();
   UI.refreshProperties();
   Renderer.schedule();
