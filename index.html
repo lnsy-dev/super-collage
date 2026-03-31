@@ -602,6 +602,8 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
       <div class="dialog-title">Super Collage — Projects</div>
     </div>
     <div class="dialog-body">
+      <h1>SUPER COLLAGE</h1>
+      <p>RISOGRAPH LAYOUT HELPER</p>
       <div class="project-list" id="project-list">
         <div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>
       </div>
@@ -3224,6 +3226,26 @@ document.addEventListener('keydown', e => {
   if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
     if (State.tool === 'select' || State.tool === 'move') { e.preventDefault(); handleAction('delete-layer'); }
   }
+});
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+  if (State.tool !== 'select' && State.tool !== 'move') return;
+  const ids = State.selectedIds.length ? State.selectedIds : (State.selectedId ? [State.selectedId] : []);
+  if (!ids.length) return;
+  e.preventDefault();
+  const dist = e.shiftKey ? 10 : 1;
+  const dx = e.key === 'ArrowLeft' ? -dist : e.key === 'ArrowRight' ? dist : 0;
+  const dy = e.key === 'ArrowUp' ? -dist : e.key === 'ArrowDown' ? dist : 0;
+  for (const id of ids) {
+    const layer = State.layers.find(l => l.id === id);
+    if (!layer) continue;
+    pushUndo(snapshotLayer(layer));
+    layer.x += dx;
+    layer.y += dy;
+    DB.saveLayer(layer);
+  }
+  Renderer.schedule();
 });
 
 /* ─── INIT ──────────────────────────────────────────────────────── */
