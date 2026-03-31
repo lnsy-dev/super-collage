@@ -1132,7 +1132,7 @@ const DB = {
       halftoneType: layer.halftoneType, halftoneSize: layer.halftoneSize, halftoneAngle: layer.halftoneAngle, color: layer.color,
       colorMode: layer.colorMode,
       gradient: JSON.parse(JSON.stringify(layer.gradient)),
-      imageMaskId: layer.imageMaskId || null,
+      imageMaskIds: layer.imageMaskIds || [],
       isMaskFor:   layer.isMaskFor   || null,
     };
   },
@@ -1186,7 +1186,7 @@ function makeLayer(data = {}) {
       ],
       poles: [],
     },
-    imageMaskId: data.imageMaskId || null,
+    imageMaskIds: data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []),
     isMaskFor:   data.isMaskFor   || null,
     _originalCanvas: null,
     _processedCanvas: null,
@@ -1644,7 +1644,7 @@ const Renderer = {
       if (layer._dirty) ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       dCtx.save();
-      if (layer.imageMaskId) {
+      if (layer.imageMaskIds?.length) {
         this._compositeLayerWithImageMask(dCtx, layer, z);
       } else {
         this._applyTransform(dCtx, layer, z);
@@ -1681,15 +1681,12 @@ const Renderer = {
   },
 
   _compositeLayerWithImageMask(ctx, layer, z) {
-    const maskLayer = State.layers.find(l => l.id === layer.imageMaskId);
-    if (!maskLayer) {
-      // Mask layer missing — fall back to normal rendering
-      this._applyTransform(ctx, layer, z);
-      this._compositeLayer(ctx, layer, z);
-      return;
-    }
-    if (maskLayer._dirty) ImageProcessor.processLayer(maskLayer);
-    if (!maskLayer._processedCanvas) {
+    const maskLayers = (layer.imageMaskIds || [])
+      .map(id => State.layers.find(l => l.id === id))
+      .filter(ml => ml);
+
+    if (!maskLayers.length) {
+      // No valid mask layers — fall back to normal rendering
       this._applyTransform(ctx, layer, z);
       this._compositeLayer(ctx, layer, z);
       return;
@@ -1715,27 +1712,33 @@ const Renderer = {
     }
     lCtx.restore();
 
-    // Buffer B: render mask layer at full canvas size, then convert to alpha channel
-    // Black (lum=0) → alpha=255 (show base), white/transparent → alpha=0 (hide base)
-    const maskBuf = new OffscreenCanvas(cw, ch);
-    const mCtx = maskBuf.getContext('2d');
-    mCtx.save();
-    this._applyTransform(mCtx, maskLayer, z);
-    mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width * z, maskLayer.height * z);
-    mCtx.restore();
+    // Apply each mask sequentially — each further clips the base layer
+    for (const maskLayer of maskLayers) {
+      if (maskLayer._dirty) ImageProcessor.processLayer(maskLayer);
+      if (!maskLayer._processedCanvas) continue;
 
-    // Invert alpha: ink pixels (alpha=255) become transparent (cuts away base),
-    // no-ink pixels (alpha=0) become opaque (reveals base).
-    const imgData = mCtx.getImageData(0, 0, cw, ch);
-    const d = imgData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      d[i + 3] = 255 - d[i + 3];
+      // Buffer B: render mask layer at full canvas size, then convert to alpha channel
+      // Black (lum=0) → alpha=255 (show base), white/transparent → alpha=0 (hide base)
+      const maskBuf = new OffscreenCanvas(cw, ch);
+      const mCtx = maskBuf.getContext('2d');
+      mCtx.save();
+      this._applyTransform(mCtx, maskLayer, z);
+      mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width * z, maskLayer.height * z);
+      mCtx.restore();
+
+      // Invert alpha: ink pixels (alpha=255) become transparent (cuts away base),
+      // no-ink pixels (alpha=0) become opaque (reveals base).
+      const imgData = mCtx.getImageData(0, 0, cw, ch);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i + 3] = 255 - d[i + 3];
+      }
+      mCtx.putImageData(imgData, 0, 0);
+
+      // Apply alpha mask to base layer buffer
+      lCtx.globalCompositeOperation = 'destination-in';
+      lCtx.drawImage(maskBuf, 0, 0);
     }
-    mCtx.putImageData(imgData, 0, 0);
-
-    // Apply alpha mask to base layer buffer
-    lCtx.globalCompositeOperation = 'destination-in';
-    lCtx.drawImage(maskBuf, 0, 0);
 
     // Composite the masked result onto the main canvas using multiply
     ctx.globalCompositeOperation = 'multiply';
@@ -1941,7 +1944,7 @@ function buildGradientWeightMap(nw, nh, gradient, stopIdx) {
 /* ─── EXPORT ENGINE ──────────────────────────────────────────────── */
 const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
-  // OffscreenCanvas, applying both painted mask (_maskCanvas) and image mask (imageMaskId).
+  // OffscreenCanvas, applying both painted mask (_maskCanvas) and image masks (imageMaskIds).
   _renderLayerToBuffer(layer, sourceCanvas) {
     const buf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
     const bCtx = buf.getContext('2d');
@@ -1961,28 +1964,26 @@ const ExportEngine = {
       bCtx.drawImage(sourceCanvas, 0, 0, layer.width, layer.height);
     }
     bCtx.restore();
-    if (layer.imageMaskId) {
-      const maskLayer = State.layers.find(l => l.id === layer.imageMaskId);
-      if (maskLayer) {
-        if (maskLayer._dirty || !maskLayer._processedCanvas) ImageProcessor.processLayer(maskLayer);
-        if (maskLayer._processedCanvas) {
-          const maskBuf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
-          const mCtx = maskBuf.getContext('2d');
-          mCtx.save();
-          mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
-          mCtx.rotate(maskLayer.rotation * Math.PI / 180);
-          mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
-          mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
-          mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width, maskLayer.height);
-          mCtx.restore();
-          const maskImgData = mCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
-          const md = maskImgData.data;
-          for (let i = 0; i < md.length; i += 4) md[i + 3] = 255 - md[i + 3];
-          mCtx.putImageData(maskImgData, 0, 0);
-          bCtx.globalCompositeOperation = 'destination-in';
-          bCtx.drawImage(maskBuf, 0, 0);
-        }
-      }
+    for (const maskId of (layer.imageMaskIds || [])) {
+      const maskLayer = State.layers.find(l => l.id === maskId);
+      if (!maskLayer) continue;
+      if (maskLayer._dirty || !maskLayer._processedCanvas) ImageProcessor.processLayer(maskLayer);
+      if (!maskLayer._processedCanvas) continue;
+      const maskBuf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
+      const mCtx = maskBuf.getContext('2d');
+      mCtx.save();
+      mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
+      mCtx.rotate(maskLayer.rotation * Math.PI / 180);
+      mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
+      mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
+      mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width, maskLayer.height);
+      mCtx.restore();
+      const maskImgData = mCtx.getImageData(0, 0, CANVAS_W, CANVAS_H);
+      const md = maskImgData.data;
+      for (let i = 0; i < md.length; i += 4) md[i + 3] = 255 - md[i + 3];
+      mCtx.putImageData(maskImgData, 0, 0);
+      bCtx.globalCompositeOperation = 'destination-in';
+      bCtx.drawImage(maskBuf, 0, 0);
     }
     return buf;
   },
@@ -2171,14 +2172,17 @@ const LayerManager = {
     const idx = State.layers.findIndex(l => l.id === layerId);
     if (idx === -1) return;
     const toDelete = State.layers[idx];
-    // Clean up mask relationships on the paired layer
-    if (toDelete.imageMaskId) {
-      const maskLayer = State.layers.find(l => l.id === toDelete.imageMaskId);
+    // Clean up mask relationships on the paired layer(s)
+    for (const maskId of (toDelete.imageMaskIds || [])) {
+      const maskLayer = State.layers.find(l => l.id === maskId);
       if (maskLayer) { maskLayer.isMaskFor = null; await DB.saveLayer(maskLayer); }
     }
     if (toDelete.isMaskFor) {
       const baseLayer = State.layers.find(l => l.id === toDelete.isMaskFor);
-      if (baseLayer) { baseLayer.imageMaskId = null; await DB.saveLayer(baseLayer); }
+      if (baseLayer) {
+        baseLayer.imageMaskIds = (baseLayer.imageMaskIds || []).filter(id => id !== toDelete.id);
+        await DB.saveLayer(baseLayer);
+      }
     }
     State.layers.splice(idx, 1);
     if (State.selectedId === layerId) {
@@ -2231,16 +2235,21 @@ const LayerManager = {
   move(layerId, delta) {
     const layer = State.layers.find(l => l.id === layerId);
     if (!layer) return;
-    const pairedId = layer.imageMaskId || layer.isMaskFor;
+    // Resolve to base layer of this group
+    const baseId = layer.isMaskFor || layer.id;
+    const base = State.layers.find(l => l.id === baseId);
+    const groupIds = new Set([baseId, ...((base?.imageMaskIds) || [])]);
 
-    if (pairedId) {
-      const idxA = State.layers.findIndex(l => l.id === layerId);
-      const idxB = State.layers.findIndex(l => l.id === pairedId);
-      const minIdx = Math.min(idxA, idxB);
-      // The pair must be adjacent; splice out both at minIdx
-      const pair = State.layers.splice(minIdx, 2);
+    if (groupIds.size > 1) {
+      const indices = [...groupIds]
+        .map(id => State.layers.findIndex(l => l.id === id))
+        .filter(i => i !== -1)
+        .sort((a, b) => a - b);
+      const minIdx = indices[0];
+      const count = indices[indices.length - 1] - minIdx + 1;
+      const group = State.layers.splice(minIdx, count);
       const targetIdx = Math.max(0, Math.min(State.layers.length, minIdx + delta));
-      State.layers.splice(targetIdx, 0, ...pair);
+      State.layers.splice(targetIdx, 0, ...group);
     } else {
       const idx = State.layers.findIndex(l => l.id === layerId);
       if (idx === -1) return;
@@ -2406,8 +2415,8 @@ const UI = {
       const l = State.layers[i];
       let rowClass = 'layer-row';
       if (State.selectedIds.includes(l.id)) rowClass += ' selected';
-      if (l.isMaskFor)   rowClass += ' layer-row--mask';
-      if (l.imageMaskId) rowClass += ' layer-row--masked';
+      if (l.isMaskFor)          rowClass += ' layer-row--mask';
+      if (l.imageMaskIds?.length) rowClass += ' layer-row--masked';
       if (l.locked)      rowClass += ' locked-row';
       const row = document.createElement('div');
       row.className = rowClass;
@@ -2524,11 +2533,15 @@ const UI = {
     const createMaskBtn = document.getElementById('btn-create-image-mask');
     const releaseMaskBtn = document.getElementById('btn-release-image-mask');
     const imageMaskRow = document.getElementById('image-mask-row');
+    const [selA, selB] = State.selectedIds.map(id => State.layers.find(x => x.id === id));
+    const alreadyLinked = selA && selB && (
+      (selA.imageMaskIds || []).includes(selB.id) ||
+      (selB.imageMaskIds || []).includes(selA.id)
+    );
     const canCreate = State.selectedIds.length === 2 &&
-      State.selectedIds.every(id => {
-        const l = State.layers.find(x => x.id === id);
-        return l && !l.imageMaskId && !l.isMaskFor;
-      });
+      selA && selB &&
+      !selA.isMaskFor && !selB.isMaskFor &&
+      !alreadyLinked;
     createMaskBtn.style.display = canCreate ? '' : 'none';
     releaseMaskBtn.style.display = layer.isMaskFor ? '' : 'none';
     imageMaskRow.style.display = (canCreate || layer.isMaskFor) ? '' : 'none';
@@ -2924,12 +2937,17 @@ async function handleAction(action) {
       const baseLayer = State.layers[baseIdx];
       const maskLayerObj = State.layers[maskIdx];
       // Set relationship
-      baseLayer.imageMaskId = maskLayerObj.id;
+      if (!baseLayer.imageMaskIds) baseLayer.imageMaskIds = [];
+      baseLayer.imageMaskIds.push(maskLayerObj.id);
       maskLayerObj.isMaskFor = baseLayer.id;
-      // Ensure mask layer is directly above base layer
+      // Place mask layer at end of this base's mask group
       State.layers.splice(maskIdx, 1);
       const newBaseIdx = State.layers.findIndex(l => l.id === baseLayer.id);
-      State.layers.splice(newBaseIdx + 1, 0, maskLayerObj);
+      let insertPos = newBaseIdx + 1;
+      while (insertPos < State.layers.length && State.layers[insertPos].isMaskFor === baseLayer.id) {
+        insertPos++;
+      }
+      State.layers.splice(insertPos, 0, maskLayerObj);
       // Select the mask layer
       State.selectedId = maskLayerObj.id;
       State.selectedIds = [maskLayerObj.id];
@@ -2945,7 +2963,9 @@ async function handleAction(action) {
       const maskLayerObj = selectedLayer();
       if (!maskLayerObj?.isMaskFor) break;
       const baseLayer = State.layers.find(l => l.id === maskLayerObj.isMaskFor);
-      if (baseLayer) baseLayer.imageMaskId = null;
+      if (baseLayer) {
+        baseLayer.imageMaskIds = (baseLayer.imageMaskIds || []).filter(id => id !== maskLayerObj.id);
+      }
       maskLayerObj.isMaskFor = null;
       await DB.saveLayer(maskLayerObj);
       if (baseLayer) await DB.saveLayer(baseLayer);
