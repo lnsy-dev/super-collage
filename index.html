@@ -231,6 +231,8 @@ body {
 }
 .layer-row:hover { background: #f0f0f0; }
 .layer-row.selected { background: var(--black); color: var(--white); }
+.layer-row--mask { padding-left: 16px; }
+.layer-row--masked { border-left: 2px solid #888; }
 .layer-vis { cursor: pointer; font-size: 18px; flex-shrink: 0; }
 .layer-color-dot {
   width: 9px; height: 9px;
@@ -911,6 +913,10 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
                   <button class="mac-btn sm" data-action="invert-mask">Invert</button>
                   <button class="mac-btn sm" data-action="fill-mask">Fill</button>
                 </div>
+                <div class="prop-row" id="image-mask-row" style="display:none;">
+                  <button class="mac-btn sm" id="btn-create-image-mask" data-action="create-image-mask" style="display:none;">Create Image Mask</button>
+                  <button class="mac-btn sm" id="btn-release-image-mask" data-action="release-image-mask" style="display:none;">Release Mask</button>
+                </div>
               </div>
 
             </div><!-- #layer-props -->
@@ -979,6 +985,7 @@ const State = {
   project: null,
   layers: [],          // LayerObject[] ordered bottom→top
   selectedId: null,
+  selectedIds: [],     // IDs for multi-select (shift+click)
   tool: 'select',
   brushSize: 30,
   zoom: 0.15,
@@ -1078,6 +1085,8 @@ const DB = {
       halftoneType: layer.halftoneType, halftoneSize: layer.halftoneSize, halftoneAngle: layer.halftoneAngle, color: layer.color,
       colorMode: layer.colorMode,
       gradient: JSON.parse(JSON.stringify(layer.gradient)),
+      imageMaskId: layer.imageMaskId || null,
+      isMaskFor:   layer.isMaskFor   || null,
     };
   },
 
@@ -1129,6 +1138,8 @@ function makeLayer(data = {}) {
       ],
       poles: [],
     },
+    imageMaskId: data.imageMaskId || null,
+    isMaskFor:   data.isMaskFor   || null,
     _originalCanvas: null,
     _processedCanvas: null,
     _maskCanvas: null,
@@ -1581,11 +1592,16 @@ const Renderer = {
 
     for (const layer of State.layers) {
       if (!layer.visible) continue;
+      if (layer.isMaskFor) continue; // rendered as part of the masked layer below it
       if (layer._dirty) ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       dCtx.save();
-      this._applyTransform(dCtx, layer, z);
-      this._compositeLayer(dCtx, layer, z);
+      if (layer.imageMaskId) {
+        this._compositeLayerWithImageMask(dCtx, layer, z);
+      } else {
+        this._applyTransform(dCtx, layer, z);
+        this._compositeLayer(dCtx, layer, z);
+      }
       dCtx.restore();
     }
 
@@ -1614,6 +1630,68 @@ const Renderer = {
       tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
       ctx.drawImage(tmp, 0, 0);
     }
+  },
+
+  _compositeLayerWithImageMask(ctx, layer, z) {
+    const maskLayer = State.layers.find(l => l.id === layer.imageMaskId);
+    if (!maskLayer) {
+      // Mask layer missing — fall back to normal rendering
+      this._applyTransform(ctx, layer, z);
+      this._compositeLayer(ctx, layer, z);
+      return;
+    }
+    if (maskLayer._dirty) ImageProcessor.processLayer(maskLayer);
+    if (!maskLayer._processedCanvas) {
+      this._applyTransform(ctx, layer, z);
+      this._compositeLayer(ctx, layer, z);
+      return;
+    }
+
+    const cw = Math.ceil(CANVAS_W * z), ch = Math.ceil(CANVAS_H * z);
+
+    // Buffer A: render base layer at full canvas size (source-over on transparent)
+    const layerBuf = new OffscreenCanvas(cw, ch);
+    const lCtx = layerBuf.getContext('2d');
+    lCtx.save();
+    this._applyTransform(lCtx, layer, z);
+    const dw = layer.width * z, dh = layer.height * z;
+    if (layer._maskCanvas) {
+      const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
+      const tCtx = tmp.getContext('2d');
+      tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      tCtx.globalCompositeOperation = 'destination-in';
+      tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
+      lCtx.drawImage(tmp, 0, 0);
+    } else {
+      lCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+    }
+    lCtx.restore();
+
+    // Buffer B: render mask layer at full canvas size, then convert to alpha channel
+    // Black (lum=0) → alpha=255 (show base), white/transparent → alpha=0 (hide base)
+    const maskBuf = new OffscreenCanvas(cw, ch);
+    const mCtx = maskBuf.getContext('2d');
+    mCtx.save();
+    this._applyTransform(mCtx, maskLayer, z);
+    mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width * z, maskLayer.height * z);
+    mCtx.restore();
+
+    // Invert alpha: ink pixels (alpha=255) become transparent (cuts away base),
+    // no-ink pixels (alpha=0) become opaque (reveals base).
+    const imgData = mCtx.getImageData(0, 0, cw, ch);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i + 3] = 255 - d[i + 3];
+    }
+    mCtx.putImageData(imgData, 0, 0);
+
+    // Apply alpha mask to base layer buffer
+    lCtx.globalCompositeOperation = 'destination-in';
+    lCtx.drawImage(maskBuf, 0, 0);
+
+    // Composite the masked result onto the main canvas using multiply
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(layerBuf, 0, 0);
   },
 
   drawOverlay() {
@@ -2004,6 +2082,7 @@ const LayerManager = {
 
     State.layers.push(layer);
     State.selectedId = layer.id;
+    State.selectedIds = [layer.id];
 
     await DB.put('layers', DB.layerRecord(layer));
     await DB.put('imageBlobs', { layerId: layer.id, blob: file });
@@ -2019,9 +2098,23 @@ const LayerManager = {
   async delete(layerId) {
     const idx = State.layers.findIndex(l => l.id === layerId);
     if (idx === -1) return;
+    const toDelete = State.layers[idx];
+    // Clean up mask relationships on the paired layer
+    if (toDelete.imageMaskId) {
+      const maskLayer = State.layers.find(l => l.id === toDelete.imageMaskId);
+      if (maskLayer) { maskLayer.isMaskFor = null; await DB.saveLayer(maskLayer); }
+    }
+    if (toDelete.isMaskFor) {
+      const baseLayer = State.layers.find(l => l.id === toDelete.isMaskFor);
+      if (baseLayer) { baseLayer.imageMaskId = null; await DB.saveLayer(baseLayer); }
+    }
     State.layers.splice(idx, 1);
-    if (State.selectedId === layerId)
+    if (State.selectedId === layerId) {
       State.selectedId = State.layers[Math.min(idx, State.layers.length - 1)]?.id || null;
+      State.selectedIds = State.selectedId ? [State.selectedId] : [];
+    } else {
+      State.selectedIds = State.selectedIds.filter(id => id !== layerId);
+    }
     await DB.del('layers', layerId);
     await DB.del('imageBlobs', layerId);
     await DB.del('maskBlobs', layerId);
@@ -2053,6 +2146,7 @@ const LayerManager = {
     const insertIdx = State.layers.findIndex(l => l.id === layerId);
     State.layers.splice(insertIdx + 1, 0, layer);
     State.selectedId = layer.id;
+    State.selectedIds = [layer.id];
     await DB.put('layers', DB.layerRecord(layer));
     await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
@@ -2063,12 +2157,27 @@ const LayerManager = {
   },
 
   move(layerId, delta) {
-    const idx = State.layers.findIndex(l => l.id === layerId);
-    if (idx === -1) return;
-    const newIdx = Math.max(0, Math.min(State.layers.length - 1, idx + delta));
-    if (newIdx === idx) return;
-    const [layer] = State.layers.splice(idx, 1);
-    State.layers.splice(newIdx, 0, layer);
+    const layer = State.layers.find(l => l.id === layerId);
+    if (!layer) return;
+    const pairedId = layer.imageMaskId || layer.isMaskFor;
+
+    if (pairedId) {
+      const idxA = State.layers.findIndex(l => l.id === layerId);
+      const idxB = State.layers.findIndex(l => l.id === pairedId);
+      const minIdx = Math.min(idxA, idxB);
+      // The pair must be adjacent; splice out both at minIdx
+      const pair = State.layers.splice(minIdx, 2);
+      const targetIdx = Math.max(0, Math.min(State.layers.length, minIdx + delta));
+      State.layers.splice(targetIdx, 0, ...pair);
+    } else {
+      const idx = State.layers.findIndex(l => l.id === layerId);
+      if (idx === -1) return;
+      const newIdx = Math.max(0, Math.min(State.layers.length - 1, idx + delta));
+      if (newIdx === idx) return;
+      const [l] = State.layers.splice(idx, 1);
+      State.layers.splice(newIdx, 0, l);
+    }
+
     DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
     UI.refreshLayerList();
     Renderer.schedule();
@@ -2222,8 +2331,12 @@ const UI = {
     }
     for (let i = State.layers.length - 1; i >= 0; i--) {
       const l = State.layers[i];
+      let rowClass = 'layer-row';
+      if (State.selectedIds.includes(l.id)) rowClass += ' selected';
+      if (l.isMaskFor)   rowClass += ' layer-row--mask';
+      if (l.imageMaskId) rowClass += ' layer-row--masked';
       const row = document.createElement('div');
-      row.className = 'layer-row' + (l.id === State.selectedId ? ' selected' : '');
+      row.className = rowClass;
 
       const vis = document.createElement('span');
       vis.className = 'layer-vis';
@@ -2247,7 +2360,7 @@ const UI = {
 
       const name = document.createElement('div');
       name.className = 'layer-name';
-      name.textContent = l.name;
+      name.textContent = (l.isMaskFor ? '⬦ ' : '') + l.name;
       name.addEventListener('dblclick', e => {
         e.stopPropagation();
         const n = prompt('Layer name:', l.name);
@@ -2255,8 +2368,20 @@ const UI = {
       });
 
       row.append(vis, dot, name);
-      row.addEventListener('click', () => {
-        State.selectedId = l.id;
+      row.addEventListener('click', e => {
+        if (e.shiftKey) {
+          const idx = State.selectedIds.indexOf(l.id);
+          if (idx === -1) {
+            State.selectedIds.push(l.id);
+            State.selectedId = l.id;
+          } else {
+            State.selectedIds.splice(idx, 1);
+            State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
+          }
+        } else {
+          State.selectedId = l.id;
+          State.selectedIds = [l.id];
+        }
         this.refreshLayerList();
         this.refreshProperties();
         Renderer.drawOverlay();
@@ -2302,6 +2427,19 @@ const UI = {
 
     refreshGradientEditor(layer);
     document.getElementById('status-layer').textContent = layer.name;
+
+    // Image mask buttons
+    const createMaskBtn = document.getElementById('btn-create-image-mask');
+    const releaseMaskBtn = document.getElementById('btn-release-image-mask');
+    const imageMaskRow = document.getElementById('image-mask-row');
+    const canCreate = State.selectedIds.length === 2 &&
+      State.selectedIds.every(id => {
+        const l = State.layers.find(x => x.id === id);
+        return l && !l.imageMaskId && !l.isMaskFor;
+      });
+    createMaskBtn.style.display = canCreate ? '' : 'none';
+    releaseMaskBtn.style.display = layer.isMaskFor ? '' : 'none';
+    imageMaskRow.style.display = (canCreate || layer.isMaskFor) ? '' : 'none';
   },
 
   refreshZoom() {
@@ -2340,6 +2478,17 @@ function getCanvasXY(e) {
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
+// Returns snapshots of all selected layers except the primary one.
+function getExtraSnaps(primaryId) {
+  return State.selectedIds
+    .filter(id => id !== primaryId)
+    .map(id => {
+      const l = State.layers.find(x => x.id === id);
+      return l ? { id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation } : null;
+    })
+    .filter(Boolean);
+}
+
 overlayCanvas.addEventListener('pointerdown', onPointerDown);
 overlayCanvas.addEventListener('pointermove', onPointerMove);
 overlayCanvas.addEventListener('pointerup',   onPointerUp);
@@ -2366,21 +2515,51 @@ function onPointerDown(e) {
     const handle = Renderer.hitTestHandle(x, y, layer);
     if (handle) {
       pushUndo(snapshotLayer(layer));
-      State.drag = { type: handle.id === 'rotate' ? 'rotate' : 'resize', handleId: handle.id, startX: x, startY: y, layerSnap: { ...layer } };
+      const extraSnaps = getExtraSnaps(layer.id);
+      extraSnaps.forEach(es => {
+        const el = State.layers.find(l => l.id === es.id);
+        if (el) pushUndo(snapshotLayer(el));
+      });
+      const dragState = {
+        type: handle.id === 'rotate' ? 'rotate' : 'resize',
+        handleId: handle.id,
+        startX: x, startY: y,
+        layerSnap: { ...layer },
+        extraSnaps,
+      };
+      if (handle.id === 'rotate') {
+        const cx = (layer.x + layer.width / 2) * State.zoom;
+        const cy = (layer.y + layer.height / 2) * State.zoom;
+        dragState.startAngle = Math.atan2(y - cy, x - cx) * 180 / Math.PI + 90;
+        dragState.extraSnapRotations = extraSnaps.map(es => es.rotation);
+      }
+      State.drag = dragState;
       return;
     }
   }
 
   const hit = Renderer.hitTestLayer(x, y);
   if (hit) {
-    State.selectedId = hit.id;
+    // If the hit layer is already in the multi-select, keep the group intact
+    if (!State.selectedIds.includes(hit.id)) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+    } else {
+      State.selectedId = hit.id;
+    }
     pushUndo(snapshotLayer(hit));
-    State.drag = { type: 'move', startX: x, startY: y, layerSnap: { x: hit.x, y: hit.y } };
+    const extraSnaps = getExtraSnaps(hit.id);
+    extraSnaps.forEach(es => {
+      const el = State.layers.find(l => l.id === es.id);
+      if (el) pushUndo(snapshotLayer(el));
+    });
+    State.drag = { type: 'move', startX: x, startY: y, layerSnap: { x: hit.x, y: hit.y }, extraSnaps };
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.drawOverlay();
   } else {
     State.selectedId = null;
+    State.selectedIds = [];
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.drawOverlay();
@@ -2420,12 +2599,25 @@ function onPointerMove(e) {
   if (State.drag.type === 'move') {
     layer.x = snap.x + dx / z;
     layer.y = snap.y + dy / z;
+    // Move all other selected layers by the same delta
+    for (const es of (State.drag.extraSnaps || [])) {
+      const el = State.layers.find(l => l.id === es.id);
+      if (el) { el.x = es.x + dx / z; el.y = es.y + dy / z; }
+    }
   } else if (State.drag.type === 'rotate') {
     const cx = (layer.x + layer.width / 2) * z;
     const cy = (layer.y + layer.height / 2) * z;
-    const angle = Math.atan2(y - cy, x - cx);
-    layer.rotation = (angle * 180 / Math.PI) + 90;
-    if (e.shiftKey) layer.rotation = Math.round(layer.rotation / 15) * 15;
+    const angle = Math.atan2(y - cy, x - cx) * 180 / Math.PI + 90;
+    layer.rotation = e.shiftKey ? Math.round(angle / 15) * 15 : angle;
+    // Apply the same rotation delta to all other selected layers
+    const rotDelta = angle - (State.drag.startAngle || 0);
+    const extraRotations = State.drag.extraSnapRotations || [];
+    (State.drag.extraSnaps || []).forEach((es, i) => {
+      const el = State.layers.find(l => l.id === es.id);
+      if (!el) return;
+      const newRot = (extraRotations[i] ?? es.rotation) + rotDelta;
+      el.rotation = e.shiftKey ? Math.round(newRot / 15) * 15 : newRot;
+    });
   } else if (State.drag.type === 'resize') {
     const dxF = dx / z, dyF = dy / z;
     const id = State.drag.handleId;
@@ -2461,6 +2653,19 @@ function onPointerMove(e) {
       else if (id === 'bm') { layer.height = Math.max(10, snap.height + dyF); }
       else if (id === 'tm') { layer.y = snap.y + dyF; layer.height = Math.max(10, snap.height - dyF); }
     }
+    // Apply same scale factor and position delta to all other selected layers
+    const scaleX = layer.width / snap.width;
+    const scaleY = layer.height / snap.height;
+    const posDx = layer.x - snap.x;
+    const posDy = layer.y - snap.y;
+    for (const es of (State.drag.extraSnaps || [])) {
+      const el = State.layers.find(l => l.id === es.id);
+      if (!el) continue;
+      el.width  = Math.max(10, es.width  * scaleX);
+      el.height = Math.max(10, es.height * scaleY);
+      el.x = es.x + posDx;
+      el.y = es.y + posDy;
+    }
   }
 
   UI.refreshProperties();
@@ -2477,6 +2682,10 @@ function onPointerUp(e) {
   if (State.drag) {
     const layer = selectedLayer();
     if (layer) DB.saveLayer(layer);
+    for (const es of (State.drag.extraSnaps || [])) {
+      const el = State.layers.find(l => l.id === es.id);
+      if (el) DB.saveLayer(el);
+    }
   }
   State.drag = null;
 }
@@ -2512,6 +2721,49 @@ async function handleAction(action) {
     case 'clear-mask':  if (layer) { MaskEngine.clearMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
     case 'fill-mask':   if (layer) { MaskEngine.fillMask(layer);  DB.saveMask(layer); Renderer.schedule(); } break;
     case 'invert-mask': if (layer) { MaskEngine.invertMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
+    case 'create-image-mask': {
+      if (State.selectedIds.length !== 2) break;
+      const [idA, idB] = State.selectedIds;
+      const idxA = State.layers.findIndex(l => l.id === idA);
+      const idxB = State.layers.findIndex(l => l.id === idB);
+      if (idxA === -1 || idxB === -1) break;
+      // Higher index = visually on top = becomes the mask
+      const [baseIdx, maskIdx] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+      const baseLayer = State.layers[baseIdx];
+      const maskLayerObj = State.layers[maskIdx];
+      // Set relationship
+      baseLayer.imageMaskId = maskLayerObj.id;
+      maskLayerObj.isMaskFor = baseLayer.id;
+      // Ensure mask layer is directly above base layer
+      State.layers.splice(maskIdx, 1);
+      const newBaseIdx = State.layers.findIndex(l => l.id === baseLayer.id);
+      State.layers.splice(newBaseIdx + 1, 0, maskLayerObj);
+      // Select the mask layer
+      State.selectedId = maskLayerObj.id;
+      State.selectedIds = [maskLayerObj.id];
+      await DB.saveLayer(baseLayer);
+      await DB.saveLayer(maskLayerObj);
+      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+      break;
+    }
+    case 'release-image-mask': {
+      const maskLayerObj = selectedLayer();
+      if (!maskLayerObj?.isMaskFor) break;
+      const baseLayer = State.layers.find(l => l.id === maskLayerObj.isMaskFor);
+      if (baseLayer) baseLayer.imageMaskId = null;
+      maskLayerObj.isMaskFor = null;
+      await DB.saveLayer(maskLayerObj);
+      if (baseLayer) await DB.saveLayer(baseLayer);
+      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      State.selectedIds = [maskLayerObj.id];
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+      break;
+    }
     case 'zoom-in':  State.zoom = Math.min(2, State.zoom * 1.25); Renderer.resize(); UI.refreshZoom(); break;
     case 'zoom-out': State.zoom = Math.max(0.04, State.zoom / 1.25); Renderer.resize(); UI.refreshZoom(); break;
     case 'zoom-fit': UI.fitZoom(); break;
@@ -2793,6 +3045,7 @@ async function openProject(projectId) {
   State.project = project;
   State.layers = [];
   State.selectedId = null;
+  State.selectedIds = [];
   State.undoStack = [];
   State.redoStack = [];
 
