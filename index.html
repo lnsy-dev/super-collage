@@ -167,6 +167,9 @@ body {
   box-shadow: inset 2px 2px 0 #333;
 }
 .tool-separator { width: 32px; border-bottom: 2px solid var(--black); margin: 2px 0; }
+#shape-options, #shape-stroke-row, #poly-options, #star-ratio-row {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%;
+}
 
 /* ─── CANVAS AREA ────────────────────────────────────────────────── */
 #canvas-window { flex: 1; min-width: 0; }
@@ -729,6 +732,36 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
         <button class="tool-btn" data-tool="mask-draw" title="Mask Paint (B)">&#9679;</button>
         <button class="tool-btn" data-tool="mask-erase" title="Mask Erase (E)">&#9675;</button>
         <div class="tool-separator"></div>
+        <button class="tool-btn" data-tool="shape-rect"    title="Rectangle (R)">&#9645;</button>
+        <button class="tool-btn" data-tool="shape-ellipse" title="Ellipse (O)">&#9711;</button>
+        <button class="tool-btn" data-tool="shape-poly"    title="Polygon / Star (P)">&#11040;</button>
+        <div id="shape-options" style="display:none;">
+          <div class="tool-separator"></div>
+          <div style="font-size:5px;text-align:center;line-height:1.8;">Fill</div>
+          <button class="tool-btn active" id="shape-fill-btn"    title="Filled">&#9632;</button>
+          <button class="tool-btn"        id="shape-outline-btn" title="Outline">&#9633;</button>
+          <div id="shape-stroke-row" style="display:none;">
+            <div style="font-size:5px;text-align:center;line-height:1.8;">Stroke</div>
+            <input type="range" id="shape-stroke-input" min="1" max="50" value="4"
+              style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
+            <div id="shape-stroke-val" style="font-size:5px;">4</div>
+          </div>
+          <div id="poly-options" style="display:none;">
+            <div class="tool-separator"></div>
+            <div style="font-size:5px;text-align:center;">Sides</div>
+            <input type="number" id="poly-sides-input" min="3" max="20" value="6"
+              style="width:28px;font-size:9px;text-align:center;padding:1px;">
+            <div style="font-size:5px;text-align:center;">&#9733;</div>
+            <input type="checkbox" id="poly-star-toggle" style="width:16px;height:16px;">
+            <div id="star-ratio-row" style="display:none;">
+              <div style="font-size:5px;text-align:center;">Inner</div>
+              <input type="range" id="star-ratio-input" min="10" max="90" value="40"
+                style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
+              <div id="star-ratio-val" style="font-size:5px;">40%</div>
+            </div>
+          </div>
+        </div>
+        <div class="tool-separator"></div>
         <div style="font-size:5px;text-align:center;line-height:1.8;">Brush</div>
         <input type="range" id="brush-size-input" min="4" max="200" value="30"
           style="writing-mode:vertical-lr;direction:rtl;width:8px;height:56px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
@@ -967,6 +1000,7 @@ const RISO_COLORS = [
   { name: 'Neon Pink',   hex: '#FF48B0' },
   { name: 'Aqua',        hex: '#28C8C8' },
   { name: 'Blue',        hex: '#0078BF' },
+  { name: 'White',       hex: '#FFFFFF' },
 ];
 
 // 8×8 Bayer matrix (values 0-255)
@@ -996,6 +1030,12 @@ const State = {
   redoStack: [],
   drag: null,
   lastMaskPt: null,
+  shapeMode: 'fill',
+  shapeStrokeWidth: 4,
+  shapeSides: 6,
+  shapeIsStar: false,
+  shapeStarRatio: 0.4,
+  shapeDrag: null,
 };
 
 function selectedLayer() {
@@ -1921,6 +1961,7 @@ const ExportEngine = {
 
     for (let ci = 0; ci < colorEntries.length; ci++) {
       const [color, plate] = colorEntries[ci];
+      if (color === '#FFFFFF') continue; // white = no ink, skip plate
       const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
       prog.textContent = `Rendering ${colorName} (${ci + 1}/${colorEntries.length})…`;
       await new Promise(r => setTimeout(r, 0));
@@ -2064,6 +2105,32 @@ const ExportEngine = {
 
 /* ─── LAYER MANAGER ─────────────────────────────────────────────── */
 const LayerManager = {
+  async addShape(shapeCanvas, x, y, w, h) {
+    const toolNames = {
+      'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse',
+      'shape-poly': State.shapeIsStar ? 'Star' : 'Polygon',
+    };
+    const layer = makeLayer({
+      name: toolNames[State.tool] || 'Shape',
+      x, y, width: w, height: h,
+      naturalWidth: w, naturalHeight: h,
+    });
+    layer._originalCanvas = shapeCanvas;
+    MaskEngine.initMask(layer);
+    State.layers.push(layer);
+    State.selectedId = layer.id;
+    State.selectedIds = [layer.id];
+    const blob = await shapeCanvas.convertToBlob({ type: 'image/png' });
+    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('imageBlobs', { layerId: layer.id, blob });
+    await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    document.getElementById('no-layer-msg').style.display = 'none';
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
   async addFromFile(file) {
     const bmp = await createImageBitmap(file);
     const nw = bmp.width, nh = bmp.height;
@@ -2268,6 +2335,7 @@ function refreshGradientEditor(layer) {
       const sw = document.createElement('div');
       sw.className = 'stop-riso-sw' + (rc.hex === stop.color ? ' selected' : '');
       sw.style.background = rc.hex;
+      if (rc.hex === '#FFFFFF') sw.style.borderColor = 'var(--black)';
       sw.title = rc.name;
       sw.dataset.stopIdx = idx;
       sw.dataset.risoColor = rc.hex;
@@ -2455,8 +2523,15 @@ const UI = {
     document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
       b.classList.toggle('active', b.dataset.tool === tool));
     document.body.className = 'tool-' + tool;
-    const names = { select:'Select', move:'Move', 'mask-draw':'Mask Draw', 'mask-erase':'Mask Erase' };
+    const names = {
+      select: 'Select', move: 'Move',
+      'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
+      'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
+    };
     document.getElementById('status-tool').textContent = names[tool] || tool;
+    const isShape = tool.startsWith('shape-');
+    document.getElementById('shape-options').style.display = isShape ? '' : 'none';
+    document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
   },
 
   fitZoom() {
@@ -2475,6 +2550,73 @@ const UI = {
 };
 
 /* ─── POINTER INTERACTIONS ──────────────────────────────────────── */
+/* ─── SHAPE TOOLS ────────────────────────────────────────────────── */
+function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
+  if (tool === 'shape-rect') {
+    ctx.rect(0, 0, w, h);
+  } else if (tool === 'shape-ellipse') {
+    ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+  } else if (tool === 'shape-poly') {
+    const cx = w / 2, cy = h / 2;
+    const outerR = Math.min(w, h) / 2;
+    const innerR = outerR * starRatio;
+    const n = Math.max(3, Math.round(sides));
+    const points = isStar ? n * 2 : n;
+    for (let i = 0; i < points; i++) {
+      const angle = (i / points) * Math.PI * 2 - Math.PI / 2;
+      const r = (isStar && i % 2 === 1) ? innerR : outerR;
+      const px = cx + Math.cos(angle) * r;
+      const py = cy + Math.sin(angle) * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+}
+
+function renderShapeToCanvas(tool, w, h) {
+  const sw = State.shapeStrokeWidth;
+  const isFill = State.shapeMode === 'fill';
+  const pad = isFill ? 0 : Math.ceil(sw / 2);
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+  // White background → colorize() maps white (gray≥128) to transparent,
+  // black shape pixels (gray<128) to the riso ink color.
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  ctx.translate(pad, pad);
+  const dw = w - pad * 2, dh = h - pad * 2;
+  ctx.beginPath();
+  drawShapePath(ctx, tool, dw, dh, State.shapeSides, State.shapeIsStar, State.shapeStarRatio);
+  if (isFill) {
+    ctx.fillStyle = 'black';
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = sw;
+    ctx.stroke();
+  }
+  ctx.restore();
+  return canvas;
+}
+
+function drawShapePreview(x0, y0, x1, y1) {
+  Renderer.drawOverlay();
+  const ctx = overlayCanvas.getContext('2d');
+  const x = Math.min(x0, x1), y = Math.min(y0, y1);
+  const w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+  if (w < 2 || h < 2) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  drawShapePath(ctx, State.tool, w, h, State.shapeSides, State.shapeIsStar, State.shapeStarRatio);
+  ctx.strokeStyle = 'rgba(0,120,255,0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function getCanvasXY(e) {
   const rect = overlayCanvas.getBoundingClientRect();
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -2501,6 +2643,11 @@ function onPointerDown(e) {
   overlayCanvas.setPointerCapture(e.pointerId);
   const { x, y } = getCanvasXY(e);
   const layer = selectedLayer();
+
+  if (State.tool.startsWith('shape-')) {
+    State.shapeDrag = { startX: x, startY: y };
+    return;
+  }
 
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     if (!layer) return;
@@ -2572,6 +2719,11 @@ function onPointerMove(e) {
   const { x, y } = getCanvasXY(e);
   document.getElementById('status-pos').textContent =
     Math.round(x / State.zoom) + ', ' + Math.round(y / State.zoom);
+
+  if (State.shapeDrag && (e.buttons & 1)) {
+    drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, x, y);
+    return;
+  }
 
   if ((State.tool === 'mask-draw' || State.tool === 'mask-erase') && (e.buttons & 1)) {
     const layer = selectedLayer();
@@ -2674,7 +2826,23 @@ function onPointerMove(e) {
   Renderer.schedule();
 }
 
-function onPointerUp(e) {
+async function onPointerUp(e) {
+  if (State.shapeDrag) {
+    const { x, y } = getCanvasXY(e);
+    const { startX, startY } = State.shapeDrag;
+    State.shapeDrag = null;
+    Renderer.drawOverlay();
+    const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
+    if (sw >= 4 && sh >= 4) {
+      const cx = Math.round(Math.min(startX, x) / State.zoom);
+      const cy = Math.round(Math.min(startY, y) / State.zoom);
+      const cw = Math.max(1, Math.round(sw / State.zoom));
+      const ch = Math.max(1, Math.round(sh / State.zoom));
+      const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch);
+      await LayerManager.addShape(shapeCanvas, cx, cy, cw, ch);
+    }
+    return;
+  }
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     State.lastMaskPt = null;
     const layer = selectedLayer();
@@ -2853,6 +3021,35 @@ function wireControls() {
   document.getElementById('brush-size-input').addEventListener('input', e => {
     State.brushSize = parseInt(e.target.value);
     document.getElementById('brush-size-val').textContent = State.brushSize;
+  });
+
+  // Shape tool options
+  document.getElementById('shape-fill-btn').addEventListener('click', () => {
+    State.shapeMode = 'fill';
+    document.getElementById('shape-fill-btn').classList.add('active');
+    document.getElementById('shape-outline-btn').classList.remove('active');
+    document.getElementById('shape-stroke-row').style.display = 'none';
+  });
+  document.getElementById('shape-outline-btn').addEventListener('click', () => {
+    State.shapeMode = 'outline';
+    document.getElementById('shape-outline-btn').classList.add('active');
+    document.getElementById('shape-fill-btn').classList.remove('active');
+    document.getElementById('shape-stroke-row').style.display = '';
+  });
+  document.getElementById('shape-stroke-input').addEventListener('input', e => {
+    State.shapeStrokeWidth = parseInt(e.target.value);
+    document.getElementById('shape-stroke-val').textContent = State.shapeStrokeWidth;
+  });
+  document.getElementById('poly-sides-input').addEventListener('input', e => {
+    State.shapeSides = Math.max(3, Math.min(20, parseInt(e.target.value) || 6));
+  });
+  document.getElementById('poly-star-toggle').addEventListener('change', e => {
+    State.shapeIsStar = e.target.checked;
+    document.getElementById('star-ratio-row').style.display = State.shapeIsStar ? '' : 'none';
+  });
+  document.getElementById('star-ratio-input').addEventListener('input', e => {
+    State.shapeStarRatio = parseInt(e.target.value) / 100;
+    document.getElementById('star-ratio-val').textContent = e.target.value + '%';
   });
 
   // ── Gradient: mode toggle ─────────────────────────────────────────
@@ -3207,6 +3404,9 @@ document.addEventListener('keydown', e => {
     if (e.key === 'm' || e.key === 'M') UI.setTool('move');
     if (e.key === 'b' || e.key === 'B') UI.setTool('mask-draw');
     if (e.key === 'e' || e.key === 'E') UI.setTool('mask-erase');
+    if (e.key === 'r' || e.key === 'R') UI.setTool('shape-rect');
+    if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');
+    if (e.key === 'p' || e.key === 'P') UI.setTool('shape-poly');
     return;
   }
   if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
