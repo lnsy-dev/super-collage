@@ -521,8 +521,19 @@ input[type="number"] {
 /* Cursor modes */
 body.tool-select #interaction-overlay { cursor: default; }
 body.tool-move #interaction-overlay { cursor: move; }
-body.tool-mask-draw #interaction-overlay { cursor: crosshair; }
-body.tool-mask-erase #interaction-overlay { cursor: cell; }
+body.tool-mask-draw #interaction-overlay { cursor: none; }
+body.tool-mask-erase #interaction-overlay { cursor: none; }
+
+#brush-cursor {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 30;
+  transform: translate(-50%, -50%);
+  display: none;
+}
+body.tool-mask-draw #brush-cursor  { border: 1.5px solid rgba(0,0,0,0.8); background: rgba(0,0,0,0.08); }
+body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); background: rgba(255,255,255,0.15); }
 
 /* Zoom bar */
 #zoom-controls {
@@ -787,6 +798,7 @@ body.tool-mask-erase #interaction-overlay { cursor: cell; }
           <div id="canvas-wrapper">
             <canvas id="display-canvas"></canvas>
             <canvas id="interaction-overlay" style="pointer-events:auto;"></canvas>
+            <div id="brush-cursor"></div>
             <canvas id="mask-canvas-overlay"></canvas>
             <div id="no-layer-msg">Drop images here<br>or<br>File &#8594; Add Image</div>
           </div>
@@ -1311,6 +1323,16 @@ const ImageProcessor = {
       }
     } else {
       if (layer.halftoneType !== 'none') {
+        if (layer.colorMode === 'gradient' && layer.gradient) {
+          const gradCanvas = generateGradientCanvas(nw, nh, layer.gradient);
+          const gradData = gradCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+          const d = px.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const gradGray = Math.round(0.299 * gradData[i] + 0.587 * gradData[i+1] + 0.114 * gradData[i+2]);
+            const deepened = Math.round(Math.pow(gradGray / 255, 2.5) * 255);
+            d[i] = d[i+1] = d[i+2] = Math.max(d[i], deepened);
+          }
+        }
         px = this.applyHalftone(px, nw, nh, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle, layer.hatchLineHeight, layer.hatchLineLength);
       }
       px = this.colorize(px, layer.color, layer);
@@ -2567,6 +2589,8 @@ const UI = {
     const isShape = tool.startsWith('shape-');
     document.getElementById('shape-options').style.display = isShape ? '' : 'none';
     document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
+    const isMask = tool === 'mask-draw' || tool === 'mask-erase';
+    if (!isMask) document.getElementById('brush-cursor').style.display = 'none';
   },
 
   fitZoom() {
@@ -3063,6 +3087,37 @@ function wireControls() {
   document.getElementById('brush-size-input').addEventListener('input', e => {
     State.brushSize = parseInt(e.target.value);
     document.getElementById('brush-size-val').textContent = State.brushSize;
+    updateBrushCursorSize();
+  });
+
+  /* ── Brush cursor ── */
+  const brushCursor = document.getElementById('brush-cursor');
+
+  function isMaskTool() {
+    return State.tool === 'mask-draw' || State.tool === 'mask-erase';
+  }
+
+  function updateBrushCursorSize() {
+    const px = State.brushSize * State.zoom;
+    brushCursor.style.width  = px + 'px';
+    brushCursor.style.height = px + 'px';
+  }
+
+  overlayCanvas.addEventListener('mousemove', e => {
+    if (!isMaskTool()) return;
+    const rect = overlayCanvas.getBoundingClientRect();
+    brushCursor.style.left = (e.clientX - rect.left)  + 'px';
+    brushCursor.style.top  = (e.clientY - rect.top)   + 'px';
+  });
+
+  overlayCanvas.addEventListener('mouseenter', e => {
+    if (!isMaskTool()) return;
+    updateBrushCursorSize();
+    brushCursor.style.display = 'block';
+  });
+
+  overlayCanvas.addEventListener('mouseleave', () => {
+    brushCursor.style.display = 'none';
   });
 
   // Shape tool options
