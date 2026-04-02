@@ -483,12 +483,14 @@ input[type="number"] {
   color: var(--dark-gray);
 }
 .size-options {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 .size-options label {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   font-size: 12px;
   cursor: pointer;
@@ -637,6 +639,8 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
           <label><input type="radio" name="new-page-size" value="letter" checked> 8.5 × 11</label>
           <label><input type="radio" name="new-page-size" value="legal"> 8.5 × 14</label>
           <label><input type="radio" name="new-page-size" value="half-letter"> 5.5 × 8.5</label>
+          <label><input type="radio" name="new-page-size" value="4x6"> 4 × 6</label>
+          <label><input type="radio" name="new-page-size" value="4.25x7"> 4.25 × 7</label>
         </div>
       </div>
     </div>
@@ -1006,6 +1010,8 @@ const PAGE_SIZE_DIMS = {
   'letter':      { w: 5100, h: 6600 },
   'legal':       { w: 5100, h: 8400 },
   'half-letter': { w: 3300, h: 5100 },
+  '4x6':         { w: 2400, h: 3600 },
+  '4.25x7':      { w: 2550, h: 4200 },
 };
 let blendSubtractive = null; // loaded from WASM at init
 
@@ -3373,7 +3379,7 @@ async function openProject(projectId) {
   }
 
   document.getElementById('main-app').style.display = 'flex';
-  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"' };
+  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"' };
   const sizeLabel = pageSizeLabels[project.pageSize] || '8.5" × 11"';
   const dims = PAGE_SIZE_DIMS[project.pageSize] || PAGE_SIZE_DIMS['letter'];
   CANVAS_W = dims.w;

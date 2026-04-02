@@ -1,7 +1,9 @@
 const PAGE_SIZES = {
-  'letter':      { label: 'Letter',      dims: '8.5 × 11 in',  w: 8.5, h: 11   },
-  'legal':       { label: 'Legal',       dims: '8.5 × 14 in',  w: 8.5, h: 14   },
-  'half-letter': { label: 'Half Letter', dims: '5.5 × 8.5 in', w: 5.5, h: 8.5  },
+  'letter':      { label: 'Letter',      dims: '8.5 × 11 in',   w: 8.5,  h: 11   },
+  'legal':       { label: 'Legal',       dims: '8.5 × 14 in',   w: 8.5,  h: 14   },
+  'half-letter': { label: 'Half Letter', dims: '5.5 × 8.5 in',  w: 5.5,  h: 8.5  },
+  '4x6':         { label: '4 × 6',       dims: '4 × 6 in',      w: 4,    h: 6    },
+  '4.25x7':      { label: '4.25 × 7',    dims: '4.25 × 7 in',   w: 4.25, h: 7    },
 };
 
 const template = document.createElement('template');
@@ -126,7 +128,7 @@ template.innerHTML = `
 
     .size-options {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
       gap: 0.75rem;
     }
 

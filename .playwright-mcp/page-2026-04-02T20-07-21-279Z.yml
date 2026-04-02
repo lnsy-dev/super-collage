@@ -1,0 +1,19 @@
+- generic [ref=e3]:
+  - generic [ref=e5]: Super Collage — Projects
+  - generic [ref=e6]:
+    - heading "SUPER COLLAGE" [level=1] [ref=e7]
+    - paragraph [ref=e8]: RISOGRAPH LAYOUT HELPER
+    - generic [ref=e10] [cursor=pointer]: No projects yet
+    - generic [ref=e11]:
+      - generic [ref=e12]: "New:"
+      - textbox "Project name…" [ref=e13]
+      - button "Create" [ref=e14] [cursor=pointer]
+    - generic [ref=e15]:
+      - generic [ref=e16]: "Paper size:"
+      - generic [ref=e17]:
+        - generic [ref=e18] [cursor=pointer]: 8.5 × 11
+        - generic [ref=e19] [cursor=pointer]: 8.5 × 14
+        - generic [ref=e20] [cursor=pointer]: 5.5 × 8.5
+  - generic [ref=e21]:
+    - button "Delete" [ref=e22] [cursor=pointer]
+    - button "Open" [disabled] [ref=e23] [cursor=pointer]
