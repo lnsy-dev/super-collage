@@ -662,6 +662,12 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         Exports one PNG per risograph color at 3300×5100 px (600 dpi). Each plate: black ink on white.
       </p>
       <div id="export-color-list" style="font-size:14px;line-height:2.5;"></div>
+      <div style="margin-top:12px;font-size:14px;">
+        <strong>Layout:</strong>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="1up" checked> 1 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="2up"> 2 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="4up"> 4 up</label>
+      </div>
       <div id="export-progress" style="font-size:14px;margin-top:10px;text-align:center;"></div>
     </div>
     <div class="dialog-footer">
@@ -681,6 +687,12 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
       <p style="font-size:14px;line-height:2.5;margin-bottom:12px;">
         Renders all visible layers at 3300×5100 px with subtractive ink mixing (riso simulation).
       </p>
+      <div style="margin-top:12px;font-size:14px;">
+        <strong>Layout:</strong>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="1up" checked> 1 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="2up"> 2 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="4up"> 4 up</label>
+      </div>
       <div id="composite-export-progress" style="font-size:14px;margin-top:10px;text-align:center;"></div>
     </div>
     <div class="dialog-footer">
@@ -2016,6 +2028,17 @@ const ExportEngine = {
     return buf;
   },
 
+  _tileCanvas(src, layout) {
+    if (layout === '1up') return src;
+    const cols = 2, rows = layout === '4up' ? 2 : 1;
+    const out = new OffscreenCanvas(CANVAS_W * cols, CANVAS_H * rows);
+    const ctx = out.getContext('2d');
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        ctx.drawImage(src, c * CANVAS_W, r * CANVAS_H);
+    return out;
+  },
+
   async export() {
     const prog = document.getElementById('export-progress');
     // Exclude mask layers — they render as part of their paired base layer
@@ -2085,11 +2108,14 @@ const ExportEngine = {
       }
       ctx.putImageData(imgData, 0, 0);
 
-      const blob = await ec.convertToBlob({ type: 'image/png' });
+      const layout = document.querySelector('input[name="export-layout"]:checked')?.value || '1up';
+      const tiled = this._tileCanvas(ec, layout);
+      const blob = await tiled.convertToBlob({ type: 'image/png' });
       const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const layoutSuffix = layout !== '1up' ? `-${layout}` : '';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `${projectSlug}-${colorSlug}.png`;
+      a.href = url; a.download = `${projectSlug}-${colorSlug}${layoutSuffix}.png`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       await new Promise(r => setTimeout(r, 400));
@@ -2123,11 +2149,14 @@ const ExportEngine = {
     const outCtx = outCanvas.getContext('2d');
     const imgData = new ImageData(new Uint8ClampedArray(accumulator.buffer), CANVAS_W, CANVAS_H);
     outCtx.putImageData(imgData, 0, 0);
-    const blob = await outCanvas.convertToBlob({ type: 'image/png' });
+    const compositeLayout = document.querySelector('input[name="composite-layout"]:checked')?.value || '1up';
+    const tiledComposite = this._tileCanvas(outCanvas, compositeLayout);
+    const blob = await tiledComposite.convertToBlob({ type: 'image/png' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const projectSlug = document.getElementById('status-project').textContent.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    a.href = url; a.download = `${projectSlug}-composite.png`;
+    const compositeLayoutSuffix = compositeLayout !== '1up' ? `-${compositeLayout}` : '';
+    a.href = url; a.download = `${projectSlug}-composite${compositeLayoutSuffix}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     prog.textContent = 'Done!';
