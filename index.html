@@ -2814,6 +2814,13 @@ function onPointerMove(e) {
   document.getElementById('status-pos').textContent =
     Math.round(x / State.zoom) + ', ' + Math.round(y / State.zoom);
 
+  if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
+    const rect = overlayCanvas.getBoundingClientRect();
+    const bc = document.getElementById('brush-cursor');
+    bc.style.left = (e.clientX - rect.left) + 'px';
+    bc.style.top  = (e.clientY - rect.top)  + 'px';
+  }
+
   if (State.shapeDrag && (e.buttons & 1)) {
     drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, x, y);
     return;

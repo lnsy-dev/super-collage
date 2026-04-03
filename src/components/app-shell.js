@@ -301,6 +301,53 @@ template.innerHTML = `
     webgl-canvas {
       flex: 1;
     }
+
+    /* ── PASTE LAYER ───────────────────────────────────────── */
+
+    .paste-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .pasted-image {
+      position: absolute;
+      cursor: grab;
+      pointer-events: all;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.08);
+      user-select: none;
+      touch-action: none;
+    }
+
+    .pasted-image:hover {
+      border-color: rgba(160,130,255,0.4);
+    }
+
+    .pasted-image.dragging {
+      cursor: grabbing;
+      border-color: rgba(160,130,255,0.7);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+      z-index: 100;
+    }
+
+    .paste-hint {
+      position: absolute;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #3a3248;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+
+    .paste-hint.hidden {
+      opacity: 0;
+    }
   </style>
 
   <!-- CREATE VIEW -->
@@ -324,13 +371,15 @@ template.innerHTML = `
   </div>
 
   <!-- CANVAS VIEW -->
-  <div class="canvas-view" id="canvas-view">
+  <div class="canvas-view" id="canvas-view" tabindex="0" style="outline:none">
     <div class="canvas-header">
       <span class="project-title" id="header-title"></span>
       <span class="project-size-label" id="header-size"></span>
       <span class="canvas-status" id="status">Loading…</span>
     </div>
     <webgl-canvas></webgl-canvas>
+    <div class="paste-layer" id="paste-layer"></div>
+    <div class="paste-hint" id="paste-hint">Paste image with ⌘V / Ctrl+V</div>
   </div>
 `;
 
@@ -408,7 +457,129 @@ class AppShell extends HTMLElement {
     this.shadowRoot.getElementById('header-size').textContent  = size.dims;
 
     this.shadowRoot.getElementById('create-view').classList.add('exit');
+
     this.shadowRoot.getElementById('canvas-view').classList.add('visible');
+    this.#wirePaste();
+  }
+
+  #wirePaste() {
+    const hint = this.shadowRoot.getElementById('paste-hint');
+
+    // Browsers only dispatch paste when an editable element is focused.
+    // Park a tiny invisible contenteditable in the real DOM and keep it
+    // focused so paste events always fire.
+    const sink = document.createElement('div');
+    sink.contentEditable = 'true';
+    sink.setAttribute('aria-hidden', 'true');
+    sink.style.cssText = 'position:fixed;opacity:0;width:1px;height:1px;top:-1px;left:-1px;overflow:hidden;pointer-events:none;';
+    document.body.appendChild(sink);
+    sink.focus();
+    console.log('[paste] sink created and focused', sink);
+
+    // Re-focus the sink whenever the user clicks anywhere on the canvas view
+    this.shadowRoot.getElementById('canvas-view').addEventListener('click', () => {
+      sink.focus();
+      console.log('[paste] sink re-focused on canvas click, activeElement:', document.activeElement);
+    });
+
+    document.addEventListener('paste', (e) => {
+      console.log('[paste] paste event fired', e);
+
+      const canvasVisible = this.shadowRoot.getElementById('canvas-view').classList.contains('visible');
+      console.log('[paste] canvas-view visible:', canvasVisible);
+      if (!canvasVisible) return;
+
+      const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+      console.log('[paste] clipboardData items:', items ? Array.from(items).map(i => i.type) : null);
+      if (!items) return;
+
+      for (const item of items) {
+        console.log('[paste] checking item type:', item.type);
+        if (item.type.indexOf('image') === -1) continue;
+
+        const blob = item.getAsFile();
+        console.log('[paste] got blob:', blob);
+        if (!blob) continue;
+
+        const url = URL.createObjectURL(blob);
+        console.log('[paste] created object URL:', url);
+        this.#placePastedImage(url);
+        hint.classList.add('hidden');
+
+        e.preventDefault();
+        break;
+      }
+
+      // Clear anything that landed in the sink
+      sink.innerHTML = '';
+    });
+  }
+
+  #placePastedImage(src) {
+    const layer = this.shadowRoot.getElementById('paste-layer');
+    const view  = this.shadowRoot.getElementById('canvas-view');
+    const rect  = view.getBoundingClientRect();
+
+    const img = document.createElement('img');
+    img.className = 'pasted-image';
+    img.src = src;
+    img.draggable = false;
+
+    img.addEventListener('load', () => {
+      // Cap initial size to 60% of canvas, preserving aspect ratio
+      const maxW = rect.width  * 0.6;
+      const maxH = rect.height * 0.6;
+      const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
+      const w = img.naturalWidth  * scale;
+      const h = img.naturalHeight * scale;
+
+      img.style.width  = `${w}px`;
+      img.style.height = `${h}px`;
+
+      // Center in canvas
+      img.style.left = `${(rect.width  - w) / 2}px`;
+      img.style.top  = `${(rect.height - h) / 2}px`;
+    });
+
+    this.#makeDraggable(img, layer);
+    layer.appendChild(img);
+  }
+
+  #makeDraggable(el, container) {
+    let startX, startY, origLeft, origTop;
+
+    const onMove = (e) => {
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      el.style.left = `${origLeft + cx - startX}px`;
+      el.style.top  = `${origTop  + cy - startY}px`;
+    };
+
+    const onUp = () => {
+      el.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend',  onUp);
+    };
+
+    const onDown = (e) => {
+      e.preventDefault();
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      startX   = cx;
+      startY   = cy;
+      origLeft = parseFloat(el.style.left) || 0;
+      origTop  = parseFloat(el.style.top)  || 0;
+      el.classList.add('dragging');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend',  onUp);
+    };
+
+    el.addEventListener('mousedown',  onDown);
+    el.addEventListener('touchstart', onDown, { passive: false });
   }
 }
 
