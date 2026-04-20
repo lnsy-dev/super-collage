@@ -892,6 +892,9 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
                   <input type="range" id="prop-contrast" min="-100" max="100" value="0">
                   <span class="prop-value" id="val-contrast">0</span>
                 </div>
+                <div class="prop-row">
+                  <button class="mac-btn sm" id="btn-invert-image" data-action="invert-image">Invert</button>
+                </div>
 
               </div>
 
@@ -1158,7 +1161,7 @@ const DB = {
       x: layer.x, y: layer.y, width: layer.width, height: layer.height,
       naturalWidth: layer.naturalWidth, naturalHeight: layer.naturalHeight,
       rotation: layer.rotation, flipH: layer.flipH, flipV: layer.flipV,
-      brightness: layer.brightness, contrast: layer.contrast, saturation: layer.saturation,
+      brightness: layer.brightness, contrast: layer.contrast, saturation: layer.saturation, invert: layer.invert,
       halftoneType: layer.halftoneType, halftoneSize: layer.halftoneSize, halftoneAngle: layer.halftoneAngle, color: layer.color,
       colorMode: layer.colorMode,
       gradient: JSON.parse(JSON.stringify(layer.gradient)),
@@ -1198,6 +1201,7 @@ function makeLayer(data = {}) {
     brightness: data.brightness ?? 0,
     contrast: data.contrast ?? 0,
     saturation: data.saturation ?? -100,
+    invert: data.invert || false,
     halftoneType: data.halftoneType || 'none',
     halftoneSize: data.halftoneSize ?? 8,
     halftoneAngle: data.halftoneAngle ?? 45,
@@ -1319,6 +1323,7 @@ const ImageProcessor = {
     px = this.toGrayscale(px);
     px = this.applyBrightness(px, layer.brightness);
     px = this.applyContrast(px, layer.contrast);
+    if (layer.invert) px = this.applyInvert(px);
     if (layer.halftoneType === 'grayscale') {
       const d = px.data;
       if (layer.colorMode === 'gradient' && layer.gradient) {
@@ -1388,6 +1393,16 @@ const ImageProcessor = {
       d[i]   = Math.max(0, Math.min(255, factor * (d[i]   - 128) + 128));
       d[i+1] = Math.max(0, Math.min(255, factor * (d[i+1] - 128) + 128));
       d[i+2] = Math.max(0, Math.min(255, factor * (d[i+2] - 128) + 128));
+    }
+    return px;
+  },
+
+  applyInvert(px) {
+    const d = px.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i]   = 255 - d[i];
+      d[i+1] = 255 - d[i+1];
+      d[i+2] = 255 - d[i+2];
     }
     return px;
   },
@@ -2430,7 +2445,7 @@ function applySnapshot(layer, snap) {
   Object.assign(layer, {
     x: snap.x, y: snap.y, width: snap.width, height: snap.height,
     rotation: snap.rotation, flipH: snap.flipH, flipV: snap.flipV,
-    brightness: snap.brightness, contrast: snap.contrast, saturation: snap.saturation,
+    brightness: snap.brightness, contrast: snap.contrast, saturation: snap.saturation, invert: snap.invert,
     halftoneType: snap.halftoneType, halftoneSize: snap.halftoneSize, halftoneAngle: snap.halftoneAngle, color: snap.color,
     colorMode: snap.colorMode || 'solid',
     gradient: snap.gradient ? JSON.parse(JSON.stringify(snap.gradient)) : layer.gradient,
@@ -2566,6 +2581,7 @@ const UI = {
     };
     setRange('prop-brightness', 'val-brightness', layer.brightness);
     setRange('prop-contrast',   'val-contrast',   layer.contrast);
+    document.getElementById('btn-invert-image').classList.toggle('active', layer.invert);
     setRange('prop-halftone-size', 'val-halftone-size', layer.halftoneSize);
     setRange('prop-halftone-angle', 'val-halftone-angle', layer.halftoneAngle);
     setRange('prop-hatch-height', 'val-hatch-height', layer.hatchLineHeight ?? 10);
@@ -3092,6 +3108,16 @@ function wireControls() {
   numField('prop-rot', 'rotation');
   rangeField('prop-brightness', 'brightness', 'val-brightness');
   rangeField('prop-contrast',   'contrast',   'val-contrast');
+
+  document.getElementById('btn-invert-image').addEventListener('click', () => {
+    const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
+    l.invert = !l.invert;
+    l._dirty = true;
+    UI.refreshProperties();
+    Renderer.schedule();
+    DB.saveLayer(l);
+  });
   rangeField('prop-halftone-size', 'halftoneSize', 'val-halftone-size');
   rangeField('prop-halftone-angle', 'halftoneAngle', 'val-halftone-angle');
   rangeField('prop-hatch-height', 'hatchLineHeight', 'val-hatch-height');
