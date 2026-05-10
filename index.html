@@ -220,6 +220,7 @@ body {
 }
 #layers-window { flex: 0 0 auto; }
 #properties-window { flex: 1; overflow: hidden; }
+#properties-window .window-content { min-height: 0; }
 
 /* ─── LAYER LIST ─────────────────────────────────────────────────── */
 #layer-list { flex: 1; overflow-y: auto; overflow-x: hidden; max-height: 160px; }
@@ -608,6 +609,31 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
   background:var(--light-gray); border:1px solid var(--black);
   cursor:pointer; font-family:var(--font);
 }
+
+/* ─── PATTERN EDITOR ─────────────────────────────────────────────── */
+#pattern-editor { margin-top:4px; }
+#pattern-editor.hidden { display:none; }
+.pattern-type-row { display:flex; gap:2px; flex-wrap:wrap; margin-bottom:5px; }
+.pat-type-btn {
+  font-size:9px; padding:2px 4px;
+  border:1px solid var(--black); cursor:pointer;
+  background:var(--light-gray); font-family:var(--font);
+}
+.pat-type-btn.active { background:var(--black); color:var(--white); }
+.pattern-color-row { margin-bottom:4px; }
+.pattern-color-row .prop-label { display:block; margin-bottom:2px; font-size:9px; }
+.pattern-color-swatches { display:flex; gap:2px; flex-wrap:wrap; }
+.pat-color-sw {
+  width:12px; height:12px; cursor:pointer; flex-shrink:0;
+  border:1px solid transparent;
+}
+.pat-color-sw.selected { border-color:var(--black); box-shadow:0 0 0 1px var(--white) inset; }
+.pat-slider-row {
+  display:flex; align-items:center; gap:4px; margin-bottom:4px;
+}
+.pat-slider-row .prop-label { width:30px; font-size:9px; flex-shrink:0; }
+.pat-slider-row input[type=range] { flex:1; }
+.pat-slider-row .prop-value { width:28px; font-size:9px; text-align:right; }
 .grad-angle-row, .grad-center-row {
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
@@ -798,8 +824,6 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         <input type="range" id="brush-size-input" min="4" max="200" value="30"
           style="writing-mode:vertical-lr;direction:rtl;width:8px;height:56px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
         <div id="brush-size-val" style="font-size:5px;">30</div>
-        <div class="tool-separator"></div>
-        <button class="mac-btn sm" data-action="add-image" style="width:38px;text-align:center;">+IMG</button>
       </div>
     </div>
 
@@ -939,6 +963,7 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
                 <div class="color-mode-toggle">
                   <button class="color-mode-btn active" id="btn-mode-solid">Solid</button>
                   <button class="color-mode-btn" id="btn-mode-gradient">Gradient</button>
+                  <button class="color-mode-btn" id="btn-mode-pattern">Pattern</button>
                 </div>
                 <div class="color-swatches" id="color-swatches">
                   <div class="color-swatch selected" data-color="#212121" style="background:#212121;" title="Black"></div>
@@ -973,6 +998,32 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
                   <canvas id="gradient-bar-canvas" height="20"></canvas>
                   <div id="gradient-stop-list"></div>
                   <button id="btn-add-stop">+ Add Stop</button>
+                </div>
+                <!-- Pattern editor -->
+                <div id="pattern-editor" class="hidden">
+                  <div class="pattern-type-row">
+                    <button class="pat-type-btn active" data-pat-type="stripes">Stripes</button>
+                    <button class="pat-type-btn" data-pat-type="polka">Polka</button>
+                    <button class="pat-type-btn" data-pat-type="stars">Stars</button>
+                  </div>
+                  <div class="pattern-color-row">
+                    <span class="prop-label">Color 1</span>
+                    <div class="pattern-color-swatches" id="pat-color1-swatches"></div>
+                  </div>
+                  <div class="pattern-color-row">
+                    <span class="prop-label">Color 2</span>
+                    <div class="pattern-color-swatches" id="pat-color2-swatches"></div>
+                  </div>
+                  <div class="pat-slider-row">
+                    <span class="prop-label">Size</span>
+                    <input type="range" id="pat-size" min="4" max="200" value="20">
+                    <span class="prop-value" id="val-pat-size">20</span>
+                  </div>
+                  <div class="pat-slider-row">
+                    <span class="prop-label">Angle</span>
+                    <input type="range" id="pat-angle" min="0" max="360" value="0">
+                    <span class="prop-value" id="val-pat-angle">0°</span>
+                  </div>
                 </div>
               </div>
 
@@ -1165,6 +1216,7 @@ const DB = {
       halftoneType: layer.halftoneType, halftoneSize: layer.halftoneSize, halftoneAngle: layer.halftoneAngle, color: layer.color,
       colorMode: layer.colorMode,
       gradient: JSON.parse(JSON.stringify(layer.gradient)),
+      pattern: JSON.parse(JSON.stringify(layer.pattern)),
       imageMaskIds: layer.imageMaskIds || [],
       isMaskFor:   layer.isMaskFor   || null,
     };
@@ -1219,6 +1271,13 @@ function makeLayer(data = {}) {
         { color: '#0078BF', position: 1 },
       ],
       poles: [],
+    },
+    pattern: data.pattern ? JSON.parse(JSON.stringify(data.pattern)) : {
+      type: 'stripes',
+      color1: '#212121',
+      color2: '#0078BF',
+      size: 20,
+      angle: 0,
     },
     imageMaskIds: data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []),
     isMaskFor:   data.isMaskFor   || null,
@@ -1310,6 +1369,56 @@ function generateGradientCanvas(width, height, gradient) {
   return canvas;
 }
 
+/* ─── PATTERN CANVAS GENERATOR ──────────────────────────────────── */
+function generatePatternCanvas(width, height, pattern) {
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const { type, color1, color2, size, angle } = pattern;
+  const tileSize = Math.max(4, Math.round(size)) * 2;
+  const tile = new OffscreenCanvas(tileSize, tileSize);
+  const tCtx = tile.getContext('2d');
+  tCtx.fillStyle = color1;
+  tCtx.fillRect(0, 0, tileSize, tileSize);
+
+  if (type === 'stripes') {
+    const bar = tileSize / 2;
+    tCtx.fillStyle = color2;
+    tCtx.fillRect(bar, 0, bar, tileSize);
+  } else if (type === 'polka') {
+    const r = tileSize / 4;
+    tCtx.fillStyle = color2;
+    tCtx.beginPath();
+    tCtx.arc(tileSize / 2, tileSize / 2, r, 0, Math.PI * 2);
+    tCtx.fill();
+  } else if (type === 'stars') {
+    const cx = tileSize / 2, cy = tileSize / 2;
+    const outerR = tileSize / 2.5;
+    const innerR = outerR * 0.45;
+    const points = 5;
+    tCtx.fillStyle = color2;
+    tCtx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+      const r = (i % 2 === 1) ? innerR : outerR;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      i === 0 ? tCtx.moveTo(px, py) : tCtx.lineTo(px, py);
+    }
+    tCtx.closePath();
+    tCtx.fill();
+  }
+
+  const pat = ctx.createPattern(tile, 'repeat');
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate((angle || 0) * Math.PI / 180);
+  ctx.fillStyle = pat;
+  const diag = Math.sqrt(width * width + height * height);
+  ctx.fillRect(-diag, -diag, diag * 2, diag * 2);
+  ctx.restore();
+  return canvas;
+}
+
 /* ─── IMAGE PROCESSING PIPELINE ─────────────────────────────────── */
 const ImageProcessor = {
 
@@ -1334,6 +1443,14 @@ const ImageProcessor = {
           d[i] = gradData[i]; d[i+1] = gradData[i+1]; d[i+2] = gradData[i+2];
           d[i+3] = Math.round(255 - gray);
         }
+      } else if (layer.colorMode === 'pattern' && layer.pattern) {
+        const patCanvas = generatePatternCanvas(nw, nh, layer.pattern);
+        const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+          d[i] = patData[i]; d[i+1] = patData[i+1]; d[i+2] = patData[i+2];
+          d[i+3] = Math.round(255 - gray);
+        }
       } else {
         const cr = parseInt(layer.color.slice(1, 3), 16);
         const cg = parseInt(layer.color.slice(3, 5), 16);
@@ -1353,6 +1470,15 @@ const ImageProcessor = {
           for (let i = 0; i < d.length; i += 4) {
             const gradGray = Math.round(0.299 * gradData[i] + 0.587 * gradData[i+1] + 0.114 * gradData[i+2]);
             const deepened = Math.round(Math.pow(gradGray / 255, 2.5) * 255);
+            d[i] = d[i+1] = d[i+2] = Math.max(d[i], deepened);
+          }
+        } else if (layer.colorMode === 'pattern' && layer.pattern) {
+          const patCanvas = generatePatternCanvas(nw, nh, layer.pattern);
+          const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+          const d = px.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const patGray = Math.round(0.299 * patData[i] + 0.587 * patData[i+1] + 0.114 * patData[i+2]);
+            const deepened = Math.round(Math.pow(patGray / 255, 2.5) * 255);
             d[i] = d[i+1] = d[i+2] = Math.max(d[i], deepened);
           }
         }
@@ -1634,6 +1760,20 @@ const ImageProcessor = {
         const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
         if (gray < 128) {
           d[i] = gradData[i]; d[i+1] = gradData[i+1]; d[i+2] = gradData[i+2]; d[i+3] = 255;
+        } else {
+          d[i+3] = 0;
+        }
+      }
+      return px;
+    }
+    if (layer && layer.colorMode === 'pattern' && layer.pattern) {
+      const nw = px.width, nh = px.height;
+      const patCanvas = generatePatternCanvas(nw, nh, layer.pattern);
+      const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        if (gray < 128) {
+          d[i] = patData[i]; d[i+1] = patData[i+1]; d[i+2] = patData[i+2]; d[i+3] = 255;
         } else {
           d[i+3] = 0;
         }
@@ -1996,6 +2136,23 @@ function buildGradientWeightMap(nw, nh, gradient, stopIdx) {
   return weightMap;
 }
 
+/* ─── PATTERN WEIGHT MAP ─────────────────────────────────────────── */
+function buildPatternWeightMap(nw, nh, pattern, colorIdx) {
+  const patCanvas = generatePatternCanvas(nw, nh, pattern);
+  const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
+  const target = colorIdx === 0 ? pattern.color1 : pattern.color2;
+  const tr = parseInt(target.slice(1,3), 16);
+  const tg = parseInt(target.slice(3,5), 16);
+  const tb = parseInt(target.slice(5,7), 16);
+  const weightMap = new Float32Array(nw * nh);
+  for (let i = 0; i < nw * nh; i++) {
+    const pr = patData[i*4], pg = patData[i*4+1], pb = patData[i*4+2];
+    const dist = Math.sqrt((pr-tr)**2 + (pg-tg)**2 + (pb-tb)**2);
+    weightMap[i] = dist < 30 ? 1.0 : 0.0;
+  }
+  return weightMap;
+}
+
 /* ─── EXPORT ENGINE ──────────────────────────────────────────────── */
 const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
@@ -2071,6 +2228,9 @@ const ExportEngine = {
         l.gradient.stops.forEach((stop, idx) => {
           ensurePlate(stop.color).gradContributions.push({ layer: l, stopIdx: idx });
         });
+      } else if (l.colorMode === 'pattern' && l.pattern) {
+        ensurePlate(l.pattern.color1).gradContributions.push({ layer: l, stopIdx: 0 });
+        ensurePlate(l.pattern.color2).gradContributions.push({ layer: l, stopIdx: 1 });
       } else {
         ensurePlate(l.color).solidLayers.push(l);
       }
@@ -2096,11 +2256,13 @@ const ExportEngine = {
         ctx.drawImage(this._renderLayerToBuffer(layer, layer._processedCanvas), 0, 0);
       }
 
-      // Gradient layer contributions (weighted by stop color dominance)
+      // Gradient / pattern layer contributions (weighted by color dominance)
       for (const { layer, stopIdx } of plate.gradContributions) {
         if (!layer._processedCanvas) continue;
         const nw = layer.naturalWidth, nh = layer.naturalHeight;
-        const weightMap = buildGradientWeightMap(nw, nh, layer.gradient, stopIdx);
+        const weightMap = layer.colorMode === 'pattern' && layer.pattern
+          ? buildPatternWeightMap(nw, nh, layer.pattern, stopIdx)
+          : buildGradientWeightMap(nw, nh, layer.gradient, stopIdx);
         // Create weight-modulated copy of processed canvas
         const weightedCanvas = new OffscreenCanvas(nw, nh);
         const wCtx = weightedCanvas.getContext('2d', { willReadFrequently: true });
@@ -2365,14 +2527,14 @@ function renderGradientBar(layer) {
 }
 
 function refreshGradientEditor(layer) {
-  const isSolid = !layer || layer.colorMode !== 'gradient';
-  document.getElementById('btn-mode-solid')?.classList.toggle('active', isSolid);
-  document.getElementById('btn-mode-gradient')?.classList.toggle('active', !isSolid);
+  const isGradient = layer && layer.colorMode === 'gradient';
+  document.getElementById('btn-mode-solid')?.classList.toggle('active', !layer || layer.colorMode === 'solid');
+  document.getElementById('btn-mode-gradient')?.classList.toggle('active', isGradient);
   const swatches = document.getElementById('color-swatches');
   const editor = document.getElementById('gradient-editor');
   if (!swatches || !editor) return;
-  swatches.style.display = isSolid ? '' : 'none';
-  if (isSolid) { editor.classList.add('hidden'); return; }
+  swatches.style.display = (!layer || layer.colorMode === 'solid') ? '' : 'none';
+  if (!isGradient) { editor.classList.add('hidden'); return; }
   editor.classList.remove('hidden');
 
   const g = layer.gradient;
@@ -2432,6 +2594,42 @@ function refreshGradientEditor(layer) {
   renderGradientBar(layer);
 }
 
+function refreshPatternEditor(layer) {
+  const isPattern = layer && layer.colorMode === 'pattern';
+  document.getElementById('btn-mode-pattern')?.classList.toggle('active', isPattern);
+  const editor = document.getElementById('pattern-editor');
+  if (!editor) return;
+  if (!isPattern) { editor.classList.add('hidden'); return; }
+  editor.classList.remove('hidden');
+
+  const p = layer.pattern;
+  document.querySelectorAll('.pat-type-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.patType === p.type));
+
+  const buildSwatches = (containerId, selectedColor, colorKey) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    RISO_COLORS.forEach(rc => {
+      const sw = document.createElement('div');
+      sw.className = 'pat-color-sw' + (rc.hex === selectedColor ? ' selected' : '');
+      sw.style.background = rc.hex;
+      if (rc.hex === '#FFFFFF') sw.style.borderColor = 'var(--black)';
+      sw.title = rc.name;
+      sw.dataset.patColor = rc.hex;
+      sw.dataset.patColorKey = colorKey;
+      container.appendChild(sw);
+    });
+  };
+  buildSwatches('pat-color1-swatches', p.color1, 'color1');
+  buildSwatches('pat-color2-swatches', p.color2, 'color2');
+
+  const sizeEl = document.getElementById('pat-size');
+  if (sizeEl) { sizeEl.value = p.size || 20; document.getElementById('val-pat-size').textContent = p.size || 20; }
+  const angleEl = document.getElementById('pat-angle');
+  if (angleEl) { angleEl.value = p.angle || 0; document.getElementById('val-pat-angle').textContent = (p.angle || 0) + '°'; }
+}
+
 /* ─── UNDO / REDO ────────────────────────────────────────────────── */
 function snapshotLayer(layer) { return { ...DB.layerRecord(layer) }; }
 
@@ -2449,6 +2647,7 @@ function applySnapshot(layer, snap) {
     halftoneType: snap.halftoneType, halftoneSize: snap.halftoneSize, halftoneAngle: snap.halftoneAngle, color: snap.color,
     colorMode: snap.colorMode || 'solid',
     gradient: snap.gradient ? JSON.parse(JSON.stringify(snap.gradient)) : layer.gradient,
+    pattern: snap.pattern ? JSON.parse(JSON.stringify(snap.pattern)) : layer.pattern,
   });
   layer._dirty = true;
   UI.refreshProperties();
@@ -2509,6 +2708,13 @@ const UI = {
       if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
         const stopsStr = l.gradient.stops.map(s => `${s.color} ${Math.round(s.position * 100)}%`).join(', ');
         dot.style.background = `linear-gradient(to right, ${stopsStr})`;
+      } else if (l.colorMode === 'pattern' && l.pattern) {
+        const p = l.pattern;
+        if (p.type === 'stripes') {
+          dot.style.background = `repeating-linear-gradient(${(p.angle || 0) + 90}deg, ${p.color1}, ${p.color1} ${p.size/2}px, ${p.color2} ${p.size/2}px, ${p.color2} ${p.size}px)`;
+        } else {
+          dot.style.background = p.color1;
+        }
       } else {
         dot.style.background = l.color;
       }
@@ -2600,6 +2806,7 @@ const UI = {
       s.classList.toggle('selected', s.dataset.color === layer.color));
 
     refreshGradientEditor(layer);
+    refreshPatternEditor(layer);
     document.getElementById('status-layer').textContent = layer.name;
 
     // Image mask buttons
@@ -3230,6 +3437,12 @@ function wireControls() {
     l.colorMode = 'gradient'; l._dirty = true;
     DB.saveLayer(l); UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
   });
+  document.getElementById('btn-mode-pattern').addEventListener('click', () => {
+    const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
+    l.colorMode = 'pattern'; l._dirty = true;
+    DB.saveLayer(l); UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
+  });
 
   // ── Gradient: type buttons ────────────────────────────────────────
   document.querySelectorAll('.grad-type-btn').forEach(btn => {
@@ -3334,6 +3547,54 @@ function wireControls() {
   });
   gradBarCanvas.addEventListener('pointerup', () => {
     if (gradDrag) { const l = selectedLayer(); if (l) DB.saveLayer(l); gradDrag = null; }
+  });
+
+  // ── Pattern: type buttons ─────────────────────────────────────────
+  document.querySelectorAll('.pat-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const l = selectedLayer(); if (!l) return;
+      l.pattern.type = btn.dataset.patType; l._dirty = true;
+      document.querySelectorAll('.pat-type-btn').forEach(b => b.classList.toggle('active', b === btn));
+      refreshPatternEditor(l); DB.saveLayer(l); Renderer.schedule();
+    });
+  });
+
+  // ── Pattern: color swatches ───────────────────────────────────────
+  document.getElementById('pat-color1-swatches').addEventListener('click', e => {
+    const sw = e.target.closest('.pat-color-sw');
+    if (!sw) return;
+    const l = selectedLayer(); if (!l) return;
+    l.pattern.color1 = sw.dataset.patColor; l._dirty = true;
+    refreshPatternEditor(l); DB.saveLayer(l); UI.refreshLayerList(); Renderer.schedule();
+  });
+  document.getElementById('pat-color2-swatches').addEventListener('click', e => {
+    const sw = e.target.closest('.pat-color-sw');
+    if (!sw) return;
+    const l = selectedLayer(); if (!l) return;
+    l.pattern.color2 = sw.dataset.patColor; l._dirty = true;
+    refreshPatternEditor(l); DB.saveLayer(l); UI.refreshLayerList(); Renderer.schedule();
+  });
+
+  // ── Pattern: size slider ──────────────────────────────────────────
+  document.getElementById('pat-size').addEventListener('input', e => {
+    const l = selectedLayer(); if (!l) return;
+    l.pattern.size = parseInt(e.target.value);
+    document.getElementById('val-pat-size').textContent = l.pattern.size;
+  });
+  document.getElementById('pat-size').addEventListener('change', e => {
+    const l = selectedLayer(); if (!l) return;
+    l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
+  });
+
+  // ── Pattern: angle slider ─────────────────────────────────────────
+  document.getElementById('pat-angle').addEventListener('input', e => {
+    const l = selectedLayer(); if (!l) return;
+    l.pattern.angle = parseInt(e.target.value);
+    document.getElementById('val-pat-angle').textContent = l.pattern.angle + '°';
+  });
+  document.getElementById('pat-angle').addEventListener('change', e => {
+    const l = selectedLayer(); if (!l) return;
+    l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
   });
 }
 
@@ -3469,14 +3730,22 @@ function showExportDialog() {
       for (const stop of l.gradient.stops) {
         if (!plateMap.has(stop.color)) {
           const name = RISO_COLORS.find(c => c.hex === stop.color)?.name || stop.color;
-          plateMap.set(stop.color, { name, layerCount: 0, isGrad: true });
+          plateMap.set(stop.color, { name, layerCount: 0, mode: 'gradient' });
         }
         plateMap.get(stop.color).layerCount++;
       }
+    } else if (l.colorMode === 'pattern' && l.pattern) {
+      [l.pattern.color1, l.pattern.color2].forEach(c => {
+        if (!plateMap.has(c)) {
+          const name = RISO_COLORS.find(rc => rc.hex === c)?.name || c;
+          plateMap.set(c, { name, layerCount: 0, mode: 'pattern' });
+        }
+        plateMap.get(c).layerCount++;
+      });
     } else {
       if (!plateMap.has(l.color)) {
         const name = RISO_COLORS.find(c => c.hex === l.color)?.name || l.color;
-        plateMap.set(l.color, { name, layerCount: 0, isGrad: false });
+        plateMap.set(l.color, { name, layerCount: 0, mode: 'solid' });
       }
       plateMap.get(l.color).layerCount++;
     }
@@ -3484,7 +3753,7 @@ function showExportDialog() {
   const listEl = document.getElementById('export-color-list');
   listEl.innerHTML = plateMap.size
     ? [...plateMap.entries()].map(([hex, info]) => {
-        const label = info.isGrad ? `${info.name} (gradient)` : info.name;
+        const label = info.mode !== 'solid' ? `${info.name} (${info.mode})` : info.name;
         return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <div style="width:14px;height:14px;background:${hex};border:1px solid #000;flex-shrink:0;"></div>
           <span>${label} — ${info.layerCount} layer(s)</span></div>`;
