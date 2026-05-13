@@ -7,9 +7,13 @@
     "build": "npm run build:wasm",
     "dev": "concurrently --names WASM,SERVE --prefix-colors cyan,magenta \"npm run watch:wasm\" \"npm run serve\"",
     "watch:wasm": "cd rust && cargo watch -s 'wasm-pack build --target web --out-dir ../src/wasm'",
-    "serve": "browser-sync start --server . --files 'src/**/*.js,src/**/*.css,index.html,src/wasm/*.js' --no-notify --cors"
+    "serve": "browser-sync start --server . --files 'src/**/*.js,src/**/*.css,index.html,src/wasm/*.js' --no-notify --cors",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "browser-sync": "^3.0.3",
     "concurrently": "^9.1.2"
   }
