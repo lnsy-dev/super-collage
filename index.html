@@ -732,6 +732,9 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         <div class="menu-entry" data-action="zoom-out">Zoom Out <span class="shortcut">&#8984;-</span></div>
         <div class="menu-entry" data-action="zoom-fit">Fit to Window <span class="shortcut">&#8984;0</span></div>
         <div class="menu-entry" data-action="zoom-100">Actual Size <span class="shortcut">&#8984;1</span></div>
+        <div class="menu-divider"></div>
+        <div class="menu-entry" data-action="rotate-page-cw">Rotate Page 90° CW</div>
+        <div class="menu-entry" data-action="rotate-page-ccw">Rotate Page 90° CCW</div>
       </div>
     </div>
     <div class="menu-item" data-menu="layer">Layer
@@ -821,6 +824,9 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
           <div class="tool-separator"></div>
           <button class="mac-btn sm" data-action="orient-portrait" id="btn-portrait" title="Portrait">&#9647;</button>
           <button class="mac-btn sm" data-action="orient-landscape" id="btn-landscape" title="Landscape">&#9645;</button>
+          <div class="tool-separator"></div>
+          <button class="mac-btn sm" data-action="rotate-page-ccw" title="Rotate page 90° counter-clockwise">&#8630;</button>
+          <button class="mac-btn sm" data-action="rotate-page-cw" title="Rotate page 90° clockwise">&#8631;</button>
         </div>
       </div>
     </div>
@@ -3361,6 +3367,48 @@ async function handleAction(action) {
       if (CANVAS_H > CANVAS_W) { const t = CANVAS_W; CANVAS_W = CANVAS_H; CANVAS_H = t; }
       if (State.project) { State.project.orientation = 'landscape'; DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) }); }
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
+    case 'rotate-page-cw': {
+      if (!State.project) break;
+      const oldW = CANVAS_W, oldH = CANVAS_H;
+      CANVAS_W = oldH; CANVAS_H = oldW;
+      for (const layer of State.layers) {
+        pushUndo(snapshotLayer(layer));
+        const cx = layer.x + layer.width / 2;
+        const cy = layer.y + layer.height / 2;
+        const newCx = cy;
+        const newCy = oldW - cx;
+        layer.x = newCx - layer.width / 2;
+        layer.y = newCy - layer.height / 2;
+        layer.rotation = ((layer.rotation + 90) % 360 + 360) % 360;
+        layer._dirty = true;
+        DB.saveLayer(layer);
+      }
+      State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
+      DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
+      break;
+    }
+    case 'rotate-page-ccw': {
+      if (!State.project) break;
+      const oldW = CANVAS_W, oldH = CANVAS_H;
+      CANVAS_W = oldH; CANVAS_H = oldW;
+      for (const layer of State.layers) {
+        pushUndo(snapshotLayer(layer));
+        const cx = layer.x + layer.width / 2;
+        const cy = layer.y + layer.height / 2;
+        const newCx = oldH - cy;
+        const newCy = cx;
+        layer.x = newCx - layer.width / 2;
+        layer.y = newCy - layer.height / 2;
+        layer.rotation = ((layer.rotation - 90) % 360 + 360) % 360;
+        layer._dirty = true;
+        DB.saveLayer(layer);
+      }
+      State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
+      DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
+      break;
+    }
     case 'undo': undo(); break;
     case 'redo': redo(); break;
     case 'new-project':  showProjectDialog(); break;
