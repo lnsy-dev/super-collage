@@ -9,16 +9,17 @@ const PAGE_SIZES = {
 const template = document.createElement('template');
 template.innerHTML = `
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Serif+Display:ital@0;1&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
     :host {
       display: block;
       width: 100vw;
       height: 100vh;
-      background: #0a0a0f;
+      background: #aaa;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='2' height='2' fill='%23888'/%3E%3Crect x='2' y='2' width='2' height='2' fill='%23888'/%3E%3C/svg%3E");
       overflow: hidden;
-      font-family: 'DM Mono', monospace;
-      color: #e0d8f0;
+      font-family: 'Press Start 2P', monospace;
+      color: #000;
     }
 
     /* ── CREATE VIEW ───────────────────────────────────────── */
@@ -44,40 +45,26 @@ template.innerHTML = `
       content: '';
       position: absolute;
       inset: 0;
-      background:
-        radial-gradient(ellipse 60% 50% at 50% 40%, rgba(90,60,140,0.12) 0%, transparent 70%),
-        repeating-linear-gradient(
-          0deg,
-          transparent,
-          transparent 39px,
-          rgba(255,255,255,0.025) 40px
-        ),
-        repeating-linear-gradient(
-          90deg,
-          transparent,
-          transparent 39px,
-          rgba(255,255,255,0.015) 40px
-        );
       pointer-events: none;
     }
 
     .wordmark {
-      font-family: 'DM Serif Display', serif;
-      font-size: clamp(2rem, 5vw, 3.5rem);
-      font-style: italic;
-      letter-spacing: -0.02em;
-      color: #e0d8f0;
-      margin-bottom: 0.25rem;
+      font-family: 'Press Start 2P', monospace;
+      font-size: clamp(1rem, 3vw, 2rem);
+      color: #000;
+      margin-bottom: 1rem;
       position: relative;
+      text-align: center;
     }
 
     .tagline {
-      font-size: 0.65rem;
-      letter-spacing: 0.22em;
+      font-size: 0.5rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #5a526a;
-      margin-bottom: 3.5rem;
+      color: #555;
+      margin-bottom: 3rem;
       position: relative;
+      text-align: center;
     }
 
     .form-card {
@@ -85,43 +72,40 @@ template.innerHTML = `
       display: flex;
       flex-direction: column;
       gap: 2rem;
-      padding: 2.5rem;
+      padding: 2rem;
       width: min(480px, calc(100vw - 3rem));
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 2px;
-      background: rgba(255,255,255,0.025);
-      backdrop-filter: blur(8px);
+      border: 2px solid #000;
+      background: #fff;
+      box-shadow: 4px 4px 0 #000;
     }
 
     .field-label {
-      font-size: 0.65rem;
-      letter-spacing: 0.18em;
+      font-size: 0.5rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #5a526a;
+      color: #555;
       margin-bottom: 0.75rem;
     }
 
     .name-input {
       width: 100%;
       box-sizing: border-box;
-      background: transparent;
-      border: none;
-      border-bottom: 1px solid rgba(255,255,255,0.12);
-      padding: 0.5rem 0;
-      font-family: 'DM Mono', monospace;
-      font-size: 1rem;
-      font-weight: 300;
-      color: #e0d8f0;
+      background: #fff;
+      border: 2px solid #555;
+      padding: 0.5rem;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.6rem;
+      color: #000;
       outline: none;
-      transition: border-color 0.2s;
     }
 
     .name-input::placeholder {
-      color: #3a3248;
+      color: #aaa;
     }
 
     .name-input:focus {
-      border-bottom-color: rgba(160,130,255,0.5);
+      border-color: #000;
+      outline: 2px solid #000;
     }
 
     /* ── PAPER SIZE CARDS ──────────────────────────────────── */
@@ -150,29 +134,26 @@ template.innerHTML = `
       align-items: center;
       gap: 0.85rem;
       padding: 1.1rem 0.75rem 0.9rem;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 2px;
-      background: rgba(255,255,255,0.02);
+      border: 2px solid #000;
+      background: #fff;
       transition: border-color 0.2s, background 0.2s;
       user-select: none;
     }
 
     .size-card:hover .size-card-inner {
-      border-color: rgba(255,255,255,0.18);
-      background: rgba(255,255,255,0.04);
+      background: #f0f0f0;
     }
 
     .size-card input:checked ~ .size-card-inner {
-      border-color: rgba(160,130,255,0.55);
-      background: rgba(120,90,200,0.1);
+      border-color: #000;
+      background: #ddd;
     }
 
     /* little paper icon at correct aspect ratio */
     .paper-icon {
       width: 28px;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 1px;
+      background: #ddd;
+      border: 1px solid #000;
       flex-shrink: 0;
       position: relative;
     }
@@ -185,64 +166,66 @@ template.innerHTML = `
       width: 0;
       height: 0;
       border-left: 4px solid transparent;
-      border-bottom: 4px solid rgba(255,255,255,0.2);
+      border-bottom: 4px solid #555;
     }
 
     .size-card input:checked ~ .size-card-inner .paper-icon {
-      background: rgba(160,130,255,0.15);
-      border-color: rgba(160,130,255,0.4);
+      background: #aaa;
+      border-color: #000;
     }
 
     .size-name {
-      font-size: 0.7rem;
+      font-size: 0.5rem;
       letter-spacing: 0.08em;
-      color: #9a92b0;
+      color: #555;
       text-align: center;
       transition: color 0.2s;
     }
 
     .size-dims {
-      font-size: 0.6rem;
+      font-size: 0.4rem;
       letter-spacing: 0.06em;
-      color: #5a526a;
+      color: #555;
       text-align: center;
       transition: color 0.2s;
     }
 
     .size-card input:checked ~ .size-card-inner .size-name {
-      color: #c8bef0;
+      color: #000;
     }
 
     .size-card input:checked ~ .size-card-inner .size-dims {
-      color: #9a88c8;
+      color: #000;
     }
 
     /* ── CREATE BUTTON ─────────────────────────────────────── */
 
     .create-btn {
       align-self: flex-end;
-      background: transparent;
-      border: 1px solid rgba(160,130,255,0.4);
-      color: #c8bef0;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      font-weight: 500;
-      letter-spacing: 0.2em;
+      background: var(--light-gray);
+      border-top: 2px solid #fff;
+      border-left: 2px solid #fff;
+      border-bottom: 2px solid #555;
+      border-right: 2px solid #555;
+      color: #000;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.5rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       padding: 0.75rem 1.75rem;
       cursor: pointer;
-      border-radius: 1px;
-      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      transition: background 0.2s;
     }
 
     .create-btn:hover {
-      background: rgba(160,130,255,0.12);
-      border-color: rgba(160,130,255,0.7);
-      color: #e0d8f0;
+      background: #aaa;
     }
 
     .create-btn:active {
-      background: rgba(160,130,255,0.2);
+      border-top: 2px solid #555;
+      border-left: 2px solid #555;
+      border-bottom: 2px solid #fff;
+      border-right: 2px solid #fff;
     }
 
     /* ── CANVAS VIEW ───────────────────────────────────────── */
@@ -274,28 +257,26 @@ template.innerHTML = `
       align-items: baseline;
       gap: 1rem;
       padding: 1rem 1.5rem;
-      background: linear-gradient(to bottom, rgba(10,10,15,0.9) 0%, transparent 100%);
+      background: linear-gradient(to bottom, rgba(170,170,170,0.9) 0%, transparent 100%);
     }
 
     .project-title {
-      font-family: 'DM Serif Display', serif;
-      font-style: italic;
-      font-size: 1.05rem;
-      color: #e0d8f0;
-      opacity: 0.85;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.6rem;
+      color: #000;
     }
 
     .project-size-label {
-      font-size: 0.65rem;
+      font-size: 0.4rem;
       letter-spacing: 0.12em;
-      color: #5a526a;
+      color: #555;
     }
 
     .canvas-status {
       margin-left: auto;
-      font-size: 0.65rem;
+      font-size: 0.4rem;
       letter-spacing: 0.1em;
-      color: #5a526a;
+      color: #555;
     }
 
     webgl-canvas {
@@ -315,20 +296,21 @@ template.innerHTML = `
       position: absolute;
       cursor: grab;
       pointer-events: all;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
-      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
+      border: 2px solid #000;
       user-select: none;
       touch-action: none;
     }
 
     .pasted-image:hover {
-      border-color: rgba(160,130,255,0.4);
+      border-color: #000;
+      background: #f0f0f0;
     }
 
     .pasted-image.dragging {
       cursor: grabbing;
-      border-color: rgba(160,130,255,0.7);
-      box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+      border-color: #000;
+      box-shadow: 6px 6px 0 rgba(0,0,0,0.6);
       z-index: 100;
     }
 
@@ -337,10 +319,10 @@ template.innerHTML = `
       bottom: 1.5rem;
       left: 50%;
       transform: translateX(-50%);
-      font-size: 0.6rem;
-      letter-spacing: 0.18em;
+      font-size: 0.4rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #3a3248;
+      color: #555;
       pointer-events: none;
       transition: opacity 0.4s;
     }

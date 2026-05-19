@@ -33,7 +33,8 @@ void main() {
   gl_PointSize = 2.0 + sin(u_time * 0.5 + a_hue * 6.28) * 0.5;
 
   float lightness = 0.5 + 0.2 * sin(u_time * 0.4 + a_hue * 3.14);
-  v_color = hsl2rgb(a_hue, 0.8, lightness);
+  float gray = 0.5 + 0.3 * sin(u_time * 0.4 + a_hue * 3.14);
+  v_color = vec3(gray, gray, gray);
 }
 `;
 
@@ -188,7 +189,7 @@ class WebGLCanvas extends HTMLElement {
       const w = this.#canvas.width;
       const h = this.#canvas.height;
       gl.viewport(0, 0, w, h);
-      gl.clearColor(0.04, 0.04, 0.06, 1.0);
+      gl.clearColor(0.67, 0.67, 0.67, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
       if (!this.#renderBuf) return;
