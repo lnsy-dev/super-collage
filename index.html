@@ -208,8 +208,8 @@ body {
 
 /* ─── RIGHT PANELS ───────────────────────────────────────────────── */
 #right-panel {
-  width: 186px;
-  min-width: 186px;
+  width: 286px;
+  min-width: 286px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1982,15 +1982,14 @@ const Renderer = {
       if (maskLayer._dirty) ImageProcessor.processLayer(maskLayer);
       if (!maskLayer._processedCanvas) continue;
 
-      // Buffer B: render mask layer at tight bounds, then convert to alpha channel
+      // Buffer B: render mask layer into a full-size buffer, then convert to alpha channel
       // Black (lum=0) → alpha=255 (show base), white/transparent → alpha=0 (hide base)
-      const mb = this._getLayerScreenBounds(maskLayer, z);
-      const maskBuf = new OffscreenCanvas(mb.width, mb.height);
+      const maskBuf = new OffscreenCanvas(cw, ch);
       const mCtx = maskBuf.getContext('2d');
       mCtx.save();
       mCtx.translate(
-        ((maskLayer.x + maskLayer.width / 2) * z) - mb.left,
-        ((maskLayer.y + maskLayer.height / 2) * z) - mb.top
+        ((maskLayer.x + maskLayer.width / 2) * z) - b.left,
+        ((maskLayer.y + maskLayer.height / 2) * z) - b.top
       );
       mCtx.rotate(maskLayer.rotation * Math.PI / 180);
       mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
@@ -2000,7 +1999,7 @@ const Renderer = {
 
       // Invert alpha: ink pixels (alpha=255) become transparent (cuts away base),
       // no-ink pixels (alpha=0) become opaque (reveals base).
-      const imgData = mCtx.getImageData(0, 0, mb.width, mb.height);
+      const imgData = mCtx.getImageData(0, 0, cw, ch);
       const d = imgData.data;
       for (let i = 0; i < d.length; i += 4) {
         d[i + 3] = 255 - d[i + 3];
@@ -2009,7 +2008,7 @@ const Renderer = {
 
       // Apply alpha mask to base layer buffer
       lCtx.globalCompositeOperation = 'destination-in';
-      lCtx.drawImage(maskBuf, mb.left - b.left, mb.top - b.top);
+      lCtx.drawImage(maskBuf, 0, 0);
     }
 
     // Composite the masked result onto the main canvas using multiply
