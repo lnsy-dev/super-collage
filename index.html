@@ -3964,6 +3964,22 @@ wrapper.addEventListener('drop', async e => {
     if (file.type.startsWith('image/')) await LayerManager.addFromFile(file);
 });
 
+/* ─── PASTE FROM CLIPBOARD ───────────────────────────────────────── */
+document.addEventListener('paste', async e => {
+  if (!State.project) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.indexOf('image') === -1) continue;
+    const blob = item.getAsFile();
+    if (!blob) continue;
+    e.preventDefault();
+    const file = new File([blob], 'Pasted Image.png', { type: blob.type });
+    await LayerManager.addFromFile(file);
+    break;
+  }
+});
+
 /* ─── KEYBOARD SHORTCUTS ─────────────────────────────────────────── */
 document.addEventListener('keydown', e => {
   if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
