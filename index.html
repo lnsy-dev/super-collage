@@ -2460,7 +2460,10 @@ const LayerManager = {
       naturalWidth: nw, naturalHeight: nh,
     });
     const orig = new OffscreenCanvas(nw, nh);
-    orig.getContext('2d').drawImage(bmp, 0, 0);
+    const ctx = orig.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, nw, nh);
+    ctx.drawImage(bmp, 0, 0);
     bmp.close();
     layer._originalCanvas = orig;
     MaskEngine.initMask(layer);
@@ -2521,7 +2524,10 @@ const LayerManager = {
     const layer = makeLayer({ ...DB.layerRecord(src), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
     const bmp = await createImageBitmap(imgRec.blob);
     const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-    orig.getContext('2d').drawImage(bmp, 0, 0);
+    const ctx = orig.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
+    ctx.drawImage(bmp, 0, 0);
     bmp.close();
     layer._originalCanvas = orig;
     if (src._maskCanvas) {
@@ -3765,7 +3771,10 @@ async function openProject(projectId) {
     if (imgRec?.blob) {
       const bmp = await createImageBitmap(imgRec.blob);
       const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-      orig.getContext('2d').drawImage(bmp, 0, 0);
+      const ctx = orig.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
+      ctx.drawImage(bmp, 0, 0);
       bmp.close();
       layer._originalCanvas = orig;
     }
