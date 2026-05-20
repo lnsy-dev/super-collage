@@ -644,6 +644,7 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
           <label><input type="radio" name="new-page-size" value="half-letter"> 5.5 × 8.5</label>
           <label><input type="radio" name="new-page-size" value="4x6"> 4 × 6</label>
           <label><input type="radio" name="new-page-size" value="4.25x7"> 4.25 × 7</label>
+          <label><input type="radio" name="new-page-size" value="manga"> 5.04 × 7.17</label>
         </div>
       </div>
     </div>
@@ -1060,6 +1061,7 @@ const PAGE_SIZE_DIMS = {
   'half-letter': { w: 3300, h: 5100 },
   '4x6':         { w: 2400, h: 3600 },
   '4.25x7':      { w: 2550, h: 4200 },
+  'manga':       { w: 3024, h: 4302 },
 };
 let blendSubtractive = null; // loaded from WASM at init
 
@@ -3850,7 +3852,7 @@ async function openProject(projectId) {
   }
 
   document.getElementById('main-app').style.display = 'flex';
-  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"' };
+  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"', 'manga': '5.04" × 7.17"' };
   const sizeLabel = pageSizeLabels[project.pageSize] || '8.5" × 11"';
   const dims = PAGE_SIZE_DIMS[project.pageSize] || PAGE_SIZE_DIMS['letter'];
   CANVAS_W = dims.w;

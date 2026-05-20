@@ -28,6 +28,7 @@ test.describe('Project Management', () => {
       { value: 'half-letter', label: '5.5" × 8.5"' },
       { value: '4x6', label: '4" × 6"' },
       { value: '4.25x7', label: '4.25" × 7"' },
+      { value: 'manga', label: '5.04" × 7.17"' },
     ];
 
     for (const size of sizes) {

@@ -4,6 +4,7 @@ const PAGE_SIZES = {
   'half-letter': { label: 'Half Letter', dims: '5.5 × 8.5 in',  w: 5.5,  h: 8.5  },
   '4x6':         { label: '4 × 6',       dims: '4 × 6 in',      w: 4,    h: 6    },
   '4.25x7':      { label: '4.25 × 7',    dims: '4.25 × 7 in',   w: 4.25, h: 7    },
+  'manga':       { label: 'Manga',       dims: '5.04 × 7.17 in', w: 5.04, h: 7.17 },
 };
 
 const template = document.createElement('template');
