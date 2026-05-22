@@ -1204,6 +1204,7 @@ const DB = {
       pattern: JSON.parse(JSON.stringify(layer.pattern)),
       imageMaskIds: layer.imageMaskIds || [],
       isMaskFor:   layer.isMaskFor   || null,
+      isSvg: layer.isSvg || false,
     };
   },
 
@@ -1266,6 +1267,7 @@ function makeLayer(data = {}) {
     },
     imageMaskIds: data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []),
     isMaskFor:   data.isMaskFor   || null,
+    isSvg: data.isSvg || false,
     _originalCanvas: null,
     _processedCanvas: null,
     _maskCanvas: null,
@@ -1427,21 +1429,49 @@ const ImageProcessor = {
   },
 
   processLayer(layer, { forExport = false } = {}) {
-    if (!layer._originalCanvas) return null;
+    if (!layer._originalCanvas && !(layer.isSvg && layer._svgImage)) return null;
     this._processCallCount++;
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     let targetW, targetH;
-    if (forExport) {
-      targetW = nw;
-      targetH = nh;
+    if (layer.isSvg) {
+      if (forExport) {
+        targetW = layer.width;
+        targetH = layer.height;
+      } else {
+        const displayW = layer.width * State.zoom;
+        const displayH = layer.height * State.zoom;
+        const dpr = window.devicePixelRatio || 1;
+        const quality = 1.5;
+        let tw = Math.max(64, Math.ceil(displayW * dpr * quality));
+        let th = Math.round(layer.height * (tw / layer.width));
+        const altTh = Math.max(64, Math.ceil(displayH * dpr * quality));
+        const altTw = Math.round(layer.width * (altTh / layer.height));
+        if (altTw * altTh < tw * th) {
+          tw = altTw;
+          th = altTh;
+        }
+        targetW = tw;
+        targetH = th;
+      }
     } else {
-      const res = this.getDisplayResolution(layer);
-      targetW = res.w;
-      targetH = res.h;
+      if (forExport) {
+        targetW = nw;
+        targetH = nh;
+      } else {
+        const res = this.getDisplayResolution(layer);
+        targetW = res.w;
+        targetH = res.h;
+      }
     }
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
+    if (layer.isSvg && layer._svgImage) {
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(layer._svgImage, 0, 0, targetW, targetH);
+    } else {
+      ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
+    }
     let px = ctx.getImageData(0, 0, targetW, targetH);
     px = this.toGrayscale(px);
     px = this.applyBrightness(px, layer.brightness);
@@ -2462,6 +2492,48 @@ const LayerManager = {
   },
 
   async addFromFile(file) {
+    const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      const text = await file.text();
+      const svgBlob = new Blob([text], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      URL.revokeObjectURL(url);
+      // Browser intrinsic size is at 96 DPI; scale to document 600 DPI
+      const dpiScale = 600 / 96;
+      const nw = Math.round(img.naturalWidth * dpiScale);
+      const nh = Math.round(img.naturalHeight * dpiScale);
+      const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
+      const w = Math.round(nw * scale), h = Math.round(nh * scale);
+      const layer = makeLayer({
+        name: file.name.replace(/\.[^.]+$/, ''),
+        x: Math.round((CANVAS_W - w) / 2),
+        y: Math.round((CANVAS_H - h) / 2),
+        width: w, height: h,
+        naturalWidth: nw, naturalHeight: nh,
+        isSvg: true,
+      });
+      layer._svgImage = img;
+      layer._svgText = text;
+      MaskEngine.initMask(layer);
+
+      State.layers.push(layer);
+      State.selectedId = layer.id;
+      State.selectedIds = [layer.id];
+
+      await DB.put('layers', DB.layerRecord(layer));
+      await DB.put('imageBlobs', { layerId: layer.id, blob: file });
+      await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+
+      document.getElementById('no-layer-msg').style.display = 'none';
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+      return;
+    }
+
     const bmp = await createImageBitmap(file);
     const nw = bmp.width, nh = bmp.height;
     const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
@@ -3832,14 +3904,25 @@ async function openProject(projectId) {
     const layer = makeLayer(rec);
     const imgRec = await DB.get('imageBlobs', layer.id);
     if (imgRec?.blob) {
-      const bmp = await createImageBitmap(imgRec.blob);
-      const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-      const ctx = orig.getContext('2d');
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-      ctx.drawImage(bmp, 0, 0);
-      bmp.close();
-      layer._originalCanvas = orig;
+      if (layer.isSvg) {
+        const text = await imgRec.blob.text();
+        layer._svgText = text;
+        const svgBlob = new Blob([text], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        URL.revokeObjectURL(url);
+        layer._svgImage = img;
+      } else {
+        const bmp = await createImageBitmap(imgRec.blob);
+        const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+        const ctx = orig.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close();
+        layer._originalCanvas = orig;
+      }
     }
     const maskRec = await DB.get('maskBlobs', layer.id);
     if (maskRec?.blob) {

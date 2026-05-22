@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TEST_IMAGE = path.join(__dirname, 'fixtures', 'test-image.png');
+const TEST_SVG = path.join(__dirname, 'fixtures', 'test-image.svg');
 
 test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
@@ -62,5 +63,40 @@ test.describe('Image Import', () => {
     await page.setInputFiles('#file-input', TEST_IMAGE);
 
     await expect(page.locator('#no-layer-msg')).toBeHidden();
+  });
+
+  test('add svg via file picker', async ({ page }) => {
+    await createProject(page, 'SVG Import Test');
+
+    await page.setInputFiles('#file-input', TEST_SVG);
+
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+    await expect(page.locator('#layer-list .layer-name')).toContainText('test-image');
+  });
+
+  test('svg scales up and retains vector crispness on export', async ({ page }) => {
+    await createProject(page, 'SVG Scale Test');
+
+    await page.setInputFiles('#file-input', TEST_SVG);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+
+    // Scale the SVG layer up to 3x its imported size and reprocess for export
+    const exportSize = await page.evaluate(() => {
+      const layer = State.layers[0];
+      if (!layer || !layer.isSvg) return null;
+      layer.width = Math.round(layer.width * 3);
+      layer.height = Math.round(layer.height * 3);
+      layer._dirty = true;
+      const canvas = ImageProcessor.processLayer(layer, { forExport: true });
+      return {
+        exportW: canvas?.width || 0,
+        exportH: canvas?.height || 0,
+        layerW: layer.width,
+        layerH: layer.height,
+      };
+    });
+    expect(exportSize).not.toBeNull();
+    expect(exportSize.exportW).toBe(exportSize.layerW);
+    expect(exportSize.exportH).toBe(exportSize.layerH);
   });
 });
