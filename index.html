@@ -526,6 +526,17 @@ input[type="number"] {
 ::-webkit-scrollbar-track { background: var(--light-gray); border: 1px solid var(--black); }
 ::-webkit-scrollbar-thumb { background: var(--gray); border: 1px solid var(--black); }
 
+/* Loading spinner */
+.loading-spinner {
+  width: 24px; height: 24px;
+  border: 3px solid var(--light-gray);
+  border-top-color: var(--black);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* Cursor modes */
 body.tool-select #interaction-overlay { cursor: default; }
 body.tool-move #interaction-overlay { cursor: move; }
@@ -706,6 +717,20 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
   </div>
 </div>
 
+<!-- ═══ COLOR SEPARATION LOADING DIALOG ═══════════════════════════ -->
+<div class="dialog-overlay hidden" id="color-sep-loading-dialog">
+  <div class="mac-dialog" style="min-width:280px;max-width:360px;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Importing Color Separation…</div>
+    </div>
+    <div class="dialog-body" style="text-align:center;padding:20px;">
+      <img id="color-sep-preview" style="max-width:200px;max-height:150px;border:2px solid #000;margin-bottom:12px;display:none;image-rendering:pixelated;" alt="Preview">
+      <p style="font-size:9px;line-height:2;margin-bottom:8px;" id="color-sep-status">Preparing image…</p>
+      <div class="loading-spinner"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MAIN APP ══════════════════════════════════════════════════= -->
 <div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100vh;">
 
@@ -718,6 +743,7 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         <div class="menu-entry" data-action="open-project">Open Project…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="add-image">Add Image… <span class="shortcut">&#8984;I</span></div>
+        <div class="menu-entry" data-action="import-color-separation">Import Color Separation…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="export">Export Plates… <span class="shortcut">&#8984;E</span></div>
         <div class="menu-entry" data-action="export-composite">Export Composite… <span class="shortcut">&#8984;&#8679;E</span></div>
@@ -1044,6 +1070,7 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
 </div><!-- #main-app -->
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none;">
+<input type="file" id="color-sep-input" accept="image/*" style="display:none;">
 
 <script>
 'use strict';
@@ -1064,6 +1091,9 @@ const PAGE_SIZE_DIMS = {
   'manga':       { w: 3024, h: 4302 },
 };
 let blendSubtractive = null; // loaded from WASM at init
+let separateColorsWithLut = null; // loaded from WASM at init
+let buildColorLut = null;         // loaded from WASM at init
+let colorSepLut = null;           // pre-built LUT for riso color separation
 
 const RISO_COLORS = [
   { name: 'Black',       hex: '#212121' },
@@ -1205,6 +1235,8 @@ const DB = {
       imageMaskIds: layer.imageMaskIds || [],
       isMaskFor:   layer.isMaskFor   || null,
       isSvg: layer.isSvg || false,
+      isColorSeparation: layer.isColorSeparation || false,
+      separationColors: layer.separationColors || [],
     };
   },
 
@@ -1268,6 +1300,9 @@ function makeLayer(data = {}) {
     imageMaskIds: data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []),
     isMaskFor:   data.isMaskFor   || null,
     isSvg: data.isSvg || false,
+    isColorSeparation: data.isColorSeparation || false,
+    separationColors: data.separationColors || [],
+    separationPlates: new Map(),
     _originalCanvas: null,
     _processedCanvas: null,
     _maskCanvas: null,
@@ -1429,6 +1464,9 @@ const ImageProcessor = {
   },
 
   processLayer(layer, { forExport = false } = {}) {
+    if (layer.isColorSeparation) {
+      return this.processColorSeparation(layer, forExport);
+    }
     if (!layer._originalCanvas && !(layer.isSvg && layer._svgImage)) return null;
     this._processCallCount++;
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
@@ -1841,6 +1879,74 @@ const ImageProcessor = {
       }
     }
     return px;
+  },
+
+  // Per-color screen angles to minimize moiré when multiple plates overlap
+  _separationAngles: {
+    '#212121': 45, '#E02B2B': 75, '#FF6C0A': 15,
+    '#FFE800': 90, '#FF48B0': 105, '#28C8C8': 30, '#0078BF': 60,
+  },
+
+  processColorSeparation(layer, forExport) {
+    const nw = layer.naturalWidth, nh = layer.naturalHeight;
+    let targetW, targetH;
+    if (forExport) {
+      targetW = nw;
+      targetH = nh;
+    } else {
+      const res = this.getDisplayResolution(layer);
+      targetW = res.w;
+      targetH = res.h;
+    }
+    const work = new OffscreenCanvas(targetW, targetH);
+    const ctx = work.getContext('2d');
+
+    for (const colorHex of layer.separationColors) {
+      const plate = layer.separationPlates.get(colorHex);
+      if (!plate) continue;
+
+      const plateCanvas = new OffscreenCanvas(targetW, targetH);
+      const pCtx = plateCanvas.getContext('2d', { willReadFrequently: true });
+      pCtx.drawImage(plate, 0, 0, targetW, targetH);
+
+      let px = pCtx.getImageData(0, 0, targetW, targetH);
+
+      if (layer.halftoneType === 'grayscale') {
+        // Grayscale halftone: use plate value as alpha coverage instead of dot patterns.
+        // Plate data is already grayscale where 0 = full ink, 255 = no ink.
+        const d = px.data;
+        const cr = parseInt(colorHex.slice(1, 3), 16);
+        const cg = parseInt(colorHex.slice(3, 5), 16);
+        const cb = parseInt(colorHex.slice(5, 7), 16);
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = d[i]; // R = G = B in plate
+          d[i] = cr;
+          d[i + 1] = cg;
+          d[i + 2] = cb;
+          d[i + 3] = 255 - gray; // darker plate = more opaque ink
+        }
+        pCtx.putImageData(px, 0, 0);
+      } else {
+        const baseAngle = layer.halftoneAngle || 45;
+        const offsetAngle = this._separationAngles[colorHex] || 0;
+        const angle = (baseAngle + offsetAngle) % 180;
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, angle, layer.hatchLineHeight, layer.hatchLineLength);
+        pCtx.putImageData(px, 0, 0);
+
+        // Colorize: black dots → riso color, white → transparent
+        const colored = this.colorize(pCtx.getImageData(0, 0, targetW, targetH), colorHex, null);
+        pCtx.putImageData(colored, 0, 0);
+      }
+
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.drawImage(plateCanvas, 0, 0);
+    }
+
+    if (forExport) return work;
+    layer._processedCanvas = work;
+    layer._processedAtZoom = State.zoom;
+    layer._dirty = false;
+    return work;
   },
 };
 
@@ -2327,11 +2433,15 @@ const ExportEngine = {
     // Build plate map: color → { solidLayers[], gradContributions[] }
     const plateMap = new Map();
     const ensurePlate = hex => {
-      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [] });
+      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [] });
       return plateMap.get(hex);
     };
     for (const l of visibleLayers) {
-      if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
+      if (l.isColorSeparation) {
+        for (const colorHex of l.separationColors) {
+          ensurePlate(colorHex).separationLayers.push({ layer: l, color: colorHex });
+        }
+      } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
         l.gradient.stops.forEach((stop, idx) => {
           ensurePlate(stop.color).gradContributions.push({ layer: l, stopIdx: idx });
         });
@@ -2363,6 +2473,39 @@ const ExportEngine = {
         const sourceCanvas = ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
         if (!sourceCanvas) continue;
         ctx.drawImage(this._renderLayerToBuffer(layer, sourceCanvas), 0, 0);
+      }
+
+      // Color separation layer contributions
+      for (const { layer, color: plateColor } of (plate.separationLayers || [])) {
+        const plateCanvas = layer.separationPlates.get(plateColor);
+        if (!plateCanvas) continue;
+        const scaled = new OffscreenCanvas(layer.width, layer.height);
+        const sCtx = scaled.getContext('2d', { willReadFrequently: true });
+        sCtx.drawImage(plateCanvas, 0, 0, layer.width, layer.height);
+        let px = sCtx.getImageData(0, 0, layer.width, layer.height);
+        if (layer.halftoneType === 'grayscale') {
+          const d = px.data;
+          const cr = parseInt(plateColor.slice(1, 3), 16);
+          const cg = parseInt(plateColor.slice(3, 5), 16);
+          const cb = parseInt(plateColor.slice(5, 7), 16);
+          for (let i = 0; i < d.length; i += 4) {
+            const gray = d[i];
+            d[i] = cr;
+            d[i + 1] = cg;
+            d[i + 2] = cb;
+            d[i + 3] = 255 - gray;
+          }
+          sCtx.putImageData(px, 0, 0);
+        } else {
+          const baseAngle = layer.halftoneAngle || 45;
+          const offsetAngle = ImageProcessor._separationAngles[plateColor] || 0;
+          const angle = (baseAngle + offsetAngle) % 180;
+          px = ImageProcessor.applyHalftone(px, layer.width, layer.height, layer.halftoneType, layer.halftoneSize, angle, layer.hatchLineHeight, layer.hatchLineLength);
+          sCtx.putImageData(px, 0, 0);
+          const colored = ImageProcessor.colorize(sCtx.getImageData(0, 0, layer.width, layer.height), plateColor, null);
+          sCtx.putImageData(colored, 0, 0);
+        }
+        ctx.drawImage(this._renderLayerToBuffer(layer, scaled), 0, 0);
       }
 
       // Gradient / pattern layer contributions (weighted by color dominance)
@@ -2423,7 +2566,7 @@ const ExportEngine = {
     let accumulator = new Uint8Array(CANVAS_W * CANVAS_H * 4).fill(255);
 
     // Exclude mask layers — they render as part of their paired base layer
-    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor && (l._processedCanvas || l._originalCanvas));
+    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor && (l._processedCanvas || l._originalCanvas || l.isColorSeparation));
     for (let li = 0; li < visibleLayers.length; li++) {
       const layer = visibleLayers[li];
       prog.textContent = `Blending layer ${li + 1} / ${visibleLayers.length}…`;
@@ -2567,6 +2710,119 @@ const LayerManager = {
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
+  },
+
+  async addColorSeparation(file) {
+    const MAX_SEP_DIM = 1500; // cap decomposition resolution for speed
+
+    const dialog = document.getElementById('color-sep-loading-dialog');
+    const statusEl = document.getElementById('color-sep-status');
+    const previewEl = document.getElementById('color-sep-preview');
+
+    // Show preview
+    const previewUrl = URL.createObjectURL(file);
+    previewEl.src = previewUrl;
+    previewEl.style.display = 'block';
+    statusEl.textContent = 'Preparing image…';
+    dialog.classList.remove('hidden');
+
+    // Let browser paint the modal before heavy work
+    await new Promise(r => setTimeout(r, 50));
+
+    try {
+      const bmp = await createImageBitmap(file);
+      const origW = bmp.width, origH = bmp.height;
+      const scale = Math.min(1, CANVAS_W / origW, CANVAS_H / origH);
+      const w = Math.round(origW * scale), h = Math.round(origH * scale);
+
+      // Cap source resolution for decomposition to keep WASM fast
+      let srcW = origW, srcH = origH;
+      if (Math.max(srcW, srcH) > MAX_SEP_DIM) {
+        const ds = MAX_SEP_DIM / Math.max(srcW, srcH);
+        srcW = Math.round(srcW * ds);
+        srcH = Math.round(srcH * ds);
+      }
+
+      statusEl.textContent = `Decomposing ${srcW}×${srcH} into riso plates…`;
+      await new Promise(r => setTimeout(r, 10));
+
+      // Extract RGBA data at capped resolution
+      const sourceCanvas = new OffscreenCanvas(srcW, srcH);
+      const sCtx = sourceCanvas.getContext('2d');
+      sCtx.fillStyle = 'white';
+      sCtx.fillRect(0, 0, srcW, srcH);
+      sCtx.drawImage(bmp, 0, 0, srcW, srcH);
+      bmp.close();
+      const imageData = sCtx.getImageData(0, 0, srcW, srcH);
+
+      // Build riso color array (exclude white)
+      const risoColors = [];
+      for (const rc of RISO_COLORS) {
+        if (rc.hex === '#FFFFFF') continue;
+        const r = parseInt(rc.hex.slice(1, 3), 16);
+        const g = parseInt(rc.hex.slice(3, 5), 16);
+        const b = parseInt(rc.hex.slice(5, 7), 16);
+        risoColors.push(r, g, b);
+      }
+
+      // Run WASM decomposition using pre-built LUT (fast, non-blocking)
+      const plateBuffer = separateColorsWithLut(imageData.data, srcW, srcH, colorSepLut, 16);
+      const pixelCount = srcW * srcH;
+      const numPlates = RISO_COLORS.length - 1; // exclude white
+
+      statusEl.textContent = 'Building plates…';
+      await new Promise(r => setTimeout(r, 10));
+
+      const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+      const separationPlates = new Map();
+
+      for (let i = 0; i < numPlates; i++) {
+        const plateCanvas = new OffscreenCanvas(srcW, srcH);
+        const pCtx = plateCanvas.getContext('2d');
+        const plateData = new ImageData(
+          new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
+          srcW, srcH
+        );
+        pCtx.putImageData(plateData, 0, 0);
+        separationPlates.set(separationColors[i], plateCanvas);
+      }
+
+      const layer = makeLayer({
+        name: 'Sep: ' + file.name.replace(/\.[^.]+$/, ''),
+        x: Math.round((CANVAS_W - w) / 2),
+        y: Math.round((CANVAS_H - h) / 2),
+        width: w, height: h,
+        naturalWidth: srcW, naturalHeight: srcH,
+        isColorSeparation: true,
+        separationColors,
+        halftoneType: 'grayscale',
+        halftoneSize: 12,
+        halftoneAngle: 45,
+      });
+      layer.separationPlates = separationPlates;
+      // Store source image so we can rebuild plates on load
+      layer._originalCanvas = sourceCanvas;
+      MaskEngine.initMask(layer);
+
+      State.layers.push(layer);
+      State.selectedId = layer.id;
+      State.selectedIds = [layer.id];
+
+      await DB.put('layers', DB.layerRecord(layer));
+      await DB.put('imageBlobs', { layerId: layer.id, blob: file });
+      await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+
+      document.getElementById('no-layer-msg').style.display = 'none';
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+    } finally {
+      dialog.classList.add('hidden');
+      previewEl.style.display = 'none';
+      previewEl.src = '';
+      URL.revokeObjectURL(previewUrl);
+    }
   },
 
   async delete(layerId) {
@@ -2875,7 +3131,10 @@ const UI = {
 
       const dot = document.createElement('div');
       dot.className = 'layer-color-dot';
-      if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
+      if (l.isColorSeparation) {
+        const stopsStr = l.separationColors.map((c, i) => `${c} ${Math.round(i / (l.separationColors.length - 1) * 100)}%`).join(', ');
+        dot.style.background = `linear-gradient(to right, ${stopsStr})`;
+      } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
         const stopsStr = l.gradient.stops.map(s => `${s.color} ${Math.round(s.position * 100)}%`).join(', ');
         dot.style.background = `linear-gradient(to right, ${stopsStr})`;
       } else if (l.colorMode === 'pattern' && l.pattern) {
@@ -2978,6 +3237,12 @@ const UI = {
     refreshGradientEditor(layer);
     refreshPatternEditor(layer);
     document.getElementById('status-layer').textContent = layer.name;
+
+    // Hide color picker UI for color-separation layers
+    const colorSection = document.querySelector('#properties-content .prop-section:has(#color-swatches)');
+    if (colorSection) {
+      colorSection.style.display = layer.isColorSeparation ? 'none' : '';
+    }
 
     // Image mask buttons
     const createMaskBtn = document.getElementById('btn-create-image-mask');
@@ -3359,6 +3624,7 @@ async function handleAction(action) {
   const layer = selectedLayer();
   switch (action) {
     case 'add-image':     document.getElementById('file-input').click(); break;
+    case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
@@ -3913,6 +4179,40 @@ async function openProject(projectId) {
         await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
         URL.revokeObjectURL(url);
         layer._svgImage = img;
+      } else if (layer.isColorSeparation) {
+        const bmp = await createImageBitmap(imgRec.blob);
+        const nw = layer.naturalWidth, nh = layer.naturalHeight;
+        const sourceCanvas = new OffscreenCanvas(nw, nh);
+        const sCtx = sourceCanvas.getContext('2d');
+        sCtx.fillStyle = 'white';
+        sCtx.fillRect(0, 0, nw, nh);
+        sCtx.drawImage(bmp, 0, 0);
+        bmp.close();
+        layer._originalCanvas = sourceCanvas;
+
+        const imageData = sCtx.getImageData(0, 0, nw, nh);
+        const risoColors = [];
+        for (const rc of RISO_COLORS) {
+          if (rc.hex === '#FFFFFF') continue;
+          const r = parseInt(rc.hex.slice(1, 3), 16);
+          const g = parseInt(rc.hex.slice(3, 5), 16);
+          const b = parseInt(rc.hex.slice(5, 7), 16);
+          risoColors.push(r, g, b);
+        }
+        const plateBuffer = separateColorsWithLut(imageData.data, nw, nh, colorSepLut, 16);
+        const pixelCount = nw * nh;
+        const numPlates = RISO_COLORS.length - 1;
+        const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+        for (let i = 0; i < numPlates; i++) {
+          const plateCanvas = new OffscreenCanvas(nw, nh);
+          const pCtx = plateCanvas.getContext('2d');
+          const plateData = new ImageData(
+            new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
+            nw, nh
+          );
+          pCtx.putImageData(plateData, 0, 0);
+          layer.separationPlates.set(separationColors[i], plateCanvas);
+        }
       } else {
         const bmp = await createImageBitmap(imgRec.blob);
         const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
@@ -3959,7 +4259,15 @@ function showExportDialog() {
   // Collect all plates (solid colors + gradient stop colors)
   const plateMap = new Map(); // hex → { name, layerCount }
   for (const l of visibleLayers) {
-    if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
+    if (l.isColorSeparation) {
+      for (const c of l.separationColors) {
+        if (!plateMap.has(c)) {
+          const name = RISO_COLORS.find(rc => rc.hex === c)?.name || c;
+          plateMap.set(c, { name, layerCount: 0, mode: 'separation' });
+        }
+        plateMap.get(c).layerCount++;
+      }
+    } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
       for (const stop of l.gradient.stops) {
         if (!plateMap.has(stop.color)) {
           const name = RISO_COLORS.find(c => c.hex === stop.color)?.name || stop.color;
@@ -4053,6 +4361,12 @@ document.getElementById('file-input').addEventListener('change', async e => {
   e.target.value = '';
 });
 
+document.getElementById('color-sep-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (file) await LayerManager.addColorSeparation(file);
+  e.target.value = '';
+});
+
 const wrapper = document.getElementById('canvas-wrapper');
 wrapper.addEventListener('dragover', e => e.preventDefault());
 wrapper.addEventListener('drop', async e => {
@@ -4136,6 +4450,20 @@ async function init() {
   const wasmMod = await import('./src/wasm/super_collage.js');
   await wasmMod.default('./src/wasm/super_collage_bg.wasm');
   blendSubtractive = wasmMod.blend_subtractive;
+  separateColorsWithLut = wasmMod.separate_colors_with_lut;
+  buildColorLut = wasmMod.build_color_lut;
+
+  // Pre-build the color separation LUT once (7 non-white riso colors, 3-color mix, 16³ grid)
+  const risoColors = [];
+  for (const rc of RISO_COLORS) {
+    if (rc.hex === '#FFFFFF') continue;
+    const r = parseInt(rc.hex.slice(1, 3), 16);
+    const g = parseInt(rc.hex.slice(3, 5), 16);
+    const b = parseInt(rc.hex.slice(5, 7), 16);
+    risoColors.push(r, g, b);
+  }
+  colorSepLut = buildColorLut(new Uint8Array(risoColors), 3, 16);
+
   await DB.open();
   Renderer.init();
   wireControls();

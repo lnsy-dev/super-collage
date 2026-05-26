@@ -20,6 +20,24 @@ export function blend_subtractive(base, overlay) {
 }
 
 /**
+ * Build a 3-D RGB lookup table for fast color separation.
+ * `grid_size` cells per channel (e.g. 16 → 16³ = 4096 cells).
+ * Each cell stores 7 weight bytes (one per riso color, 0–255).
+ * @param {Uint8Array} riso_colors
+ * @param {number} max_mix
+ * @param {number} grid_size
+ * @returns {Uint8Array}
+ */
+export function build_color_lut(riso_colors, max_mix, grid_size) {
+    const ptr0 = passArray8ToWasm0(riso_colors, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.build_color_lut(ptr0, len0, max_mix, grid_size);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
  * Extract just positions + hues as a flat [x, y, hue, ...] array for the GPU.
  * @param {Float32Array} data
  * @returns {Float32Array}
@@ -30,6 +48,23 @@ export function extract_render_data(data) {
     const ret = wasm.extract_render_data(ptr0, len0);
     var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Apply a simple threshold-based halftone to a single grayscale plate.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {number} cell_size
+ * @returns {Uint8Array}
+ */
+export function halftone_plate(image_data, width, height, cell_size) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.halftone_plate(ptr0, len0, width, height, cell_size);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
 }
 
@@ -45,6 +80,48 @@ export function init_particles(count, seed) {
     var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v1;
+}
+
+/**
+ * Legacy API: builds a temporary LUT internally, then decomposes.
+ * Slower than the two-step LUT approach but keeps the same signature.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {Uint8Array} riso_colors
+ * @param {number} max_mix
+ * @returns {Uint8Array}
+ */
+export function separate_colors(image_data, width, height, riso_colors, max_mix) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(riso_colors, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.separate_colors(ptr0, len0, width, height, ptr1, len1, max_mix);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
+ * Decompose an RGBA image into risograph plates using a pre-built LUT.
+ * This is ~20–50× faster than per-pixel brute-force search.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {Uint8Array} lut
+ * @param {number} grid_size
+ * @returns {Uint8Array}
+ */
+export function separate_colors_with_lut(image_data, width, height, lut, grid_size) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(lut, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.separate_colors_with_lut(ptr0, len0, width, height, ptr1, len1, grid_size);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
 }
 
 /**
