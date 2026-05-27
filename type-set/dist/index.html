@@ -1,0 +1,145 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta property="og:title" content="type-set"><meta property="og:type" content="article"/><meta property="og:image" content=""><meta property="og:url" content=""><meta name="twitter:card" content="summary_large_image"><meta property="og:description" content="A canvas-based typography editor"><meta property="og:site_name" content="type-set"><title>type-set</title><script defer="defer" src="main.min.js"></script></head><body><div class="app"><aside class="controls"><h2>Type Controls</h2><div class="control-group"><label for="font-family">Font Family</label> <select id="font-family"><option value="Atkinson Hyperlegible">Atkinson Hyperlegible</option><option value="Cormorant Garamond">Cormorant Garamond</option><option value="Crimson Text">Crimson Text</option><option value="EB Garamond">EB Garamond</option><option value="Fira Code">Fira Code</option><option value="IBM Plex Sans">IBM Plex Sans</option><option value="IBM Plex Serif" selected="selected">IBM Plex Serif</option><option value="League Gothic">League Gothic</option><option value="Spectral">Spectral</option><option value="UnifrakturMaguntia">UnifrakturMaguntia</option></select></div><div class="control-group"><label for="text-align">Text Align</label> <select id="text-align"><option value="left" selected="selected">Left</option><option value="right">Right</option><option value="center">Center</option><option value="justify">Justify</option></select></div><div class="control-group"><label for="font-size">Font Size: <span id="font-size-val">48</span>px</label> <input type="range" id="font-size" min="12" max="200" value="48"></div><div class="control-group" id="weight-group"><label for="font-weight">Weight: <span id="font-weight-val">400</span> <span id="weight-scope" class="scope-label">(global)</span></label><div class="row"><input type="range" id="font-weight" min="100" max="900" step="100" value="400"> <button id="clear-weight" type="button">Clear</button></div><p class="hint">Select text to adjust weight for just those characters.</p></div><div class="control-group"><button id="toggle-italic" type="button">Italic</button></div><div class="control-group" id="spacing-group"><label for="spacing">Spacing: <span id="spacing-val">0</span>px <span id="spacing-scope" class="scope-label">(global)</span></label><div class="row"><input type="range" id="spacing" min="-10" max="20" step="0.5" value="0"> <button id="clear-spacing" type="button">Clear</button></div><p class="hint">Select text to adjust spacing for just those characters.</p></div><div class="control-group"><label for="line-height">Line Height: <span id="line-height-val">1.2</span></label> <input type="range" id="line-height" min="0.8" max="3.0" step="0.05" value="1.2"></div><div class="control-group"><label>Typography</label><div class="checkbox-group"><label><input type="checkbox" id="use-ligatures" checked="checked"> Ligatures</label> <label><input type="checkbox" id="use-kerning" checked="checked"> Kerning</label> <label><input type="checkbox" id="use-hyphenation" checked="checked"> Auto Hyphenation</label></div></div><div class="control-group"><label for="color">Color</label> <input type="color" id="color" value="#0a5c0a"></div><div class="control-group actions"><button id="export-svg" type="button">Export Vector SVG</button> <button id="export-png" type="button">Export PNG @ 600 DPI</button></div></aside><main class="stage"><type-set id="editor" font-family="IBM Plex Serif" font-size="48" font-weight="400" font-style="normal" letter-spacing="0" line-height="1.2" color="#0a5c0a"></type-set></main></div><script>customElements.whenDefined('type-set').then(() => {
+      const editor = document.getElementById('editor');
+      const { FONT_WEIGHTS, hasItalic, snapWeight } = window.TYPESET_FONTS || {};
+
+      function updateWeightSlider(family) {
+        const weights = FONT_WEIGHTS ? FONT_WEIGHTS[family] : null;
+        const slider = document.getElementById('font-weight');
+        const valEl = document.getElementById('font-weight-val');
+        if (weights && weights.length) {
+          slider.min = Math.min(...weights);
+          slider.max = Math.max(...weights);
+          slider.step = 100;
+          const current = parseInt(slider.value, 10);
+          const snapped = snapWeight ? snapWeight(family, current) : current;
+          slider.value = snapped;
+          valEl.textContent = snapped;
+          editor.setAttribute('font-weight', snapped);
+        }
+      }
+
+      function bindAttr(id, attr, transform) {
+        const el = document.getElementById(id);
+        const valEl = document.getElementById(id + '-val');
+        el.addEventListener('input', () => {
+          let val = el.value;
+          if (transform) val = transform(val);
+          el.value = val;
+          editor.setAttribute(attr, val);
+          if (valEl) valEl.textContent = val;
+        });
+      }
+
+      bindAttr('font-size', 'font-size');
+      bindAttr('line-height', 'line-height');
+
+      document.getElementById('font-family').addEventListener('change', (e) => {
+        const family = e.target.value;
+        editor.setAttribute('font-family', family);
+        updateWeightSlider(family);
+        const italicBtn = document.getElementById('toggle-italic');
+        if (italicBtn && hasItalic) {
+          italicBtn.disabled = !hasItalic(family);
+        }
+      });
+
+      document.getElementById('text-align').addEventListener('change', (e) => {
+        editor.setAttribute('text-align', e.target.value);
+      });
+
+      document.getElementById('color').addEventListener('input', (e) => {
+        editor.setAttribute('color', e.target.value);
+      });
+
+      // Weight — applies to selection or globally
+      const weightSlider = document.getElementById('font-weight');
+      const weightVal = document.getElementById('font-weight-val');
+      const weightScope = document.getElementById('weight-scope');
+      const clearWeightBtn = document.getElementById('clear-weight');
+
+      function updateWeightUI() {
+        const selected = editor.hasSelection;
+        weightScope.textContent = selected ? '(selection)' : '(global)';
+        const val = selected
+          ? (editor.perCharWeight[editor.selStart] || editor.globalWeight)
+          : editor.globalWeight;
+        weightSlider.value = val;
+        weightVal.textContent = val;
+      }
+
+      setInterval(updateWeightUI, 200);
+
+      weightSlider.addEventListener('input', async () => {
+        const val = parseInt(weightSlider.value, 10);
+        const family = editor.getAttribute('font-family') || 'IBM Plex Serif';
+        const snapped = snapWeight ? snapWeight(family, val) : val;
+        weightSlider.value = snapped;
+        weightVal.textContent = snapped;
+        await editor.setWeight(snapped);
+      });
+
+      clearWeightBtn.addEventListener('click', () => {
+        editor.clearWeight();
+        updateWeightUI();
+      });
+
+      // Italic — applies only to selection
+      const italicBtn = document.getElementById('toggle-italic');
+      italicBtn.addEventListener('click', () => {
+        const savedStart = editor.selectionStart;
+        const savedEnd = editor.selectionEnd;
+        editor.toggleItalic();
+        editor.selectionStart = savedStart;
+        editor.selectionEnd = savedEnd;
+        editor._render();
+      });
+
+      // Ligatures & Kerning
+      document.getElementById('use-ligatures').addEventListener('change', (e) => {
+        editor.setLigatures(e.target.checked);
+      });
+      document.getElementById('use-kerning').addEventListener('change', (e) => {
+        editor.setKerning(e.target.checked);
+      });
+      document.getElementById('use-hyphenation').addEventListener('change', (e) => {
+        editor.setHyphenation(e.target.checked);
+      });
+
+      // Spacing
+      const spacingInput = document.getElementById('spacing');
+      const spacingVal = document.getElementById('spacing-val');
+      const spacingScope = document.getElementById('spacing-scope');
+      const clearSpacingBtn = document.getElementById('clear-spacing');
+
+      function updateSpacingUI() {
+        const selected = editor.hasSelection;
+        spacingScope.textContent = selected ? '(selection)' : '(global)';
+        const val = selected
+          ? (editor.perCharSpacing[editor.selStart] || 0)
+          : parseFloat(editor.getAttribute('letter-spacing') || '0');
+        spacingInput.value = val;
+        spacingVal.textContent = val;
+      }
+
+      setInterval(updateSpacingUI, 200);
+
+      spacingInput.addEventListener('input', () => {
+        const val = spacingInput.value;
+        spacingVal.textContent = val;
+        editor.setSpacing(val);
+      });
+
+      clearSpacingBtn.addEventListener('click', () => {
+        editor.clearSpacing();
+        updateSpacingUI();
+      });
+
+      // Exports
+      document.getElementById('export-svg').addEventListener('click', () => {
+        editor.downloadSVG();
+      });
+
+      document.getElementById('export-png').addEventListener('click', () => {
+        editor.downloadPNG('typeset.png', 600);
+      });
+    });</script></body></html>

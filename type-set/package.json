@@ -1,0 +1,75 @@
+{
+  "name": "type-set",
+  "version": "1.0.0",
+  "description": "A vanilla JS, CSS and HTML project",
+  "main": "dist/main.min.js",
+  "module": "dist/main.min.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/main.min.js",
+      "require": "./dist/main.min.js",
+      "default": "./dist/main.min.js"
+    },
+    "./src/type-set.js": "./src/type-set.js",
+    "./dist/*": "./dist/*"
+  },
+  "author": "Lindsey Mysse <lindsey@example.com>",
+  "license": "Unlicense",
+  "keywords": [
+    "web-workers",
+    "custom-elements",
+    "vanilla-js",
+    "dataroom-js",
+    "webpack",
+    "boilerplate"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lindseymysse/test-web-worker-2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lindseymysse/test-web-worker-2/issues"
+  },
+  "homepage": "https://github.com/lindseymysse/test-web-worker-2#readme",
+  "files": [
+    "dist/",
+    "src/",
+    "styles/",
+    "index.js",
+    "index.css",
+    "index.html"
+  ],
+  "scripts": {
+    "test": "node --test tests/**/*.test.js",
+    "start": "webpack serve",
+    "build": "NODE_ENV=production webpack build",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@fontsource/crimson-text": "^5.2.7",
+    "@fontsource/fira-code": "^5.2.7",
+    "@fontsource/ibm-plex-sans": "^5.2.8",
+    "@fontsource/ibm-plex-serif": "^5.2.7",
+    "dataroom-js": "^0.8.0",
+    "esm-potrace-wasm": "^0.4.4",
+    "hyphen": "^1.14.1",
+    "opentype.js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.9.3",
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^7.1.2",
+    "cssnano": "^7.1.2",
+    "dotenv": "^17.2.2",
+    "html-webpack-plugin": "^5.6.3",
+    "mini-css-extract-plugin": "^2.9.2",
+    "postcss": "^8.5.6",
+    "postcss-loader": "^8.2.0",
+    "style-loader": "^4.0.0",
+    "swc-loader": "^0.2.6",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.0"
+  }
+}

@@ -85,7 +85,8 @@ export async function selectTool(page, toolName) {
     toolName === 'mask-erase' ? 'Mask Erase' :
     toolName === 'shape-rect' ? 'Rectangle' :
     toolName === 'shape-ellipse' ? 'Ellipse' :
-    toolName === 'shape-poly' ? 'Polygon' : toolName
+    toolName === 'shape-poly' ? 'Polygon' :
+    toolName === 'text' ? 'Text' : toolName
   );
 }
 

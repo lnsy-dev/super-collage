@@ -1,0 +1,27 @@
+# Development files
+node_modules/
+.env*
+!.env.example
+package-lock.json
+prompts/
+assets/
+dist/index.html
+dist/*.gif
+dist/*.jpg
+dist/*.mp3
+dist/*.mp4
+dist/*.webp
+dist/*.html
+dist/*.css
+
+# Version control
+.git/
+.gitignore
+
+# Documentation
+WARP.md
+GEMINI.md
+
+# Source files are included, but these are not needed
+.DS_Store
+*.log

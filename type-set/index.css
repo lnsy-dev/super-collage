@@ -1,0 +1,195 @@
+@import "./styles/variables.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--foreground-color);
+  margin: 0;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Layout */
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Controls sidebar */
+.controls {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 1.5rem;
+  background-color: var(--secondary-color);
+  border-right: 1px solid var(--quaternary-color);
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+.controls h2 {
+  margin: 0 0 1.25rem 0;
+  font-family: 'IBM Plex Serif', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.control-group {
+  margin-bottom: 1.25rem;
+}
+
+.control-group label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.control-group.row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.control-group.row button {
+  flex: 1;
+}
+
+/* Form elements */
+.controls input[type="range"] {
+  width: 100%;
+  cursor: pointer;
+}
+
+.controls input[type="text"],
+.controls input[type="color"],
+.controls select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--quaternary-color);
+  border-radius: 4px;
+  background: var(--background-color);
+  color: var(--foreground-color);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.controls input[type="color"] {
+  padding: 0.15rem;
+  height: 2.2rem;
+  cursor: pointer;
+}
+
+.scope-label {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--trinary-color);
+  margin-left: 0.25rem;
+}
+
+.hint {
+  margin: 0.4rem 0 0 0;
+  font-size: 0.75rem;
+  color: var(--trinary-color);
+  font-style: italic;
+}
+
+/* Buttons */
+button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--quaternary-color);
+  background: var(--background-color);
+  color: var(--foreground-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: var(--highlight-color);
+}
+
+button.active {
+  background: var(--foreground-color);
+  color: var(--background-color);
+  border-color: var(--foreground-color);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--quaternary-color);
+}
+
+.actions button {
+  width: 100%;
+  font-weight: 600;
+}
+
+/* Stage */
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem;
+  overflow: auto;
+}
+
+/* The type-set element */
+type-set {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--background-color);
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 1rem;
+  transition: border-color 0.2s;
+  resize: none;
+  overflow: hidden;
+}
+
+type-set.has-selection,
+type-set.has-focus {
+  resize: both;
+}
+
+type-set:hover {
+  border-color: var(--trinary-color);
+}
+
+type-set:focus-within {
+  border-color: var(--foreground-color);
+  outline: none;
+}
+
+type-set canvas {
+  display: block;
+  width: 100%;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .controls {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--quaternary-color);
+  }
+
+  .stage {
+    padding: 1rem;
+  }
+}

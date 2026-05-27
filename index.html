@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Super Collage</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script type="module">
+  import '/type-set/dist/main.min.js';
+</script>
 <style>
 /* ─── RESET & ROOT ───────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -626,6 +629,24 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
 
+/* Override type-set demo-app CSS injected by its bundle */
+#text-layer-pool type-set {
+  background: transparent !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  resize: none !important;
+  max-width: none !important;
+  overflow: hidden !important;
+}
+#text-layer-pool type-set:hover,
+#text-layer-pool type-set:focus-within,
+#text-layer-pool type-set.has-selection,
+#text-layer-pool type-set.has-focus {
+  border: none !important;
+  resize: none !important;
+}
+
 </style>
 </head>
 <body>
@@ -800,6 +821,8 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         <button class="tool-btn" data-tool="shape-rect"    title="Rectangle (R)">&#9645;</button>
         <button class="tool-btn" data-tool="shape-ellipse" title="Ellipse (O)">&#9711;</button>
         <button class="tool-btn" data-tool="shape-poly"    title="Polygon / Star (P)">&#11040;</button>
+        <div class="tool-separator"></div>
+        <button class="tool-btn" data-tool="text" title="Text (T)">T</button>
         <div id="shape-options" style="display:none;">
           <div class="tool-separator"></div>
           <div style="font-size:8px;text-align:center;line-height:1.8;">Fill</div>
@@ -844,7 +867,8 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
         <div id="canvas-scroll">
           <div id="canvas-wrapper">
             <canvas id="display-canvas"></canvas>
-            <canvas id="interaction-overlay" style="pointer-events:auto;"></canvas>
+            <div id="text-layer-pool" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2;"></div>
+            <canvas id="interaction-overlay" style="pointer-events:auto;z-index:3;"></canvas>
             <div id="brush-cursor"></div>
             <canvas id="mask-canvas-overlay"></canvas>
             <div id="no-layer-msg">Drop images here<br>or<br>File &#8594; Add Image</div>
@@ -909,6 +933,46 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
                   <button class="mac-btn sm" data-action="flip-h">&#8596; H</button>
                   <button class="mac-btn sm" data-action="flip-v">&#8597; V</button>
                   <button class="mac-btn sm" data-action="reset-transform">Reset</button>
+                </div>
+              </div>
+
+              <!-- TEXT -->
+              <div class="prop-section" id="text-prop-section" style="display:none;">
+                <div class="prop-section-title">Text</div>
+                <div class="prop-row">
+                  <span class="prop-label">Font</span>
+                  <select id="prop-text-font" style="flex:1;font-size:9px;font-family:var(--font);padding:1px;"></select>
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Size</span>
+                  <input type="number" id="prop-text-size" min="1" max="500" step="0.5" style="width:50px;font-size:9px;text-align:right;padding:1px;font-family:var(--font);">
+                  <span class="prop-value">pt</span>
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Weight</span>
+                  <input type="number" id="prop-text-weight" min="100" max="900" step="100" style="width:50px;font-size:9px;text-align:right;padding:1px;font-family:var(--font);">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Spacing</span>
+                  <input type="number" id="prop-text-spacing" style="width:50px;font-size:9px;text-align:right;padding:1px;font-family:var(--font);">
+                  <span class="prop-value">px</span>
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Line</span>
+                  <input type="number" id="prop-text-lineheight" step="0.1" style="width:50px;font-size:9px;text-align:right;padding:1px;font-family:var(--font);">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Align</span>
+                  <div style="display:flex;gap:2px;">
+                    <button class="mac-btn sm text-align-btn" data-align="left" title="Left">L</button>
+                    <button class="mac-btn sm text-align-btn" data-align="center" title="Center">C</button>
+                    <button class="mac-btn sm text-align-btn" data-align="right" title="Right">R</button>
+                  </div>
+                </div>
+                <div class="prop-row">
+                  <label style="font-size:8px;display:flex;align-items:center;gap:4px;">
+                    <input type="checkbox" id="prop-text-italic"> Italic
+                  </label>
                 </div>
               </div>
 
@@ -1235,6 +1299,8 @@ const DB = {
       imageMaskIds: layer.imageMaskIds || [],
       isMaskFor:   layer.isMaskFor   || null,
       isSvg: layer.isSvg || false,
+      isText: layer.isText || false,
+      textConfig: layer.textConfig ? JSON.parse(JSON.stringify(layer.textConfig)) : null,
       isColorSeparation: layer.isColorSeparation || false,
       separationColors: layer.separationColors || [],
     };
@@ -1300,6 +1366,8 @@ function makeLayer(data = {}) {
     imageMaskIds: data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []),
     isMaskFor:   data.isMaskFor   || null,
     isSvg: data.isSvg || false,
+    isText: data.isText || false,
+    textConfig: data.textConfig ? JSON.parse(JSON.stringify(data.textConfig)) : null,
     isColorSeparation: data.isColorSeparation || false,
     separationColors: data.separationColors || [],
     separationPlates: new Map(),
@@ -1467,7 +1535,7 @@ const ImageProcessor = {
     if (layer.isColorSeparation) {
       return this.processColorSeparation(layer, forExport);
     }
-    if (!layer._originalCanvas && !(layer.isSvg && layer._svgImage)) return null;
+    if (!layer._originalCanvas && !(layer.isSvg && layer._svgImage) && !layer.isText) return null;
     this._processCallCount++;
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     let targetW, targetH;
@@ -1483,6 +1551,25 @@ const ImageProcessor = {
         let tw = Math.max(64, Math.ceil(displayW * dpr * quality));
         let th = Math.round(layer.height * (tw / layer.width));
         const altTh = Math.max(64, Math.ceil(displayH * dpr * quality));
+        const altTw = Math.round(layer.width * (altTh / layer.height));
+        if (altTw * altTh < tw * th) {
+          tw = altTw;
+          th = altTh;
+        }
+        targetW = tw;
+        targetH = th;
+      }
+    } else if (layer.isText) {
+      if (forExport) {
+        targetW = layer.width;
+        targetH = layer.height;
+      } else {
+        const displayW = layer.width * State.zoom;
+        const displayH = layer.height * State.zoom;
+        const dpr = window.devicePixelRatio || 1;
+        let tw = Math.max(64, Math.ceil(displayW * dpr));
+        let th = Math.round(layer.height * (tw / layer.width));
+        const altTh = Math.max(64, Math.ceil(displayH * dpr));
         const altTw = Math.round(layer.width * (altTh / layer.height));
         if (altTw * altTh < tw * th) {
           tw = altTw;
@@ -1507,6 +1594,15 @@ const ImageProcessor = {
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, targetW, targetH);
       ctx.drawImage(layer._svgImage, 0, 0, targetW, targetH);
+    } else if (layer.isText) {
+      const entry = TextEngine.pool.get(layer.id);
+      if (entry) {
+        renderTypeSetToCanvas(entry.element, ctx, targetW, targetH);
+      } else if (layer._originalCanvas) {
+        ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
+      } else {
+        return null;
+      }
     } else {
       ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
     }
@@ -2049,6 +2145,11 @@ const Renderer = {
     }
 
     this.drawOverlay();
+
+    // Position text layer elements
+    for (const layer of State.layers) {
+      if (layer.isText) TextEngine.positionLayer(layer);
+    }
   },
 
   _applyTransform(ctx, layer, scale) {
@@ -2061,16 +2162,19 @@ const Renderer = {
   },
 
   _compositeLayer(ctx, layer, z) {
+    const isText = layer.isText;
     const dw = layer.width * z, dh = layer.height * z;
+    const drawW = isText ? (layer.naturalWidth || layer.width) * z : dw;
+    const drawH = isText ? (layer.naturalHeight || layer.height) * z : dh;
     ctx.globalCompositeOperation = 'multiply';
     if (!layer._maskCanvas) {
-      ctx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      ctx.drawImage(layer._processedCanvas, 0, 0, drawW, drawH);
     } else {
-      const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
+      const tmp = new OffscreenCanvas(Math.ceil(drawW), Math.ceil(drawH));
       const tCtx = tmp.getContext('2d');
-      tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      tCtx.drawImage(layer._processedCanvas, 0, 0, drawW, drawH);
       tCtx.globalCompositeOperation = 'destination-in';
-      tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
+      tCtx.drawImage(layer._maskCanvas, 0, 0, drawW, drawH);
       ctx.drawImage(tmp, 0, 0);
     }
   },
@@ -2101,16 +2205,19 @@ const Renderer = {
     lCtx.rotate(layer.rotation * Math.PI / 180);
     lCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
     lCtx.translate(-layer.width / 2 * z, -layer.height / 2 * z);
+    const isText = layer.isText;
     const dw = layer.width * z, dh = layer.height * z;
+    const drawW = isText ? (layer.naturalWidth || layer.width) * z : dw;
+    const drawH = isText ? (layer.naturalHeight || layer.height) * z : dh;
     if (layer._maskCanvas) {
-      const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
+      const tmp = new OffscreenCanvas(Math.ceil(drawW), Math.ceil(drawH));
       const tCtx = tmp.getContext('2d');
-      tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      tCtx.drawImage(layer._processedCanvas, 0, 0, drawW, drawH);
       tCtx.globalCompositeOperation = 'destination-in';
-      tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
+      tCtx.drawImage(layer._maskCanvas, 0, 0, drawW, drawH);
       lCtx.drawImage(tmp, 0, 0);
     } else {
-      lCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      lCtx.drawImage(layer._processedCanvas, 0, 0, drawW, drawH);
     }
     lCtx.restore();
 
@@ -2221,8 +2328,13 @@ const Renderer = {
   },
 
   hitTestHandle(mx, my, layer) {
-    for (const h of this.getHandles(layer, State.zoom)) {
-      if (Math.abs(mx - h.x) < 8 && Math.abs(my - h.y) < 8) return h;
+    const z = State.zoom;
+    const screenW = layer.width * z;
+    const screenH = layer.height * z;
+    // Use smaller handle radius for tiny layers so there's still room to grab interior
+    const radius = (screenW < 40 || screenH < 40) ? 4 : 8;
+    for (const h of this.getHandles(layer, z)) {
+      if (Math.abs(mx - h.x) < radius && Math.abs(my - h.y) < radius) return h;
     }
     return null;
   },
@@ -2829,6 +2941,8 @@ const LayerManager = {
     const idx = State.layers.findIndex(l => l.id === layerId);
     if (idx === -1) return;
     const toDelete = State.layers[idx];
+    // Clean up text element
+    if (toDelete.isText) TextEngine.destroyElement(layerId);
     // Clean up mask relationships on the paired layer(s)
     for (const maskId of (toDelete.imageMaskIds || [])) {
       const maskLayer = State.layers.find(l => l.id === maskId);
@@ -2861,30 +2975,42 @@ const LayerManager = {
   async duplicate(layerId) {
     const src = State.layers.find(l => l.id === layerId);
     if (!src) return;
-    const imgRec = await DB.get('imageBlobs', layerId);
-    if (!imgRec) return;
     const layer = makeLayer({ ...DB.layerRecord(src), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
-    const bmp = await createImageBitmap(imgRec.blob);
-    const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-    const ctx = orig.getContext('2d');
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
-    layer._originalCanvas = orig;
+
+    if (src.isText) {
+      // Text layers: clone from textConfig and element
+      MaskEngine.initMask(layer);
+      await TextEngine.createElement(layer);
+      TextEngine.syncLayer(layer);
+    } else {
+      const imgRec = await DB.get('imageBlobs', layerId);
+      if (!imgRec) return;
+      const bmp = await createImageBitmap(imgRec.blob);
+      const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+      const ctx = orig.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      layer._originalCanvas = orig;
+    }
+
     if (src._maskCanvas) {
       const mc = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
       mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
       layer._maskCanvas = mc;
     } else {
-      MaskEngine.initMask(layer);
+      if (!layer._maskCanvas) MaskEngine.initMask(layer);
     }
     const insertIdx = State.layers.findIndex(l => l.id === layerId);
     State.layers.splice(insertIdx + 1, 0, layer);
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
     await DB.put('layers', DB.layerRecord(layer));
-    await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
+    if (!src.isText) {
+      const imgRec = await DB.get('imageBlobs', layerId);
+      if (imgRec) await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
+    }
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
     UI.refreshLayerList();
@@ -3244,6 +3370,34 @@ const UI = {
       colorSection.style.display = layer.isColorSeparation ? 'none' : '';
     }
 
+    // Show/hide text section
+    const textSection = document.getElementById('text-prop-section');
+    if (textSection) {
+      textSection.style.display = layer.isText ? '' : 'none';
+      if (layer.isText && layer.textConfig) {
+        const cfg = layer.textConfig;
+        const font = document.getElementById('prop-text-font');
+        if (font) font.value = cfg.fontFamily || 'IBM Plex Serif';
+        const size = document.getElementById('prop-text-size');
+        if (size) {
+          let pt = parseFloat(cfg.fontSize) || 18;
+          if (pt >= 50) pt = pt * 72 / 600; // old px values → pt
+          size.value = Math.round(pt * 10) / 10;
+        }
+        const weight = document.getElementById('prop-text-weight');
+        if (weight) weight.value = cfg.fontWeight || 400;
+        const spacing = document.getElementById('prop-text-spacing');
+        if (spacing) spacing.value = cfg.letterSpacing || 0;
+        const lineH = document.getElementById('prop-text-lineheight');
+        if (lineH) lineH.value = cfg.lineHeight || 1.2;
+        document.querySelectorAll('.text-align-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.align === (cfg.textAlign || 'left'));
+        });
+        const italic = document.getElementById('prop-text-italic');
+        if (italic) italic.checked = cfg.fontStyle === 'italic';
+      }
+    }
+
     // Image mask buttons
     const createMaskBtn = document.getElementById('btn-create-image-mask');
     const releaseMaskBtn = document.getElementById('btn-release-image-mask');
@@ -3277,13 +3431,17 @@ const UI = {
       select: 'Select', move: 'Move',
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
+      text: 'Text',
     };
     document.getElementById('status-tool').textContent = names[tool] || tool;
     const isShape = tool.startsWith('shape-');
+    const isText = tool === 'text';
     document.getElementById('shape-options').style.display = isShape ? '' : 'none';
     document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
     const isMask = tool === 'mask-draw' || tool === 'mask-erase';
     if (!isMask) document.getElementById('brush-cursor').style.display = 'none';
+    if (tool !== 'text') TextEngine.blurAll();
+    TextEngine.refreshVisibility();
   },
 
   fitZoom() {
@@ -3389,12 +3547,48 @@ overlayCanvas.addEventListener('pointerdown', onPointerDown);
 overlayCanvas.addEventListener('pointermove', onPointerMove);
 overlayCanvas.addEventListener('pointerup',   onPointerUp);
 overlayCanvas.addEventListener('pointerleave', e => { if (!(e.buttons & 1)) onPointerUp(e); });
+overlayCanvas.addEventListener('dblclick', e => {
+  const { x, y } = getCanvasXY(e);
+  const hit = Renderer.hitTestLayer(x, y);
+  if (hit && hit.isText) {
+    UI.setTool('text');
+    State.selectedId = hit.id;
+    State.selectedIds = [hit.id];
+    TextEngine.blurAll();
+    TextEngine.focusLayer(hit);
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.drawOverlay();
+  }
+});
 
 function onPointerDown(e) {
   e.preventDefault();
   overlayCanvas.setPointerCapture(e.pointerId);
   const { x, y } = getCanvasXY(e);
   const layer = selectedLayer();
+
+  if (State.tool === 'text') {
+    const hit = Renderer.hitTestLayer(x, y);
+    if (hit && hit.isText) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+      TextEngine.blurAll();
+      TextEngine.focusLayer(hit);
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.drawOverlay();
+      return;
+    }
+    // If clicking outside while editing, just blur
+    if (TextEngine.isEditing()) {
+      TextEngine.blurAll();
+      return;
+    }
+    // Click on empty canvas: start drag for new text box
+    State.shapeDrag = { startX: x, startY: y, isText: true };
+    return;
+  }
 
   if (State.tool.startsWith('shape-')) {
     State.shapeDrag = { startX: x, startY: y };
@@ -3457,12 +3651,14 @@ function onPointerDown(e) {
     State.drag = { type: 'move', startX: x, startY: y, layerSnap: { x: hit.x, y: hit.y }, extraSnaps };
     UI.refreshLayerList();
     UI.refreshProperties();
+    TextEngine.refreshVisibility();
     Renderer.drawOverlay();
   } else {
     State.selectedId = null;
     State.selectedIds = [];
     UI.refreshLayerList();
     UI.refreshProperties();
+    TextEngine.refreshVisibility();
     Renderer.drawOverlay();
   }
 }
@@ -3480,7 +3676,21 @@ function onPointerMove(e) {
   }
 
   if (State.shapeDrag && (e.buttons & 1)) {
-    drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, x, y);
+    if (State.shapeDrag.isText) {
+      Renderer.drawOverlay();
+      const ctx = overlayCanvas.getContext('2d');
+      const sx = State.shapeDrag.startX, sy = State.shapeDrag.startY;
+      const rx = Math.min(sx, x), ry = Math.min(sy, y);
+      const rw = Math.abs(x - sx), rh = Math.abs(y - sy);
+      if (rw >= 2 && rh >= 2) {
+        ctx.strokeStyle = 'rgba(0,120,255,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(rx, ry, rw, rh);
+      }
+    } else {
+      drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, x, y);
+    }
     return;
   }
 
@@ -3588,10 +3798,27 @@ function onPointerMove(e) {
 async function onPointerUp(e) {
   if (State.shapeDrag) {
     const { x, y } = getCanvasXY(e);
-    const { startX, startY } = State.shapeDrag;
+    const { startX, startY, isText } = State.shapeDrag;
     State.shapeDrag = null;
     Renderer.drawOverlay();
     const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
+    if (isText) {
+      if (sw >= 40 && sh >= 20) {
+        const cx = Math.round(Math.min(startX, x) / State.zoom);
+        const cy = Math.round(Math.min(startY, y) / State.zoom);
+        const cw = Math.max(1, Math.round(sw / State.zoom));
+        const ch = Math.max(1, Math.round(sh / State.zoom));
+        TextEngine.blurAll();
+        try { await TextEngine.addTextLayer(cx, cy, cw, ch); } catch (err) { console.error('addTextLayer failed:', err); }
+      } else if (sw < 40 && sh < 20) {
+        // Simple click: create default-size text at click position
+        const cx = Math.round(Math.min(startX, x) / State.zoom);
+        const cy = Math.round(Math.min(startY, y) / State.zoom);
+        TextEngine.blurAll();
+        try { await TextEngine.addTextLayer(cx, cy, 300, 100); } catch (err) { console.error('addTextLayer failed:', err); }
+      }
+      return;
+    }
     if (sw >= 4 && sh >= 4) {
       const cx = Math.round(Math.min(startX, x) / State.zoom);
       const cy = Math.round(Math.min(startY, y) / State.zoom);
@@ -3614,6 +3841,20 @@ async function onPointerUp(e) {
     for (const es of (State.drag.extraSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
       if (el) DB.saveLayer(el);
+    }
+    // Sync text layers after resize so text re-wraps
+    if (State.drag.type === 'resize') {
+      const syncText = (l) => {
+        if (l && l.isText) {
+          l.naturalWidth = l.width;
+          l.naturalHeight = l.height;
+          TextEngine.syncLayer(l);
+        }
+      };
+      syncText(layer);
+      for (const es of (State.drag.extraSnaps || [])) {
+        syncText(State.layers.find(l => l.id === es.id));
+      }
     }
   }
   State.drag = null;
@@ -3761,7 +4002,340 @@ async function handleAction(action) {
     case 'open-project': showProjectDialog(); break;
     case 'export': showExportDialog(); break;
     case 'export-composite': showCompositeExportDialog(); break;
+
   }
+}
+
+/* ─── TEXT DIALOG ───────────────────────────────────────────────── */
+let _textEditLayer = null;
+let _textPlacement = null;
+
+/* ─── TEXT ENGINE ───────────────────────────────────────────────── */
+const TextEngine = {
+  pool: new Map(), // layerId -> { wrapper, element }
+  _syncDebounce: null,
+
+  extractConfig(element) {
+    return {
+      text: element.text,
+      fontFamily: element.getAttribute('font-family') || 'IBM Plex Serif',
+      fontSize: element.getAttribute('font-size') || '18',
+      fontWeight: element.getAttribute('font-weight') || '400',
+      fontStyle: element.getAttribute('font-style') || 'normal',
+      letterSpacing: element.getAttribute('letter-spacing') || '0',
+      lineHeight: element.getAttribute('line-height') || '1.2',
+      textAlign: element.getAttribute('text-align') || 'left',
+      color: element.getAttribute('color') || '#212121',
+      runs: element.runs || [],
+      useLigatures: element.useLigatures,
+      useKerning: element.useKerning,
+      useHyphenation: element.useHyphenation,
+    };
+  },
+
+  _legacyConfigToRuns(cfg) {
+    // Convert old perCharWeight/Spacing/Italic arrays to StyleRun objects
+    const runs = [];
+    const textLen = (cfg.text || '').length;
+    if (!textLen) return runs;
+    const wArr = cfg.perCharWeight || [];
+    const sArr = cfg.perCharSpacing || [];
+    const iSet = new Set(cfg.perCharItalic || []);
+
+    let current = null;
+    for (let i = 0; i < textLen; i++) {
+      const weight = wArr[i] || 0;
+      const spacing = sArr[i] || 0;
+      const italic = iSet.has(i);
+      if (!current || current.weight !== weight || current.spacing !== spacing || current.italic !== italic) {
+        if (current) runs.push(current);
+        current = { start: i, end: i + 1, weight, spacing, italic };
+      } else {
+        current.end = i + 1;
+      }
+    }
+    if (current) runs.push(current);
+    // Filter out default runs
+    return runs.filter(r => r.weight || r.spacing || r.italic);
+  },
+
+  applyConfig(element, cfg) {
+    if (!cfg) return;
+    element.setAttribute('font-family', cfg.fontFamily || 'IBM Plex Serif');
+    element.setAttribute('font-size', cfg.fontSize || '18');
+    element.setAttribute('font-weight', cfg.fontWeight || '400');
+    element.setAttribute('font-style', cfg.fontStyle || 'normal');
+    element.setAttribute('letter-spacing', cfg.letterSpacing || '0');
+    element.setAttribute('line-height', cfg.lineHeight || '1.2');
+    element.setAttribute('text-align', cfg.textAlign || 'left');
+    element.setAttribute('color', cfg.color || '#212121');
+    element.text = cfg.text || '';
+
+    // Migrate old parallel-array configs to runs
+    const runs = cfg.runs || this._legacyConfigToRuns(cfg);
+    if (runs.length) {
+      element.runs = runs;
+    }
+
+    element.useLigatures = cfg.useLigatures !== false;
+    element.useKerning = cfg.useKerning !== false;
+    element.useHyphenation = cfg.useHyphenation !== false;
+  },
+
+  async createElement(layer) {
+    await customElements.whenDefined('type-set');
+    const pool = document.getElementById('text-layer-pool');
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:hidden;visibility:hidden;';
+    wrapper.dataset.layerId = layer.id;
+
+    const element = document.createElement('type-set');
+    element.setAttribute('font-base', '/type-set/dist/fonts/');
+    element.style.cssText = 'display:block;width:100%;height:100%;';
+
+    wrapper.appendChild(element);
+    pool.appendChild(wrapper);
+
+    // Wait for initialization before setting properties
+    await element.initialize?.();
+    await new Promise(r => requestAnimationFrame(r));
+
+    if (layer.textConfig) {
+      this.applyConfig(element, layer.textConfig);
+    } else {
+      element.text = 'Your text here.';
+      element.setAttribute('font-family', 'IBM Plex Serif');
+      element.setAttribute('font-size', '18');
+      element.setAttribute('color', layer.color || '#212121');
+      element.setAttribute('text-align', 'left');
+    }
+
+    this.pool.set(layer.id, { wrapper, element });
+    this.positionLayer(layer);
+
+    element.addEventListener('typeset-change', () => {
+      this._debouncedSync(layer);
+    });
+    element.addEventListener('typeset-layout', () => {
+      const poolEntry = this.pool.get(layer.id);
+      const isEditing = poolEntry && poolEntry.wrapper.style.pointerEvents === 'auto';
+      const textHeight = Math.max(20, Math.ceil((element.totalHeight || 0) + 10));
+      if (isEditing && textHeight > layer.naturalHeight) {
+        layer.naturalHeight = textHeight;
+        layer.height = textHeight;
+        this.positionLayer(layer);
+        this.syncLayer(layer);
+      } else {
+        this._debouncedSync(layer);
+      }
+    });
+
+    // Wait for fonts to load before syncing so glyph layout is correct
+    await document.fonts.ready;
+    if (layer.textConfig) {
+      element.text = element.text; // trigger re-layout with loaded fonts
+    }
+    // Auto-size height for new text layers so large default fonts aren't clipped
+    if (!layer.textConfig) {
+      const textHeight = Math.max(20, Math.ceil((element.totalHeight || 200) + 10));
+      if (textHeight > layer.naturalHeight) {
+        layer.naturalHeight = textHeight;
+        layer.height = textHeight;
+      }
+    }
+    this.syncLayer(layer);
+    return { wrapper, element };
+  },
+
+  destroyElement(layerId) {
+    const entry = this.pool.get(layerId);
+    if (!entry) return;
+    entry.wrapper.remove();
+    this.pool.delete(layerId);
+  },
+
+  positionLayer(layer) {
+    const entry = this.pool.get(layer.id);
+    if (!entry) return;
+    const z = State.zoom;
+    // Keep wrapper at natural size so the type-set element always lays out
+    // at full resolution. Use CSS scale() for zoom so renderTypeSetLayer()
+    // sees element.clientWidth === naturalWidth and scaleX === 1.
+    entry.wrapper.style.transform = `translate(${Math.round(layer.x * z)}px, ${Math.round(layer.y * z)}px) scale(${z})`;
+    entry.wrapper.style.transformOrigin = 'top left';
+    // Use naturalWidth/Height for the wrapper so text layout is consistent
+    // regardless of any legacy zoomed width values in saved projects.
+    const w = layer.naturalWidth || layer.width || 100;
+    const h = layer.naturalHeight || layer.height || 100;
+    entry.wrapper.style.width = w + 'px';
+    entry.wrapper.style.height = h + 'px';
+    entry.element.style.width = '100%';
+    entry.element.style.height = '100%';
+  },
+
+  focusLayer(layer) {
+    const entry = this.pool.get(layer.id);
+    if (!entry) return;
+    entry.wrapper.style.pointerEvents = 'auto';
+    entry.wrapper.style.zIndex = '10';
+    entry.wrapper.style.visibility = 'visible';
+    document.getElementById('text-layer-pool').style.zIndex = '4';
+    // Delay focus to win any race with browser default click focus.
+    requestAnimationFrame(() => {
+      entry.element.textarea?.focus();
+    });
+  },
+
+  blurLayer(layer) {
+    const entry = this.pool.get(layer.id);
+    if (!entry) return;
+    entry.wrapper.style.pointerEvents = 'none';
+    entry.wrapper.style.zIndex = '';
+    entry.element.textarea?.blur();
+    this.syncLayer(layer);
+    if (!this.isEditing()) {
+      document.getElementById('text-layer-pool').style.zIndex = '2';
+    }
+  },
+
+  blurAll() {
+    for (const layer of State.layers) {
+      if (layer.isText) this.blurLayer(layer);
+    }
+    this.refreshVisibility();
+  },
+
+  refreshVisibility() {
+    for (const layer of State.layers) {
+      if (!layer.isText) continue;
+      const entry = this.pool.get(layer.id);
+      if (!entry) continue;
+      const isEditing = entry.wrapper.style.pointerEvents === 'auto';
+      const isSelected = State.selectedIds.includes(layer.id);
+      entry.wrapper.style.visibility = (isEditing || isSelected) ? 'visible' : 'hidden';
+    }
+  },
+
+  isEditing() {
+    for (const entry of this.pool.values()) {
+      if (entry.wrapper.style.pointerEvents === 'auto') return true;
+    }
+    return false;
+  },
+
+  _debouncedSync(layer) {
+    if (this._syncDebounce) clearTimeout(this._syncDebounce);
+    this._syncDebounce = setTimeout(() => this.syncLayer(layer), 150);
+  },
+
+  syncLayer(layer) {
+    const entry = this.pool.get(layer.id);
+    if (!entry) return;
+    const element = entry.element;
+    // Push layer color into element so property changes are reflected
+    const layerColor = layer.color || '#212121';
+    if (element.getAttribute('color') !== layerColor) {
+      element.setAttribute('color', layerColor);
+    }
+    const canvas = renderTypeSetLayer(element, layer.naturalWidth, layer.naturalHeight);
+    layer._originalCanvas = canvas;
+    layer.textConfig = this.extractConfig(element);
+    layer._dirty = true;
+    Renderer.schedule();
+    DB.saveLayer(layer);
+  },
+
+  async addTextLayer(x, y, w, h) {
+    const layer = makeLayer({
+      name: 'Text',
+      x, y, width: w, height: h,
+      naturalWidth: w, naturalHeight: h,
+      isText: true,
+    });
+    MaskEngine.initMask(layer);
+
+    await this.createElement(layer);
+    // Sync to set initial _originalCanvas and textConfig
+    this.syncLayer(layer);
+
+    // Auto-expand height so default text is fully visible
+    const entry = this.pool.get(layer.id);
+    if (entry) {
+      const textHeight = Math.max(20, Math.ceil((entry.element.totalHeight || 0) + 10));
+      if (textHeight > layer.naturalHeight) {
+        layer.naturalHeight = textHeight;
+        layer.height = textHeight;
+        this.positionLayer(layer);
+        this.syncLayer(layer);
+      }
+    }
+
+    State.layers.push(layer);
+    State.selectedId = layer.id;
+    State.selectedIds = [layer.id];
+
+    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+
+    document.getElementById('no-layer-msg').style.display = 'none';
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+
+    // Auto-focus for immediate typing
+    this.focusLayer(layer);
+  },
+};
+
+function _getFontSizePx(element) {
+  const val = parseFloat(element.getAttribute('font-size') || 18);
+  // Backward compat: old values >= 50 were px; new values < 50 are pt.
+  return val >= 50 ? val : val * (600 / 72);
+}
+
+function _drawTypeSetGlyphs(ctx, element, targetW) {
+  const cssW = element.clientWidth || targetW;
+  const scale = cssW > 0 ? targetW / cssW : 1;
+  const fontSize = _getFontSizePx(element) * scale;
+
+  ctx.fillStyle = '#000000';
+  ctx.textBaseline = 'alphabetic';
+
+  let currentFont = null;
+  const glyphs = element.glyphs || [];
+  for (const g of glyphs) {
+    if (g.char === '\n') continue;
+    const fontStr = `${g.fontStyle} ${g.fontWeight} ${fontSize}px "${g.fontFamily}"`;
+    if (fontStr !== currentFont) {
+      ctx.font = fontStr;
+      currentFont = fontStr;
+    }
+    ctx.fillText(g.char, g.x * scale, g.y * scale);
+  }
+}
+
+function renderTypeSetLayer(element, targetW, targetH) {
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.ceil(targetW * dpr)),
+    Math.max(1, Math.ceil(targetH * dpr))
+  );
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetW, targetH);
+
+  _drawTypeSetGlyphs(ctx, element, targetW);
+  return canvas;
+}
+
+function renderTypeSetToCanvas(element, ctx, targetW, targetH) {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetW, targetH);
+  _drawTypeSetGlyphs(ctx, element, targetW);
 }
 
 /* ─── PROPERTY CONTROLS ─────────────────────────────────────────── */
@@ -3797,9 +4371,56 @@ function wireControls() {
 
   numField('prop-x', 'x'); numField('prop-y', 'y');
   numField('prop-w', 'width'); numField('prop-h', 'height');
+  // Sync text layers when width/height changes via properties panel
+  ['prop-w', 'prop-h'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      const l = selectedLayer(); if (!l || !l.isText) return;
+      l.naturalWidth = l.width;
+      l.naturalHeight = l.height;
+      TextEngine.syncLayer(l);
+    });
+  });
   numField('prop-rot', 'rotation');
   rangeField('prop-brightness', 'brightness', 'val-brightness');
   rangeField('prop-contrast',   'contrast',   'val-contrast');
+
+  // ── Text property controls ──
+  const fontSelect = document.getElementById('prop-text-font');
+  const FONTS = [
+    'IBM Plex Serif', 'IBM Plex Sans', 'Crimson Text', 'Fira Code',
+    'League Gothic', 'Atkinson Hyperlegible', 'Cormorant Garamond',
+    'EB Garamond', 'Spectral', 'UnifrakturMaguntia'
+  ];
+  FONTS.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f; opt.textContent = f;
+    fontSelect.appendChild(opt);
+  });
+
+  function updateTextProp(key, value) {
+    const l = selectedLayer(); if (!l || !l.isText) return;
+    const entry = TextEngine.pool.get(l.id);
+    if (!entry) return;
+    pushUndo(snapshotLayer(l));
+    if (key === 'text') entry.element.text = value;
+    else entry.element.setAttribute(key, value);
+    // Defer sync to next microtask so the type-set element's MutationObserver
+    // has a chance to re-shape glyphs before we capture them.
+    queueMicrotask(() => { TextEngine.syncLayer(l); Renderer.schedule(); });
+  }
+
+  fontSelect.addEventListener('change', e => updateTextProp('font-family', e.target.value));
+  document.getElementById('prop-text-size').addEventListener('change', e => {
+    const pt = parseFloat(e.target.value) || 0;
+    updateTextProp('font-size', Math.round(pt * 10) / 10);
+  });
+  document.getElementById('prop-text-weight').addEventListener('change', e => updateTextProp('font-weight', e.target.value));
+  document.getElementById('prop-text-spacing').addEventListener('change', e => updateTextProp('letter-spacing', e.target.value));
+  document.getElementById('prop-text-lineheight').addEventListener('change', e => updateTextProp('line-height', e.target.value));
+  document.querySelectorAll('.text-align-btn').forEach(btn => {
+    btn.addEventListener('click', () => updateTextProp('text-align', btn.dataset.align));
+  });
+  document.getElementById('prop-text-italic').addEventListener('change', e => updateTextProp('font-style', e.target.checked ? 'italic' : 'normal'));
 
   document.getElementById('btn-invert-image').addEventListener('click', () => {
     const l = selectedLayer(); if (!l) return;
@@ -3838,6 +4459,7 @@ function wireControls() {
       l.color = sw.dataset.color;
       l._dirty = true;
       document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s === sw));
+      if (l.isText) TextEngine.syncLayer(l);
       DB.saveLayer(l);
       UI.refreshLayerList();
       Renderer.schedule();
@@ -4166,8 +4788,23 @@ async function openProject(projectId) {
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
+  // Clear any existing text elements from previous project
+  TextEngine.pool.forEach((entry, id) => TextEngine.destroyElement(id));
+
   for (const rec of layerRecords) {
     const layer = makeLayer(rec);
+    if (layer.isText) {
+      await TextEngine.createElement(layer);
+      const maskRec = await DB.get('maskBlobs', layer.id);
+      if (maskRec?.blob) {
+        await MaskEngine.loadMask(layer, maskRec.blob);
+      } else {
+        MaskEngine.initMask(layer);
+      }
+      layer._dirty = true;
+      State.layers.push(layer);
+      continue;
+    }
     const imgRec = await DB.get('imageBlobs', layer.id);
     if (imgRec?.blob) {
       if (layer.isSvg) {
@@ -4380,6 +5017,21 @@ wrapper.addEventListener('drop', async e => {
 document.addEventListener('paste', async e => {
   if (!State.project) return;
   const items = e.clipboardData?.items;
+  const text = e.clipboardData?.getData('text/plain');
+  if (text && (!items || !Array.from(items).some(i => i.type.indexOf('image') !== -1))) {
+    e.preventDefault();
+    const cx = Math.round(CANVAS_W / 2 - 150);
+    const cy = Math.round(CANVAS_H / 2 - 50);
+    TextEngine.blurAll();
+    await TextEngine.addTextLayer(cx, cy, 300, 100);
+    const layer = State.layers[State.layers.length - 1];
+    if (layer && layer.isText) {
+      const entry = TextEngine.pool.get(layer.id);
+      if (entry) entry.element.text = text;
+      TextEngine.syncLayer(layer);
+    }
+    return;
+  }
   if (!items) return;
   for (const item of items) {
     if (item.type.indexOf('image') === -1) continue;
@@ -4404,6 +5056,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'r' || e.key === 'R') UI.setTool('shape-rect');
     if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');
     if (e.key === 'p' || e.key === 'P') UI.setTool('shape-poly');
+    if (e.key === 't' || e.key === 'T') UI.setTool('text');
     return;
   }
   if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
