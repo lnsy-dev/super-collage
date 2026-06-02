@@ -4,6 +4,7 @@
 
 import { State } from './state.js';
 import { hexToRgb } from '../utils/color.js';
+import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
@@ -283,9 +284,9 @@ export const ImageProcessor = {
     const offset = brightness * 2.55;
     const d = px.data;
     for (let i = 0; i < d.length; i += 4) {
-      d[i]   = Math.max(0, Math.min(255, d[i]   + offset));
-      d[i+1] = Math.max(0, Math.min(255, d[i+1] + offset));
-      d[i+2] = Math.max(0, Math.min(255, d[i+2] + offset));
+      d[i]   = clamp(d[i]   + offset, 0, 255);
+      d[i+1] = clamp(d[i+1] + offset, 0, 255);
+      d[i+2] = clamp(d[i+2] + offset, 0, 255);
     }
     return px;
   },
@@ -295,9 +296,9 @@ export const ImageProcessor = {
     const factor = (259 * (c + 255)) / (255 * (259 - c));
     const d = px.data;
     for (let i = 0; i < d.length; i += 4) {
-      d[i]   = Math.max(0, Math.min(255, factor * (d[i]   - 128) + 128));
-      d[i+1] = Math.max(0, Math.min(255, factor * (d[i+1] - 128) + 128));
-      d[i+2] = Math.max(0, Math.min(255, factor * (d[i+2] - 128) + 128));
+      d[i]   = clamp(factor * (d[i]   - 128) + 128, 0, 255);
+      d[i+1] = clamp(factor * (d[i+1] - 128) + 128, 0, 255);
+      d[i+2] = clamp(factor * (d[i+2] - 128) + 128, 0, 255);
     }
     return px;
   },
