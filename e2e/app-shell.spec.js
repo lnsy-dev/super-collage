@@ -30,7 +30,7 @@ test.describe('App Shell (Alternative UI)', () => {
 
     const wasmLoaded = await page.evaluate(() => {
       // @ts-ignore
-      return typeof blendSubtractive === 'function';
+      return typeof window.blendSubtractive === 'function';
     });
     expect(wasmLoaded).toBe(true);
   });
