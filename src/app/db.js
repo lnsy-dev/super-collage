@@ -78,27 +78,8 @@ export const DB = {
     await DB.del('projects', projectId);
   },
 
-  layerRecord(layer) {
-    return {
-      id: layer.id, projectId: layer.projectId, name: layer.name, visible: layer.visible, locked: layer.locked || false,
-      x: layer.x, y: layer.y, width: layer.width, height: layer.height,
-      naturalWidth: layer.naturalWidth, naturalHeight: layer.naturalHeight,
-      rotation: layer.rotation, flipH: layer.flipH, flipV: layer.flipV,
-      brightness: layer.brightness, contrast: layer.contrast, saturation: layer.saturation, invert: layer.invert,
-      halftoneType: layer.halftoneType, halftoneSize: layer.halftoneSize, halftoneAngle: layer.halftoneAngle, color: layer.color,
-      colorMode: layer.colorMode,
-      gradient: JSON.parse(JSON.stringify(layer.gradient)),
-      pattern: JSON.parse(JSON.stringify(layer.pattern)),
-      imageMaskIds: layer.imageMaskIds || [],
-      isMaskFor:   layer.isMaskFor   || null,
-      isSvg: layer.isSvg || false,
-      isColorSeparation: layer.isColorSeparation || false,
-      separationColors: layer.separationColors || [],
-    };
-  },
-
   async saveLayer(layer) {
-    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('layers', layer.toRecord());
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
   },
 

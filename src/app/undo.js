@@ -7,7 +7,7 @@ import { DB } from './db.js';
 import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
 
-export function snapshotLayer(layer) { return { ...DB.layerRecord(layer) }; }
+export function snapshotLayer(layer) { return layer.toRecord(); }
 
 export function pushUndo(snap) {
   State.undoStack.push(snap);
@@ -20,7 +20,9 @@ export function applySnapshot(layer, snap) {
     x: snap.x, y: snap.y, width: snap.width, height: snap.height,
     rotation: snap.rotation, flipH: snap.flipH, flipV: snap.flipV,
     brightness: snap.brightness, contrast: snap.contrast, saturation: snap.saturation, invert: snap.invert,
-    halftoneType: snap.halftoneType, halftoneSize: snap.halftoneSize, halftoneAngle: snap.halftoneAngle, color: snap.color,
+    halftoneType: snap.halftoneType, halftoneSize: snap.halftoneSize, halftoneAngle: snap.halftoneAngle,
+    hatchLineHeight: snap.hatchLineHeight, hatchLineLength: snap.hatchLineLength,
+    color: snap.color,
     colorMode: snap.colorMode || 'solid',
     gradient: snap.gradient ? JSON.parse(JSON.stringify(snap.gradient)) : layer.gradient,
     pattern: snap.pattern ? JSON.parse(JSON.stringify(snap.pattern)) : layer.pattern,

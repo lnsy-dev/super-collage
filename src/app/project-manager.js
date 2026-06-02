@@ -4,7 +4,7 @@
 
 import { State } from './state.js';
 import { DB } from './db.js';
-import { makeLayer } from './layer.js';
+import { Layer } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
@@ -63,7 +63,7 @@ export async function openProject(projectId) {
   });
 
   for (const rec of layerRecords) {
-    const layer = makeLayer(rec);
+    const layer = Layer.fromRecord(rec);
     const imgRec = await DB.get('imageBlobs', layer.id);
     if (imgRec?.blob) {
       if (layer.isSvg) {

@@ -4,7 +4,7 @@
 
 import { State } from './state.js';
 import { DB } from './db.js';
-import { makeLayer } from './layer.js';
+import { Layer } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
@@ -18,7 +18,7 @@ export const LayerManager = {
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse',
       'shape-poly': State.shapeIsStar ? 'Star' : 'Polygon',
     };
-    const layer = makeLayer({
+    const layer = new Layer({
       name: toolNames[State.tool] || 'Shape',
       x, y, width: w, height: h,
       naturalWidth: w, naturalHeight: h,
@@ -29,7 +29,7 @@ export const LayerManager = {
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
     const blob = await shapeCanvas.convertToBlob({ type: 'image/png' });
-    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
@@ -54,7 +54,7 @@ export const LayerManager = {
       const nh = Math.round(img.naturalHeight * dpiScale);
       const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
       const w = Math.round(nw * scale), h = Math.round(nh * scale);
-      const layer = makeLayer({
+      const layer = new Layer({
         name: file.name.replace(/\.[^.]+$/, ''),
         x: Math.round((CANVAS_W - w) / 2),
         y: Math.round((CANVAS_H - h) / 2),
@@ -70,7 +70,7 @@ export const LayerManager = {
       State.selectedId = layer.id;
       State.selectedIds = [layer.id];
 
-      await DB.put('layers', DB.layerRecord(layer));
+      await DB.put('layers', layer.toRecord());
       await DB.put('imageBlobs', { layerId: layer.id, blob: file });
       await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
       await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
@@ -86,7 +86,7 @@ export const LayerManager = {
     const nw = bmp.width, nh = bmp.height;
     const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
     const w = Math.round(nw * scale), h = Math.round(nh * scale);
-    const layer = makeLayer({
+    const layer = new Layer({
       name: file.name.replace(/\.[^.]+$/, ''),
       x: Math.round((CANVAS_W - w) / 2),
       y: Math.round((CANVAS_H - h) / 2),
@@ -106,7 +106,7 @@ export const LayerManager = {
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
 
-    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob: file });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
@@ -190,7 +190,7 @@ export const LayerManager = {
         separationPlates.set(separationColors[i], plateCanvas);
       }
 
-      const layer = makeLayer({
+      const layer = new Layer({
         name: 'Sep: ' + file.name.replace(/\.[^.]+$/, ''),
         x: Math.round((CANVAS_W - w) / 2),
         y: Math.round((CANVAS_H - h) / 2),
@@ -211,7 +211,7 @@ export const LayerManager = {
       State.selectedId = layer.id;
       State.selectedIds = [layer.id];
 
-      await DB.put('layers', DB.layerRecord(layer));
+      await DB.put('layers', layer.toRecord());
       await DB.put('imageBlobs', { layerId: layer.id, blob: file });
       await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
       await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
@@ -266,7 +266,7 @@ export const LayerManager = {
     if (!src) return;
     const imgRec = await DB.get('imageBlobs', layerId);
     if (!imgRec) return;
-    const layer = makeLayer({ ...DB.layerRecord(src), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
+    const layer = new Layer({ ...src.toRecord(), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
     const bmp = await createImageBitmap(imgRec.blob);
     const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
     const ctx = orig.getContext('2d');
@@ -286,7 +286,7 @@ export const LayerManager = {
     State.layers.splice(insertIdx + 1, 0, layer);
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
-    await DB.put('layers', DB.layerRecord(layer));
+    await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });

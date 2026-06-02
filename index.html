@@ -456,7 +456,7 @@
 
 import { State } from './src/app/state.js';
 import { DB } from './src/app/db.js';
-import { makeLayer } from './src/app/layer.js';
+import { Layer } from './src/app/layer.js';
 import { ImageProcessor } from './src/app/image-processor.js';
 import { Renderer, Transform, overlayCanvas } from './src/app/renderer.js';
 import { MaskEngine } from './src/app/mask-engine.js';
@@ -465,7 +465,7 @@ import { ExportEngine } from './src/app/export-engine.js';
 // Expose globals for e2e tests
 window.State = State;
 window.DB = DB;
-window.makeLayer = makeLayer;
+window.Layer = Layer;
 window.ImageProcessor = ImageProcessor;
 window.Renderer = Renderer;
 window.Transform = Transform;
