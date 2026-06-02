@@ -5,6 +5,11 @@
 export let CANVAS_W = 3300;
 export let CANVAS_H = 5100;
 
+export function setCanvasSize(w, h) {
+  CANVAS_W = w;
+  CANVAS_H = h;
+}
+
 export const PAGE_SIZE_DIMS = {
   'letter':      { w: 5100, h: 6600 },
   'legal':       { w: 5100, h: 8400 },
