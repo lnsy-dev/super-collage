@@ -7,6 +7,27 @@ import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 
+export function appendKofiNotice(parentEl) {
+  const existing = parentEl.querySelector('.kofi-notice');
+  if (existing) existing.remove();
+  const notice = document.createElement('div');
+  notice.className = 'kofi-notice';
+  notice.style.cssText = 'margin-top:8px;font-size:9px;text-align:center;line-height:1.6;';
+  notice.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
+  parentEl.appendChild(notice);
+}
+
+export function showKofiToast() {
+  const existing = document.querySelector('.kofi-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'kofi-toast';
+  toast.style.cssText = 'position:fixed;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;border:2px solid #000;padding:8px 16px;box-shadow:2px 2px 0 #000;font-size:9px;z-index:9999;text-align:center;white-space:nowrap;';
+  toast.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
+}
+
 export function renderGradientBar(layer) {
   const canvas = document.getElementById('gradient-bar-canvas');
   if (!canvas) return;

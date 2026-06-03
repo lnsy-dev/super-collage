@@ -8,6 +8,7 @@ import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from '.
 import { DB } from './db.js';
 import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
+import { appendKofiNotice } from './ui.js';
 
 export const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
@@ -200,6 +201,7 @@ export const ExportEngine = {
     Renderer.schedule();
 
     prog.textContent = `Done! ${colorEntries.length} plate(s) exported.`;
+    appendKofiNotice(prog);
     document.getElementById('btn-export-go').disabled = false;
   },
 
@@ -245,6 +247,7 @@ export const ExportEngine = {
     Renderer.schedule();
 
     prog.textContent = 'Done!';
+    appendKofiNotice(prog);
     document.getElementById('btn-composite-go').disabled = false;
   },
 };

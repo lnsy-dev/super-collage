@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor } from './ui.js';
+import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 import { LayerManager } from './layer-manager.js';
@@ -678,6 +678,7 @@ export function wireControls() {
       await DB.put('projects', project);
       document.getElementById('new-project-name').value = '';
       await openProject(project.id);
+      showKofiToast();
     } finally {
       btn.disabled = false;
     }
