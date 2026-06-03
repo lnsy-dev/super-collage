@@ -129,9 +129,16 @@ export async function openProject(projectId) {
   }
 
   document.getElementById('main-app').style.display = 'flex';
-  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"', 'manga': '5.04" × 7.17"' };
-  const sizeLabel = pageSizeLabels[project.pageSize] || '8.5" × 11"';
-  const dims = PAGE_SIZE_DIMS[project.pageSize] || PAGE_SIZE_DIMS['letter'];
+  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"', 'manga': '5.04" × 7.17"', 'business-card': '3.5" × 2"' };
+  let sizeLabel = pageSizeLabels[project.pageSize];
+  let dims = PAGE_SIZE_DIMS[project.pageSize];
+  if (project.pageSize === 'custom' && project.customW && project.customH) {
+    dims = { w: project.customW, h: project.customH };
+    const fmt = px => { const v = px / 600; return (Math.round(v * 100) / 100).toString(); };
+    sizeLabel = `${fmt(project.customW)}" × ${fmt(project.customH)}"`;
+  }
+  if (!sizeLabel) sizeLabel = '8.5" × 11"';
+  if (!dims) dims = PAGE_SIZE_DIMS['letter'];
   setCanvasSize(dims.w, dims.h);
   if (project.orientation === 'landscape' && CANVAS_H > CANVAS_W) { setCanvasSize(CANVAS_H, CANVAS_W); }
   if (project.orientation === 'portrait'  && CANVAS_W > CANVAS_H) { setCanvasSize(CANVAS_H, CANVAS_W); }
@@ -147,6 +154,7 @@ export async function openProject(projectId) {
 }
 
 export function showExportDialog() {
+  document.getElementById('export-dims-text').textContent = `Exports one PNG per risograph color at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`;
   const visibleLayers = State.layers.filter(l => l.visible);
   // Collect all plates (solid colors + gradient stop colors)
   const plateMap = new Map(); // hex → { name, layerCount }
@@ -198,6 +206,7 @@ export function showExportDialog() {
 }
 
 export function showCompositeExportDialog() {
+  document.getElementById('composite-dims-text').textContent = `Renders all visible layers at ${CANVAS_W}×${CANVAS_H} px with subtractive ink mixing (riso simulation).`;
   document.getElementById('composite-export-progress').textContent = '';
   document.getElementById('btn-composite-go').disabled = false;
   document.getElementById('composite-export-dialog').classList.remove('hidden');

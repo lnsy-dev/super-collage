@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { CANVAS_W, CANVAS_H } from './constants.js';
+import { CANVAS_W, CANVAS_H, CANVAS_PAD } from './constants.js';
 import { ImageProcessor } from './image-processor.js';
 
 const displayCanvas   = document.getElementById('display-canvas');
@@ -18,14 +18,20 @@ export const Renderer = {
   init() { this.resize(); },
 
   resize() {
-    const w = Math.round(CANVAS_W * State.zoom);
-    const h = Math.round(CANVAS_H * State.zoom);
-    [displayCanvas, overlayCanvas].forEach(c => {
-      c.width = w; c.height = h;
-      c.style.width = w + 'px'; c.style.height = h + 'px';
-    });
-    maskOverlayCanvas.width = w; maskOverlayCanvas.height = h;
-    maskOverlayCanvas.style.width = w + 'px'; maskOverlayCanvas.style.height = h + 'px';
+    const z = State.zoom;
+    const dw = Math.round(CANVAS_W * z);
+    const dh = Math.round(CANVAS_H * z);
+    const ow = Math.round((CANVAS_W + CANVAS_PAD * 2) * z);
+    const oh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
+    displayCanvas.width = dw; displayCanvas.height = dh;
+    displayCanvas.style.width = dw + 'px'; displayCanvas.style.height = dh + 'px';
+    overlayCanvas.width = ow; overlayCanvas.height = oh;
+    overlayCanvas.style.width = ow + 'px'; overlayCanvas.style.height = oh + 'px';
+    const padPx = Math.round(CANVAS_PAD * z);
+    overlayCanvas.style.top = -padPx + 'px';
+    overlayCanvas.style.left = -padPx + 'px';
+    maskOverlayCanvas.width = dw; maskOverlayCanvas.height = dh;
+    maskOverlayCanvas.style.width = dw + 'px'; maskOverlayCanvas.style.height = dh + 'px';
 
     if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
     State.zoomDebounceTimer = setTimeout(() => {
@@ -107,10 +113,11 @@ export const Renderer = {
     this.drawOverlay();
   },
 
-  _applyTransform(ctx, layer, scale) {
+  _applyTransform(ctx, layer, scale, isOverlay = false) {
+    const pad = isOverlay ? CANVAS_PAD * scale : 0;
     const cx = (layer.x + layer.width / 2) * scale;
     const cy = (layer.y + layer.height / 2) * scale;
-    ctx.translate(cx, cy);
+    ctx.translate(cx + pad, cy + pad);
     ctx.rotate(layer.rotation * Math.PI / 180);
     ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
     ctx.translate(-layer.width / 2 * scale, -layer.height / 2 * scale);
@@ -218,7 +225,7 @@ export const Renderer = {
 
     // Dashed selection rect
     oCtx.save();
-    this._applyTransform(oCtx, layer, z);
+    this._applyTransform(oCtx, layer, z, true);
     oCtx.strokeStyle = '#0055ff';
     oCtx.lineWidth = 1;
     oCtx.setLineDash([4, 3]);
@@ -250,7 +257,8 @@ export const Renderer = {
 
   getHandles(layer, z) {
     const { x, y, width: lw, height: lh, rotation, flipH, flipV } = layer;
-    const cx = (x + lw / 2) * z, cy = (y + lh / 2) * z;
+    const pad = CANVAS_PAD * z;
+    const cx = (x + lw / 2) * z + pad, cy = (y + lh / 2) * z + pad;
     const hw = lw / 2 * z, hh = lh / 2 * z;
     const rawPts = [
       { id: 'tl', lx: -hw, ly: -hh },
@@ -297,8 +305,9 @@ export const Renderer = {
 /* ─── TRANSFORM MATH ─────────────────────────────────────────────── */
 export const Transform = {
   toLocal(mx, my, layer, zoom) {
-    const cx = (layer.x + layer.width / 2) * zoom;
-    const cy = (layer.y + layer.height / 2) * zoom;
+    const pad = CANVAS_PAD * zoom;
+    const cx = (layer.x + layer.width / 2) * zoom + pad;
+    const cy = (layer.y + layer.height / 2) * zoom + pad;
     const dx = mx - cx, dy = my - cy;
     const angle = -layer.rotation * Math.PI / 180;
     let rx = dx * Math.cos(angle) - dy * Math.sin(angle);

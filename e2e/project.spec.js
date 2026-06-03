@@ -29,6 +29,7 @@ test.describe('Project Management', () => {
       { value: '4x6', label: '4" × 6"' },
       { value: '4.25x7', label: '4.25" × 7"' },
       { value: 'manga', label: '5.04" × 7.17"' },
+      { value: 'business-card', label: '3.5" × 2"' },
     ];
 
     for (const size of sizes) {
@@ -40,6 +41,18 @@ test.describe('Project Management', () => {
       await expect(page.locator('#main-app')).toBeVisible();
       await expect(page.locator('#canvas-title')).toContainText(size.label);
     }
+  });
+
+  test('create project with custom size', async ({ page }) => {
+    await gotoApp(page);
+    await page.fill('#new-project-name', 'Custom Size Project');
+    await page.locator('label:has(input[name="new-page-size"][value="custom"])').click();
+    await expect(page.locator('#custom-size-row')).toBeVisible();
+    await page.fill('#custom-width', '5');
+    await page.fill('#custom-height', '7');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    await expect(page.locator('#canvas-title')).toContainText('5" × 7"');
   });
 
   test('switch orientation between portrait and landscape', async ({ page }) => {

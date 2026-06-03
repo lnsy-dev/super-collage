@@ -102,7 +102,7 @@ test.describe('Shapes', () => {
     await selectTool(page, 'shape-rect');
 
     const canvas = page.locator('#interaction-overlay');
-    await canvas.dragTo(canvas, { sourcePosition: { x: 50, y: 50 }, targetPosition: { x: 150, y: 150 } });
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
     // A new shape layer should have been created
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
@@ -114,7 +114,7 @@ test.describe('Shapes', () => {
     await selectTool(page, 'shape-ellipse');
 
     const canvas = page.locator('#interaction-overlay');
-    await canvas.dragTo(canvas, { sourcePosition: { x: 50, y: 50 }, targetPosition: { x: 150, y: 150 } });
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
     await expect(page.locator('#layer-list .layer-name').first()).toContainText('Ellipse');
@@ -125,7 +125,7 @@ test.describe('Shapes', () => {
     await selectTool(page, 'shape-poly');
 
     const canvas = page.locator('#interaction-overlay');
-    await canvas.dragTo(canvas, { sourcePosition: { x: 50, y: 50 }, targetPosition: { x: 150, y: 150 } });
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
     await expect(page.locator('#layer-list .layer-name').first()).toContainText('Polygon');

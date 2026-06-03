@@ -10,7 +10,7 @@ import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer } from './undo.js';
 import { handleAction } from './actions.js';
-import { CANVAS_W, CANVAS_H, RISO_COLORS } from './constants.js';
+import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS } from './constants.js';
 import { showProjectDialog, _selProjectId, openProject, loadProjectList } from './project-manager.js';
 import { DB } from './db.js';
 
@@ -176,7 +176,7 @@ function onPointerDown(e) {
 function onPointerMove(e) {
   const { x, y } = getCanvasXY(e);
   document.getElementById('status-pos').textContent =
-    Math.round(x / State.zoom) + ', ' + Math.round(y / State.zoom);
+    Math.round(x / State.zoom - CANVAS_PAD) + ', ' + Math.round(y / State.zoom - CANVAS_PAD);
 
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     const rect = overlayCanvas.getBoundingClientRect();
@@ -299,8 +299,8 @@ async function onPointerUp(e) {
     Renderer.drawOverlay();
     const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
     if (sw >= 4 && sh >= 4) {
-      const cx = Math.round(Math.min(startX, x) / State.zoom);
-      const cy = Math.round(Math.min(startY, y) / State.zoom);
+      const cx = Math.round(Math.min(startX, x) / State.zoom - CANVAS_PAD);
+      const cy = Math.round(Math.min(startY, y) / State.zoom - CANVAS_PAD);
       const cw = Math.max(1, Math.round(sw / State.zoom));
       const ch = Math.max(1, Math.round(sh / State.zoom));
       const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch);
@@ -648,6 +648,14 @@ export function wireControls() {
     l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
   });
 
+  // ── Custom size toggles ───────────────────────────────────────────
+  document.querySelectorAll('input[name="new-page-size"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isCustom = document.querySelector('input[name="new-page-size"]:checked')?.value === 'custom';
+      document.getElementById('custom-size-row').style.display = isCustom ? 'flex' : 'none';
+    });
+  });
+
   // ── Project dialog buttons ────────────────────────────────────────
   document.getElementById('btn-create-project').addEventListener('click', async e => {
     const btn = e.currentTarget;
@@ -657,6 +665,16 @@ export function wireControls() {
     try {
       const pageSize = document.querySelector('input[name="new-page-size"]:checked')?.value || 'letter';
       const project = { id: crypto.randomUUID(), name, pageSize, createdAt: Date.now(), updatedAt: Date.now(), layerOrder: [] };
+      if (pageSize === 'custom') {
+        const wIn = parseFloat(document.getElementById('custom-width').value);
+        const hIn = parseFloat(document.getElementById('custom-height').value);
+        if (!wIn || !hIn || wIn < 1 || hIn < 1 || wIn > 100 || hIn > 100) {
+          alert('Please enter valid dimensions between 1 and 100 inches.');
+          return;
+        }
+        project.customW = Math.round(wIn * 600);
+        project.customH = Math.round(hIn * 600);
+      }
       await DB.put('projects', project);
       document.getElementById('new-project-name').value = '';
       await openProject(project.id);

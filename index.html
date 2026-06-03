@@ -35,6 +35,13 @@
           <label><input type="radio" name="new-page-size" value="4x6"> 4 × 6</label>
           <label><input type="radio" name="new-page-size" value="4.25x7"> 4.25 × 7</label>
           <label><input type="radio" name="new-page-size" value="manga"> 5.04 × 7.17</label>
+          <label><input type="radio" name="new-page-size" value="business-card"> 3.5 × 2</label>
+          <label><input type="radio" name="new-page-size" value="custom"> Custom</label>
+        </div>
+        <div id="custom-size-row" style="display:none;margin-top:8px;gap:8px;align-items:center;">
+          <label style="font-size:9px;">W <input type="number" id="custom-width" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="3.5"></label>
+          <label style="font-size:9px;">H <input type="number" id="custom-height" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="2"></label>
+          <span style="font-size:9px;">inches @ 600dpi</span>
         </div>
       </div>
     </div>
@@ -52,8 +59,8 @@
       <div class="dialog-title">Export Color Plates</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;">
-        Exports one PNG per risograph color at 3300×5100 px (600 dpi). Each plate: black ink on white.
+      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;" id="export-dims-text">
+        Exports one PNG per risograph color at 600 dpi. Each plate: black ink on white.
       </p>
       <div id="export-color-list" style="font-size:9px;line-height:2.5;"></div>
       <div style="margin-top:12px;font-size:9px;">
@@ -61,6 +68,7 @@
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="2up"> 2 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="4up"> 4 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="8up"> 8 up</label>
       </div>
       <div id="export-progress" style="font-size:9px;margin-top:10px;text-align:center;"></div>
     </div>
@@ -78,14 +86,15 @@
       <div class="dialog-title">Export Composite Preview</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;">
-        Renders all visible layers at 3300×5100 px with subtractive ink mixing (riso simulation).
+      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;" id="composite-dims-text">
+        Renders all visible layers with subtractive ink mixing (riso simulation).
       </p>
       <div style="margin-top:12px;font-size:9px;">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="2up"> 2 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="4up"> 4 up</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="8up"> 8 up</label>
       </div>
       <div id="composite-export-progress" style="font-size:9px;margin-top:10px;text-align:center;"></div>
     </div>

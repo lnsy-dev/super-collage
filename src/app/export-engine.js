@@ -57,7 +57,10 @@ export const ExportEngine = {
 
   _tileCanvas(src, layout) {
     if (layout === '1up') return src;
-    const cols = 2, rows = layout === '4up' ? 2 : 1;
+    let cols, rows;
+    if (layout === '8up') { cols = 4; rows = 2; }
+    else if (layout === '4up') { cols = 2; rows = 2; }
+    else { cols = 2; rows = 1; }
     const out = new OffscreenCanvas(CANVAS_W * cols, CANVAS_H * rows);
     const ctx = out.getContext('2d');
     for (let r = 0; r < rows; r++)
