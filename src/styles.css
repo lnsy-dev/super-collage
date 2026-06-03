@@ -455,6 +455,9 @@ input[type="number"] {
   margin: 2px 8px;
 }
 .dialog-body { padding: 16px; overflow-y: auto; flex: 1; }
+.dialog-body p {
+  padding: 14px 0;
+}
 .dialog-footer {
   padding: 10px 16px;
   border-top: 1px solid var(--black);
