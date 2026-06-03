@@ -1,11 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Super Collage</title>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="src/styles.css">
+
+  <!-- ─── Icons & PWA ─── -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+
+  <!-- ─── Basic Document ─── -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Collage — Risograph Layout Helper</title>
+
+  <!-- ─── Canonical & Robots ─── -->
+  <link rel="canonical" href="https://supercollage.art/">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+
+  <!-- ─── Theme & Mobile ─── -->
+  <meta name="theme-color" content="#212121">
+  <meta name="color-scheme" content="light">
+  <meta name="apple-mobile-web-app-title" content="Super Collage">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Super Collage">
+
+  <!-- ─── Author, Publisher, Copyright ─── -->
+  <meta name="author" content="LNSY">
+  <meta name="publisher" content="supercollage.art">
+  <meta name="copyright" content="© LNSY. All rights reserved.">
+  <meta name="creator" content="LNSY">
+
+  <!-- ─── Descriptions for Humans, AI, and Scrapers ─── -->
+  <meta name="description" content="Super Collage is a free, browser-based risograph layout helper. Design multi-layer prints with real Riso color separation, halftones (dither, dots, grunge, crosshatch), screentones, gradients, patterns, masks, and shape tools. Export print-ready color plates at 600 DPI.">
+  <meta name="abstract" content="Browser-based risograph design tool with layer management, halftone effects, color separation, and 600 DPI plate export.">
+
+  <!-- ─── Keywords & Classification ─── -->
+  <meta name="keywords" content="risograph, riso, layout helper, print design, color separation, halftone, dither, screentone, screen printing, zine maker, graphic design tool, browser-based design, 600 DPI export, color plates, subtractive color, WASM, creative tool, indie publishing, DIY print">
+  <meta name="subject" content="Risograph Print Design Software">
+  <meta name="topic" content="Graphic Design Tools">
+  <meta name="page-type" content="Web Application">
+  <meta name="category" content="Design & Illustration">
+
+  <!-- ─── Open Graph (Facebook, LinkedIn, Discord, etc.) ─── -->
+  <meta property="og:site_name" content="Super Collage">
+  <meta property="og:title" content="Super Collage — Risograph Layout Helper">
+  <meta property="og:description" content="Free browser-based risograph design tool. Layer images, apply halftones & screentones, assign Riso colors, and export print-ready 600 DPI plates.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://supercollage.art/">
+  <meta property="og:image" content="https://supercollage.art/android-chrome-512x512.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="Super Collage — Riso design tool icon">
+  <meta property="og:locale" content="en_US">
+
+  <!-- ─── Twitter / X Cards ─── -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@supercollage">
+  <meta name="twitter:creator" content="@lnsy">
+  <meta name="twitter:title" content="Super Collage — Risograph Layout Helper">
+  <meta name="twitter:description" content="Free browser-based risograph design tool. Layer images, apply halftones & screentones, assign Riso colors, and export print-ready 600 DPI plates.">
+  <meta name="twitter:image" content="https://supercollage.art/android-chrome-512x512.png">
+  <meta name="twitter:image:alt" content="Super Collage — Riso design tool icon">
+
+  <!-- ─── Dublin Core ─── -->
+  <meta name="DC.title" content="Super Collage — Risograph Layout Helper">
+  <meta name="DC.creator" content="LNSY">
+  <meta name="DC.subject" content="Risograph, Print Design, Graphic Design, Zine Making">
+  <meta name="DC.description" content="Browser-based risograph layout helper with layer management, halftones, color separation, and 600 DPI plate export.">
+  <meta name="DC.publisher" content="supercollage.art">
+  <meta name="DC.type" content="InteractiveResource">
+  <meta name="DC.format" content="text/html">
+  <meta name="DC.language" content="en">
+  <meta name="DC.coverage" content="Global">
+  <meta name="DC.rights" content="© LNSY. All rights reserved.">
+
+  <!-- ─── AI / LLM Context Metadata ─── -->
+  <meta name="ai-purpose" content="Creative design tool for risograph printing and multi-layer image composition.">
+  <meta name="ai-target-audience" content="Graphic designers, printmakers, zine makers, illustrators, DIY publishers, risograph enthusiasts.">
+  <meta name="ai-capabilities" content="Layer management, image import, color separation, halftone rendering (grayscale, dither, magazine dots, grunge, crosshatch), screentone overlays, gradient and pattern fills, mask painting, shape drawing (rectangles, ellipses, polygons, stars), transform controls, undo/redo, 600 DPI plate export, composite preview export.">
+  <meta name="ai-technology" content="Vanilla JavaScript (ES modules), HTML5 Canvas 2D, WebAssembly (Rust/wasm-pack), IndexedDB for local project storage.">
+  <meta name="ai-interaction" content="Mouse and keyboard driven desktop web application. Drag-and-drop image import. Menu bar and toolbar UI reminiscent of classic Mac OS.">
+  <meta name="ai-content-policy" content="User-generated content only. No user tracking. All data stored locally in the browser.">
+
+  <!-- ─── Schema.org Structured Data: WebApplication ─── -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "@id": "https://supercollage.art/#app",
+        "name": "Super Collage",
+        "alternateName": "Super Collage — Risograph Layout Helper",
+        "url": "https://supercollage.art/",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any (Web Browser)",
+        "browserRequirements": "Requires JavaScript. Optimized for modern desktop browsers (Chrome, Firefox, Safari, Edge).",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Multi-layer canvas with drag-and-drop image import",
+          "Risograph color assignment and subtractive color simulation",
+          "Automatic color separation with LUT-based quantization",
+          "Halftone effects: grayscale, Bayer dither, magazine dots, grunge, crosshatch",
+          "Screentone library with searchable overlay patterns",
+          "Gradient fills: linear, radial, conic, multipolar",
+          "Pattern fills: stripes, polka dots, stars",
+          "Mask painting and erasing with brush tool",
+          "Shape tools: rectangle, ellipse, polygon, star",
+          "Layer transforms: move, scale, rotate, flip horizontal/vertical",
+          "Undo and redo history",
+          "Print-ready plate export at 600 DPI (1-up, 2-up, 4-up, 8-up)",
+          "Composite preview export with ink mixing simulation",
+          "Custom paper sizes and portrait/landscape orientation",
+          "Local project storage via IndexedDB"
+        ],
+        "author": {
+          "@type": "Person",
+          "name": "LNSY",
+          "url": "https://ko-fi.com/lnsy47369"
+        },
+        "creator": {
+          "@type": "Person",
+          "name": "LNSY"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Super Collage",
+          "url": "https://supercollage.art/"
+        },
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "image": "https://supercollage.art/android-chrome-512x512.png"
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://supercollage.art/#website",
+        "url": "https://supercollage.art/",
+        "name": "Super Collage",
+        "description": "A free browser-based risograph layout helper for designers and printmakers.",
+        "publisher": {
+          "@type": "Organization",
+          "name": "Super Collage",
+          "url": "https://supercollage.art/"
+        },
+        "inLanguage": "en"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://supercollage.art/#software",
+        "name": "Super Collage",
+        "applicationCategory": "GraphicsApplication",
+        "operatingSystem": "Web",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "softwareVersion": "0.1.0",
+        "programmingLanguage": ["JavaScript", "Rust"],
+        "runtimePlatform": "Web Browser"
+      }
+    ]
+  }
+  </script>
+
+  <!-- ─── Styles ─── -->
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
 
