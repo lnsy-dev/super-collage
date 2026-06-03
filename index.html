@@ -108,6 +108,22 @@
   </div>
 </div>
 
+<!-- ═══ SCREENTONE DIALOG ════════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="screentone-dialog">
+  <div class="mac-dialog" style="width:520px;max-width:90vw;height:420px;max-height:80vh;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Screentones</div>
+    </div>
+    <div class="dialog-body" style="overflow-y:auto;">
+      <div class="screentone-grid" id="screentone-grid"></div>
+    </div>
+    <div class="dialog-footer">
+      <button class="mac-btn" id="btn-screentone-cancel">Cancel</button>
+      <button class="mac-btn primary" id="btn-screentone-add" disabled>Add</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ COLOR SEPARATION LOADING DIALOG ═══════════════════════════ -->
 <div class="dialog-overlay hidden" id="color-sep-loading-dialog">
   <div class="mac-dialog" style="min-width:280px;max-width:360px;">
@@ -134,6 +150,7 @@
         <div class="menu-entry" data-action="open-project">Open Project…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="add-image">Add Image… <span class="shortcut">&#8984;I</span></div>
+        <div class="menu-entry" data-action="add-screentone">Add Screentone…</div>
         <div class="menu-entry" data-action="import-color-separation">Import Color Separation…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="export">Export Plates… <span class="shortcut">&#8984;E</span></div>
@@ -437,6 +454,7 @@
                 </div>
                 <div class="prop-row" id="image-mask-row" style="display:none;">
                   <button class="mac-btn sm" id="btn-create-image-mask" data-action="create-image-mask" style="display:none;">Create Image Mask</button>
+                  <button class="mac-btn sm" id="btn-create-difference-mask" data-action="create-difference-mask" style="display:none;">Create Difference Mask</button>
                   <button class="mac-btn sm" id="btn-release-image-mask" data-action="release-image-mask" style="display:none;">Release Mask</button>
                 </div>
               </div>
@@ -508,6 +526,11 @@ window.showCompositeExportDialog = showCompositeExportDialog;
 window.openProject = openProject;
 window.loadProjectList = loadProjectList;
 
+import { showScreentoneDialog, hideScreentoneDialog, addSelectedScreentone } from './src/app/screentone-manager.js';
+window.showScreentoneDialog = showScreentoneDialog;
+window.hideScreentoneDialog = hideScreentoneDialog;
+window.addSelectedScreentone = addSelectedScreentone;
+
 import { drawShapePath, renderShapeToCanvas, drawShapePreview, getCanvasXY, getExtraSnaps, wireControls } from './src/app/events.js';
 window.drawShapePath = drawShapePath;
 window.renderShapeToCanvas = renderShapeToCanvas;
@@ -521,6 +544,13 @@ window.handleAction = handleAction;
 
 import { init, blendSubtractive, separateColorsWithLut, buildColorLut, colorSepLut } from './src/app/init.js';
 window.init = init;
+
+// Screentone dialog buttons
+document.getElementById('btn-screentone-cancel').addEventListener('click', hideScreentoneDialog);
+document.getElementById('btn-screentone-add').addEventListener('click', addSelectedScreentone);
+document.getElementById('screentone-dialog').addEventListener('click', e => {
+  if (e.target === document.getElementById('screentone-dialog')) hideScreentoneDialog();
+});
 
 const wrapper = document.getElementById('canvas-wrapper');
 

@@ -621,3 +621,46 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(0,0,0,0.5); backgr
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
 
+/* ─── SCREENTONE DIALOG ──────────────────────────────────────────── */
+.screentone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+  padding: 4px;
+}
+.screentone-item {
+  border: 2px solid var(--black);
+  background: var(--white);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.1s;
+}
+.screentone-item:hover {
+  background: var(--light-gray);
+}
+.screentone-item.selected {
+  background: var(--black);
+  color: var(--white);
+}
+.screentone-item img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  image-rendering: pixelated;
+  border: 1px solid var(--black);
+  background: var(--white);
+}
+.screentone-item.selected img {
+  border-color: var(--white);
+}
+.screentone-item .screentone-name {
+  font-size: 8px;
+  text-align: center;
+  line-height: 1.4;
+  word-break: break-word;
+  max-width: 100%;
+}

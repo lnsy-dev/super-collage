@@ -179,10 +179,10 @@ function onPointerMove(e) {
     Math.round(x / State.zoom - CANVAS_PAD) + ', ' + Math.round(y / State.zoom - CANVAS_PAD);
 
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
-    const rect = overlayCanvas.getBoundingClientRect();
+    const wrapperRect = document.getElementById('canvas-wrapper').getBoundingClientRect();
     const bc = document.getElementById('brush-cursor');
-    bc.style.left = (e.clientX - rect.left) + 'px';
-    bc.style.top  = (e.clientY - rect.top)  + 'px';
+    bc.style.left = (e.clientX - wrapperRect.left) + 'px';
+    bc.style.top  = (e.clientY - wrapperRect.top)  + 'px';
   }
 
   if (State.shapeDrag && (e.buttons & 1)) {
@@ -431,9 +431,9 @@ export function wireControls() {
 
   overlayCanvas.addEventListener('mousemove', e => {
     if (!isMaskTool()) return;
-    const rect = overlayCanvas.getBoundingClientRect();
-    brushCursor.style.left = (e.clientX - rect.left)  + 'px';
-    brushCursor.style.top  = (e.clientY - rect.top)   + 'px';
+    const wrapperRect = document.getElementById('canvas-wrapper').getBoundingClientRect();
+    brushCursor.style.left = (e.clientX - wrapperRect.left)  + 'px';
+    brushCursor.style.top  = (e.clientY - wrapperRect.top)   + 'px';
   });
 
   overlayCanvas.addEventListener('mouseenter', e => {

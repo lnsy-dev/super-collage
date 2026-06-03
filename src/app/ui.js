@@ -304,6 +304,7 @@ export const UI = {
 
     // Image mask buttons
     const createMaskBtn = document.getElementById('btn-create-image-mask');
+    const createDiffMaskBtn = document.getElementById('btn-create-difference-mask');
     const releaseMaskBtn = document.getElementById('btn-release-image-mask');
     const imageMaskRow = document.getElementById('image-mask-row');
     const [selA, selB] = State.selectedIds.map(id => State.layers.find(x => x.id === id));
@@ -316,6 +317,7 @@ export const UI = {
       !selA.isMaskFor && !selB.isMaskFor &&
       !alreadyLinked;
     createMaskBtn.style.display = canCreate ? '' : 'none';
+    createDiffMaskBtn.style.display = canCreate ? '' : 'none';
     releaseMaskBtn.style.display = layer.isMaskFor ? '' : 'none';
     imageMaskRow.style.display = (canCreate || layer.isMaskFor) ? '' : 'none';
   },

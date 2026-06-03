@@ -7,8 +7,10 @@ import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
 import { LayerManager } from './layer-manager.js';
 import { MaskEngine } from './mask-engine.js';
+import { Layer } from './layer.js';
 import { undo, redo, pushUndo, snapshotLayer } from './undo.js';
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
+import { showScreentoneDialog } from './screentone-manager.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize } from './constants.js';
 import { DB } from './db.js';
 
@@ -16,6 +18,7 @@ export async function handleAction(action) {
   const layer = selectedLayer();
   switch (action) {
     case 'add-image':     document.getElementById('file-input').click(); break;
+    case 'add-screentone': showScreentoneDialog(); break;
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
@@ -71,6 +74,83 @@ export async function handleAction(action) {
       await DB.saveLayer(baseLayer);
       await DB.saveLayer(maskLayerObj);
       await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+      break;
+    }
+    case 'create-difference-mask': {
+      if (State.selectedIds.length !== 2) break;
+      const [idA, idB] = State.selectedIds;
+      const idxA = State.layers.findIndex(l => l.id === idA);
+      const idxB = State.layers.findIndex(l => l.id === idB);
+      if (idxA === -1 || idxB === -1) break;
+      // Higher index = visually on top = becomes the mask
+      const [baseIdx, maskIdx] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+      const baseLayer = State.layers[baseIdx];
+      const maskLayerObj = State.layers[maskIdx];
+
+      // Set up image mask relationship (same as create-image-mask)
+      if (!baseLayer.imageMaskIds) baseLayer.imageMaskIds = [];
+      baseLayer.imageMaskIds.push(maskLayerObj.id);
+      maskLayerObj.isMaskFor = baseLayer.id;
+
+      // Place mask layer at end of this base's mask group
+      State.layers.splice(maskIdx, 1);
+      const newBaseIdx = State.layers.findIndex(l => l.id === baseLayer.id);
+      let insertPos = newBaseIdx + 1;
+      while (insertPos < State.layers.length && State.layers[insertPos].isMaskFor === baseLayer.id) {
+        insertPos++;
+      }
+      State.layers.splice(insertPos, 0, maskLayerObj);
+
+      // Duplicate the mask layer as a normal visible layer
+      const dup = new Layer({
+        ...maskLayerObj.toRecord(),
+        id: undefined,
+        name: maskLayerObj.name + ' (diff)',
+        imageMaskIds: [],
+        isMaskFor: null,
+      });
+      // Deep-clone canvases
+      if (maskLayerObj._originalCanvas) {
+        const orig = new OffscreenCanvas(maskLayerObj._originalCanvas.width, maskLayerObj._originalCanvas.height);
+        orig.getContext('2d').drawImage(maskLayerObj._originalCanvas, 0, 0);
+        dup._originalCanvas = orig;
+      }
+      if (maskLayerObj._processedCanvas) {
+        const proc = new OffscreenCanvas(maskLayerObj._processedCanvas.width, maskLayerObj._processedCanvas.height);
+        proc.getContext('2d').drawImage(maskLayerObj._processedCanvas, 0, 0);
+        dup._processedCanvas = proc;
+      }
+      if (maskLayerObj._maskCanvas) {
+        const mc = new OffscreenCanvas(maskLayerObj._maskCanvas.width, maskLayerObj._maskCanvas.height);
+        mc.getContext('2d').drawImage(maskLayerObj._maskCanvas, 0, 0);
+        dup._maskCanvas = mc;
+      }
+      dup._dirty = false;
+
+      // Insert duplicate right after the mask group
+      State.layers.splice(insertPos + 1, 0, dup);
+
+      // Persist duplicate
+      await DB.put('layers', dup.toRecord());
+      if (dup._originalCanvas) {
+        const blob = await dup._originalCanvas.convertToBlob({ type: 'image/png' });
+        await DB.put('imageBlobs', { layerId: dup.id, blob });
+      }
+      if (dup._maskCanvas) {
+        const blob = await dup._maskCanvas.convertToBlob({ type: 'image/png' });
+        await DB.put('maskBlobs', { layerId: dup.id, blob });
+      }
+
+      await DB.saveLayer(baseLayer);
+      await DB.saveLayer(maskLayerObj);
+      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+
+      // Select the duplicated layer so user can change its color immediately
+      State.selectedId = dup.id;
+      State.selectedIds = [dup.id];
       UI.refreshLayerList();
       UI.refreshProperties();
       Renderer.schedule();
