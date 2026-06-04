@@ -8,7 +8,7 @@ import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
-import { undo, redo, pushUndo, snapshotLayer } from './undo.js';
+import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
 import { handleAction } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS } from './constants.js';
 import { showProjectDialog, _selProjectId, openProject, loadProjectList } from './project-manager.js';
@@ -109,6 +109,7 @@ function onPointerDown(e) {
 
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     if (!layer) return;
+    pushUndoWithMask(layer);
     const local = Transform.toLocal(x, y, layer, State.zoom);
     const lx = local.x * (layer.naturalWidth / layer.width);
     const ly = local.y * (layer.naturalHeight / layer.height);
@@ -349,14 +350,17 @@ export function wireControls() {
     });
   }
   function rangeField(id, field, valId) {
+    let pushed = false;
     document.getElementById(id).addEventListener('input', e => {
       const l = selectedLayer(); if (!l) return;
+      if (!pushed) { pushUndo(snapshotLayer(l)); pushed = true; }
       l[field] = parseFloat(e.target.value);
       document.getElementById(valId).textContent = e.target.value;
       l._dirty = true;
       Renderer.schedule();
     });
     document.getElementById(id).addEventListener('change', () => {
+      pushed = false;
       const l = selectedLayer(); if (l) DB.saveLayer(l);
     });
   }
@@ -384,6 +388,7 @@ export function wireControls() {
   document.querySelectorAll('.halftone-opt').forEach(btn => {
     btn.addEventListener('click', () => {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       l.halftoneType = btn.dataset.halftone;
       l._dirty = true;
       document.querySelectorAll('.halftone-opt').forEach(b => b.classList.toggle('active', b === btn));
@@ -401,6 +406,7 @@ export function wireControls() {
   document.querySelectorAll('.color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       l.color = sw.dataset.color;
       l._dirty = true;
       document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s === sw));
@@ -499,6 +505,7 @@ export function wireControls() {
   document.querySelectorAll('.grad-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       l.gradient.type = btn.dataset.gradType; l._dirty = true;
       document.querySelectorAll('.grad-type-btn').forEach(b => b.classList.toggle('active', b === btn));
       refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
@@ -506,37 +513,47 @@ export function wireControls() {
   });
 
   // ── Gradient: angle slider ────────────────────────────────────────
+  let gradAnglePushed = false;
   document.getElementById('grad-angle').addEventListener('input', e => {
     const l = selectedLayer(); if (!l) return;
+    if (!gradAnglePushed) { pushUndo(snapshotLayer(l)); gradAnglePushed = true; }
     l.gradient.angle = parseInt(e.target.value);
     document.getElementById('val-grad-angle').textContent = l.gradient.angle + '°';
     l._dirty = true; renderGradientBar(l); Renderer.schedule();
   });
   document.getElementById('grad-angle').addEventListener('change', () => {
+    gradAnglePushed = false;
     const l = selectedLayer(); if (l) DB.saveLayer(l);
   });
 
   // ── Gradient: center sliders ──────────────────────────────────────
+  let gradCxPushed = false;
   document.getElementById('grad-cx').addEventListener('input', e => {
     const l = selectedLayer(); if (!l) return;
+    if (!gradCxPushed) { pushUndo(snapshotLayer(l)); gradCxPushed = true; }
     l.gradient.centerX = parseInt(e.target.value) / 100;
     l._dirty = true; renderGradientBar(l); Renderer.schedule();
   });
   document.getElementById('grad-cx').addEventListener('change', () => {
+    gradCxPushed = false;
     const l = selectedLayer(); if (l) DB.saveLayer(l);
   });
+  let gradCyPushed = false;
   document.getElementById('grad-cy').addEventListener('input', e => {
     const l = selectedLayer(); if (!l) return;
+    if (!gradCyPushed) { pushUndo(snapshotLayer(l)); gradCyPushed = true; }
     l.gradient.centerY = parseInt(e.target.value) / 100;
     l._dirty = true; renderGradientBar(l); Renderer.schedule();
   });
   document.getElementById('grad-cy').addEventListener('change', () => {
+    gradCyPushed = false;
     const l = selectedLayer(); if (l) DB.saveLayer(l);
   });
 
   // ── Gradient: add stop ────────────────────────────────────────────
   document.getElementById('btn-add-stop').addEventListener('click', () => {
     const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
     const stops = l.gradient.stops;
     // Insert new stop between last two
     const last = stops[stops.length - 1].position;
@@ -550,6 +567,7 @@ export function wireControls() {
     const risoSw = e.target.closest('.stop-riso-sw');
     if (risoSw) {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       const idx = parseInt(risoSw.dataset.stopIdx);
       l.gradient.stops[idx].color = risoSw.dataset.risoColor;
       l._dirty = true; refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
@@ -558,6 +576,7 @@ export function wireControls() {
     const removeBtn = e.target.closest('.stop-remove-btn');
     if (removeBtn && !removeBtn.disabled) {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       const idx = parseInt(removeBtn.dataset.stopIdx);
       if (l.gradient.stops.length > 2) {
         l.gradient.stops.splice(idx, 1);
@@ -604,6 +623,7 @@ export function wireControls() {
   document.querySelectorAll('.pat-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const l = selectedLayer(); if (!l) return;
+      pushUndo(snapshotLayer(l));
       l.pattern.type = btn.dataset.patType; l._dirty = true;
       document.querySelectorAll('.pat-type-btn').forEach(b => b.classList.toggle('active', b === btn));
       refreshPatternEditor(l); DB.saveLayer(l); Renderer.schedule();
@@ -615,6 +635,7 @@ export function wireControls() {
     const sw = e.target.closest('.pat-color-sw');
     if (!sw) return;
     const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
     l.pattern.color1 = sw.dataset.patColor; l._dirty = true;
     refreshPatternEditor(l); DB.saveLayer(l); UI.refreshLayerList(); Renderer.schedule();
   });
@@ -622,28 +643,35 @@ export function wireControls() {
     const sw = e.target.closest('.pat-color-sw');
     if (!sw) return;
     const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
     l.pattern.color2 = sw.dataset.patColor; l._dirty = true;
     refreshPatternEditor(l); DB.saveLayer(l); UI.refreshLayerList(); Renderer.schedule();
   });
 
   // ── Pattern: size slider ──────────────────────────────────────────
+  let patSizePushed = false;
   document.getElementById('pat-size').addEventListener('input', e => {
     const l = selectedLayer(); if (!l) return;
+    if (!patSizePushed) { pushUndo(snapshotLayer(l)); patSizePushed = true; }
     l.pattern.size = parseInt(e.target.value);
     document.getElementById('val-pat-size').textContent = l.pattern.size;
   });
   document.getElementById('pat-size').addEventListener('change', e => {
+    patSizePushed = false;
     const l = selectedLayer(); if (!l) return;
     l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
   });
 
   // ── Pattern: angle slider ─────────────────────────────────────────
+  let patAnglePushed = false;
   document.getElementById('pat-angle').addEventListener('input', e => {
     const l = selectedLayer(); if (!l) return;
+    if (!patAnglePushed) { pushUndo(snapshotLayer(l)); patAnglePushed = true; }
     l.pattern.angle = parseInt(e.target.value);
     document.getElementById('val-pat-angle').textContent = l.pattern.angle + '°';
   });
   document.getElementById('pat-angle').addEventListener('change', e => {
+    patAnglePushed = false;
     const l = selectedLayer(); if (!l) return;
     l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
   });

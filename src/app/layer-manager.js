@@ -11,9 +11,11 @@ import { hexToRgb } from '../utils/color.js';
 import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
+import { pushUndoState } from './undo.js';
 
 export const LayerManager = {
   async addShape(shapeCanvas, x, y, w, h) {
+    pushUndoState();
     const toolNames = {
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse',
       'shape-poly': State.shapeIsStar ? 'Star' : 'Polygon',
@@ -40,6 +42,7 @@ export const LayerManager = {
   },
 
   async addFromFile(file) {
+    pushUndoState();
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
     if (isSvg) {
       const text = await file.text();
@@ -118,6 +121,7 @@ export const LayerManager = {
   },
 
   async addColorSeparation(file) {
+    pushUndoState();
     const MAX_SEP_DIM = 1500; // cap decomposition resolution for speed
 
     const dialog = document.getElementById('color-sep-loading-dialog');
@@ -229,6 +233,7 @@ export const LayerManager = {
   },
 
   async delete(layerId) {
+    pushUndoState();
     const idx = State.layers.findIndex(l => l.id === layerId);
     if (idx === -1) return;
     const toDelete = State.layers[idx];
@@ -262,6 +267,7 @@ export const LayerManager = {
   },
 
   async duplicate(layerId) {
+    pushUndoState();
     const src = State.layers.find(l => l.id === layerId);
     if (!src) return;
     const imgRec = await DB.get('imageBlobs', layerId);
@@ -296,6 +302,7 @@ export const LayerManager = {
   },
 
   move(layerId, delta) {
+    pushUndoState();
     const layer = State.layers.find(l => l.id === layerId);
     if (!layer) return;
     // Resolve to base layer of this group

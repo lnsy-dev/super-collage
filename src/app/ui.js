@@ -6,6 +6,7 @@ import { State, selectedLayer } from './state.js';
 import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { Renderer } from './renderer.js';
 import { DB } from './db.js';
+import { pushUndo, snapshotLayer } from './undo.js';
 
 export function appendKofiNotice(parentEl) {
   const existing = parentEl.querySelector('.kofi-notice');
@@ -181,6 +182,7 @@ export const UI = {
       vis.textContent = l.visible ? '◉' : '○';
       vis.addEventListener('click', e => {
         e.stopPropagation();
+        pushUndo(snapshotLayer(l));
         l.visible = !l.visible;
         DB.saveLayer(l);
         this.refreshLayerList();
@@ -212,7 +214,7 @@ export const UI = {
       name.addEventListener('dblclick', e => {
         e.stopPropagation();
         const n = prompt('Layer name:', l.name);
-        if (n?.trim()) { l.name = n.trim(); DB.saveLayer(l); this.refreshLayerList(); }
+        if (n?.trim()) { pushUndo(snapshotLayer(l)); l.name = n.trim(); DB.saveLayer(l); this.refreshLayerList(); }
       });
 
       const lock = document.createElement('span');
@@ -221,6 +223,7 @@ export const UI = {
       lock.title = l.locked ? 'Unlock layer' : 'Lock layer';
       lock.addEventListener('click', e => {
         e.stopPropagation();
+        pushUndo(snapshotLayer(l));
         l.locked = !l.locked;
         if (l.locked && State.selectedIds.includes(l.id)) {
           State.selectedIds = State.selectedIds.filter(id => id !== l.id);

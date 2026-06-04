@@ -8,7 +8,7 @@ import { Renderer } from './renderer.js';
 import { LayerManager } from './layer-manager.js';
 import { MaskEngine } from './mask-engine.js';
 import { Layer } from './layer.js';
-import { undo, redo, pushUndo, snapshotLayer } from './undo.js';
+import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } from './undo.js';
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
 import { showScreentoneDialog } from './screentone-manager.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize } from './constants.js';
@@ -43,11 +43,12 @@ export async function handleAction(action) {
         Renderer.schedule();
       }
       break;
-    case 'clear-mask':  if (layer) { MaskEngine.clearMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
-    case 'fill-mask':   if (layer) { MaskEngine.fillMask(layer);  DB.saveMask(layer); Renderer.schedule(); } break;
-    case 'invert-mask': if (layer) { MaskEngine.invertMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
+    case 'clear-mask':  if (layer) { pushUndoWithMask(layer); MaskEngine.clearMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
+    case 'fill-mask':   if (layer) { pushUndoWithMask(layer); MaskEngine.fillMask(layer);  DB.saveMask(layer); Renderer.schedule(); } break;
+    case 'invert-mask': if (layer) { pushUndoWithMask(layer); MaskEngine.invertMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
     case 'create-image-mask': {
       if (State.selectedIds.length !== 2) break;
+      pushUndoState();
       const [idA, idB] = State.selectedIds;
       const idxA = State.layers.findIndex(l => l.id === idA);
       const idxB = State.layers.findIndex(l => l.id === idB);
@@ -81,6 +82,7 @@ export async function handleAction(action) {
     }
     case 'create-difference-mask': {
       if (State.selectedIds.length !== 2) break;
+      pushUndoState();
       const [idA, idB] = State.selectedIds;
       const idxA = State.layers.findIndex(l => l.id === idA);
       const idxB = State.layers.findIndex(l => l.id === idB);
@@ -159,6 +161,7 @@ export async function handleAction(action) {
     case 'release-image-mask': {
       const maskLayerObj = selectedLayer();
       if (!maskLayerObj?.isMaskFor) break;
+      pushUndoState();
       const baseLayer = State.layers.find(l => l.id === maskLayerObj.isMaskFor);
       if (baseLayer) {
         baseLayer.imageMaskIds = (baseLayer.imageMaskIds || []).filter(id => id !== maskLayerObj.id);
