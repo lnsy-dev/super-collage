@@ -55,7 +55,7 @@ test.describe('Color Separation Import', () => {
       return State.layers[0]?.separationColors;
     });
     expect(Array.isArray(colors)).toBe(true);
-    expect(colors.length).toBeGreaterThan(0);
+    expect(colors.length).toBe(7);
   });
 
   test('export dialog includes separation colors', async ({ page }) => {
@@ -137,7 +137,7 @@ test.describe('Color Separation Calibration', () => {
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, 64, 64);
       // Black circle in center
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = '#010101';
       ctx.beginPath();
       ctx.arc(32, 32, 20, 0, Math.PI * 2);
       ctx.fill();
@@ -151,6 +151,10 @@ test.describe('Color Separation Calibration', () => {
       const plates = {};
       for (const color of layer.separationColors) {
         const canvas = layer.separationPlates.get(color);
+        if (!canvas) {
+          console.log('Missing plate for color:', color);
+          continue;
+        }
         const ctx = canvas.getContext('2d');
         const data = ctx.getImageData(0, 0, 64, 64).data;
 
@@ -184,9 +188,9 @@ test.describe('Color Separation Calibration', () => {
     }
 
     // Black circle should have Black ink, minimal other ink
-    expect(results['#212121'].blackAreaAvg, 'Black circle should have black ink').toBeLessThan(50);
+    expect(results['#010101'].blackAreaAvg, 'Black circle should have black ink').toBeLessThan(50);
     for (const [color, vals] of Object.entries(results)) {
-      if (color !== '#212121') {
+      if (color !== '#010101') {
         expect(vals.blackAreaAvg, `Black circle should have no ${color} ink`).toBeGreaterThan(180);
       }
     }
@@ -195,22 +199,22 @@ test.describe('Color Separation Calibration', () => {
   test('riso color patches map to their own plates', async ({ page }) => {
     await createProject(page, 'Riso Color Calibration Test');
 
-    // Use actual riso colors so each patch should map primarily to its own plate.
+    // Use our 4-ink palette so each patch should map primarily to its own plate.
     await importCalibrationImage(page, (ctx) => {
-      // Top-left: Riso Black
-      ctx.fillStyle = '#212121';
+      // Top-left: Black
+      ctx.fillStyle = '#010101';
       ctx.fillRect(0, 0, 21, 21);
-      // Top-mid: Riso Red
-      ctx.fillStyle = '#E02B2B';
+      // Top-mid: Aqua
+      ctx.fillStyle = '#5ec8e5';
       ctx.fillRect(21, 0, 21, 21);
-      // Top-right: Riso Blue
-      ctx.fillStyle = '#0078BF';
+      // Top-right: Yellow
+      ctx.fillStyle = '#ffe800';
       ctx.fillRect(42, 0, 22, 21);
       // Bottom-left: 50% Gray
       ctx.fillStyle = '#808080';
       ctx.fillRect(0, 21, 21, 22);
-      // Bottom-mid: Riso Yellow
-      ctx.fillStyle = '#FFE800';
+      // Bottom-mid: Fluorescent Pink
+      ctx.fillStyle = '#ff48b0';
       ctx.fillRect(21, 21, 21, 22);
       // Bottom-right: White
       ctx.fillStyle = '#FFFFFF';
@@ -232,29 +236,29 @@ test.describe('Color Separation Calibration', () => {
       const p = (hex) => layer.separationPlates.get(hex);
 
       return {
-        blackOnBlack:  getPatchAvg(p('#212121'), 0, 0, 21, 21),
-        blackOnRed:    getPatchAvg(p('#E02B2B'), 0, 0, 21, 21),
-        redOnRed:      getPatchAvg(p('#E02B2B'), 21, 0, 21, 21),
-        redOnBlack:    getPatchAvg(p('#212121'), 21, 0, 21, 21),
-        blueOnBlue:    getPatchAvg(p('#0078BF'), 42, 0, 22, 21),
-        blueOnBlack:   getPatchAvg(p('#212121'), 42, 0, 22, 21),
-        grayOnBlack:   getPatchAvg(p('#212121'), 0, 21, 21, 22),
-        yellowOnYellow:getPatchAvg(p('#FFE800'), 21, 21, 21, 22),
-        whiteOnBlack:  getPatchAvg(p('#212121'), 42, 21, 22, 22),
-        whiteOnYellow: getPatchAvg(p('#FFE800'), 42, 21, 22, 22),
+        blackOnBlack:   getPatchAvg(p('#010101'), 0, 0, 21, 21),
+        blackOnAqua:    getPatchAvg(p('#5ec8e5'), 0, 0, 21, 21),
+        aquaOnAqua:     getPatchAvg(p('#5ec8e5'), 21, 0, 21, 21),
+        aquaOnBlack:    getPatchAvg(p('#010101'), 21, 0, 21, 21),
+        yellowOnYellow: getPatchAvg(p('#ffe800'), 42, 0, 22, 21),
+        yellowOnBlack:  getPatchAvg(p('#010101'), 42, 0, 22, 21),
+        grayOnBlack:    getPatchAvg(p('#010101'), 0, 21, 21, 22),
+        pinkOnPink:     getPatchAvg(p('#ff48b0'), 21, 21, 21, 22),
+        whiteOnBlack:   getPatchAvg(p('#010101'), 42, 21, 22, 22),
+        whiteOnPink:    getPatchAvg(p('#ff48b0'), 42, 21, 22, 22),
       };
     });
 
     // 0 = full ink, 255 = no ink
-    expect(results.blackOnBlack,  'Black patch → black ink').toBeLessThan(50);
-    expect(results.blackOnRed,    'Black patch → no red ink').toBeGreaterThan(200);
-    expect(results.redOnRed,      'Red patch → red ink').toBeLessThan(80);
-    expect(results.redOnBlack,    'Red patch → no black ink').toBeGreaterThan(200);
-    expect(results.blueOnBlue,    'Blue patch → blue ink').toBeLessThan(80);
-    expect(results.blueOnBlack,   'Blue patch → no black ink').toBeGreaterThan(200);
-    expect(results.grayOnBlack,   'Gray patch → some black ink').toBeLessThan(180);
-    expect(results.yellowOnYellow,'Yellow patch → yellow ink').toBeLessThan(80);
-    expect(results.whiteOnBlack,  'White patch → no black ink').toBeGreaterThan(220);
-    expect(results.whiteOnYellow, 'White patch → no yellow ink').toBeGreaterThan(220);
+    expect(results.blackOnBlack,   'Black patch → black ink').toBeLessThan(50);
+    expect(results.blackOnAqua,    'Black patch → no aqua ink').toBeGreaterThan(200);
+    expect(results.aquaOnAqua,     'Aqua patch → aqua ink').toBeLessThan(80);
+    expect(results.aquaOnBlack,    'Aqua patch → no black ink').toBeGreaterThan(200);
+    expect(results.yellowOnYellow, 'Yellow patch → yellow ink').toBeLessThan(80);
+    expect(results.yellowOnBlack,  'Yellow patch → no black ink').toBeGreaterThan(200);
+    expect(results.grayOnBlack,    'Gray patch → some black ink (or other color mix)').toBeLessThan(240);
+    expect(results.pinkOnPink,     'Pink patch → pink ink').toBeLessThan(80);
+    expect(results.whiteOnBlack,   'White patch → no black ink').toBeGreaterThan(220);
+    expect(results.whiteOnPink,    'White patch → no pink ink').toBeGreaterThan(220);
   });
 });

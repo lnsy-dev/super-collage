@@ -173,7 +173,8 @@ export const LayerManager = {
       }
 
       // Run WASM decomposition using pre-built LUT (fast, non-blocking)
-      const plateBuffer = window.separateColorsWithLut(imageData.data, srcW, srcH, window.colorSepLut, 16);
+      const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
+      const plateBuffer = window.separateColorsWithLut(imageData.data, srcW, srcH, window.colorSepLut, 16, numColors);
       const pixelCount = srcW * srcH;
       const numPlates = RISO_COLORS.length - 1; // exclude white
 

@@ -1,4 +1,8 @@
 use wasm_bindgen::prelude::*;
+use colorimetry::rgb::Rgb;
+use colorimetry::lab::CieLab;
+use colorimetry::xyz::RelXYZ;
+use colorimetry::observer::Observer;
 
 /// Initialize a particle system with `count` particles.
 /// Returns a flat f32 array: [x0, y0, vx0, vy0, hue0, x1, y1, ...]
@@ -109,14 +113,8 @@ fn lcg(state: u32) -> u32 {
 
 /* ═══════════════════════════════════════════════════════════════════
    COLOR SEPARATION  ·  Decompose RGB image into risograph plates
+   Now powered by colorimetry crate for CIEDE2000 color distance.
 ════════════════════════════════════════════════════════════════════ */
-
-#[derive(Clone, Copy, Debug)]
-struct Lab {
-    l: f64,
-    a: f64,
-    b: f64,
-}
 
 #[derive(Clone, Copy, Debug)]
 struct Vec3 {
@@ -152,36 +150,39 @@ fn srgb_byte_to_linear(v: u8) -> f64 {
     }
 }
 
-fn linear_to_lab(r: f64, g: f64, b: f64) -> Lab {
-    // D65 sRGB → XYZ
-    let x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
-    let y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;
-    let z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041;
-
-    fn f(t: f64) -> f64 {
-        if t > 0.008856 {
-            t.powf(1.0 / 3.0)
-        } else {
-            7.787 * t + 16.0 / 116.0
-        }
-    }
-
-    let fx = f(x / 0.95047);
-    let fy = f(y / 1.0);
-    let fz = f(z / 1.08883);
-
-    Lab {
-        l: (116.0 * fy - 16.0).max(0.0),
-        a: 500.0 * (fx - fy),
-        b: 200.0 * (fy - fz),
-    }
+/// Convert sRGB byte values to CieLab using the colorimetry crate (D65 white point).
+fn srgb_to_cielab(r: u8, g: u8, b: u8) -> CieLab {
+    let rgb = Rgb::from_u8(r, g, b, None, None);
+    let xyz = rgb.xyz();
+    let white = Observer::Cie1931.xyz_d65();
+    let rel = RelXYZ::new(xyz.to_array(), white);
+    CieLab::from_rxyz(rel)
 }
 
-fn lab_distance_sq(a: &Lab, b: &Lab) -> f64 {
-    let dl = a.l - b.l;
-    let da = a.a - b.a;
-    let db = a.b - b.b;
-    dl * dl + da * da + db * db
+/// Convert linear RGB (0..1) to CieLab using the colorimetry crate (D65 white point).
+fn linear_rgb_to_cielab(r: f64, g: f64, b: f64) -> CieLab {
+    // linear RGB → sRGB bytes (approximate inverse of gamma)
+    fn to_srgb_byte(v: f64) -> u8 {
+        let s = if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        };
+        (s.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+    srgb_to_cielab(to_srgb_byte(r), to_srgb_byte(g), to_srgb_byte(b))
+}
+
+/// CIEDE2000 color distance using the colorimetry crate.
+/// All colors use the same observer/white point, so unwrap is safe.
+fn ciede2000_distance(a: &CieLab, b: &CieLab) -> f64 {
+    a.ciede2000(b).unwrap_or_else(|_| {
+        // Fallback to Euclidean distance in Lab space
+        let dl = a.l() - b.l();
+        let da = a.a() - b.a();
+        let db = a.b() - b.b();
+        (dl * dl + da * da + db * db).sqrt()
+    })
 }
 
 /// Geometric (subtractive) color mixing for translucent inks.
@@ -243,25 +244,27 @@ impl PowCache {
 /// discrete weight grids.  Uses geometric (subtractive) mixing for
 /// calibrations that match real ink behaviour.
 fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix: u32) -> [u8; 7] {
-    let target_lab = linear_to_lab(target_rgb.x, target_rgb.y, target_rgb.z);
+    let target_lab = linear_rgb_to_cielab(target_rgb.x, target_rgb.y, target_rgb.z);
     let mut best_error = f64::INFINITY;
     let mut best_weights = [0.0f64; 7];
 
     // "No ink" option (paper white).  This prevents white/light pixels from
     // being forced onto the nearest riso color.
-    let white_lab = linear_to_lab(1.0, 1.0, 1.0);
-    let white_err = lab_distance_sq(&target_lab, &white_lab);
+    let white_lab = srgb_to_cielab(255, 255, 255);
+    let white_err = ciede2000_distance(&target_lab, &white_lab);
     if white_err < best_error {
         best_error = white_err;
         best_weights = [0.0; 7];
     }
 
     // 1-color search with partial densities (0.1 … 1.0).
-    // Allows light greys to map to low-density black instead of full cyan.
+    // Use <= so that when multiple densities tie (e.g. pure black where 0^w is
+    // always 0) the highest/full density wins.
     for c in 0..num_colors {
         for step in 1..=10 {
-            let err = lab_distance_sq(&target_lab, &linear_to_lab(cache.r[c][step], cache.g[c][step], cache.b[c][step]));
-            if err < best_error {
+            let mix_lab = linear_rgb_to_cielab(cache.r[c][step], cache.g[c][step], cache.b[c][step]);
+            let err = ciede2000_distance(&target_lab, &mix_lab);
+            if err <= best_error {
                 best_error = err;
                 best_weights = [0.0; 7];
                 best_weights[c] = step as f64 / 10.0;
@@ -277,8 +280,9 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
                     let w1 = step;
                     let w2 = 10 - step;
                     let mix = cache.mix(&[i, j], &[w1, w2]);
-                    let err = lab_distance_sq(&target_lab, &linear_to_lab(mix.x, mix.y, mix.z));
-                    if err < best_error {
+                    let mix_lab = linear_rgb_to_cielab(mix.x, mix.y, mix.z);
+                    let err = ciede2000_distance(&target_lab, &mix_lab);
+                    if err <= best_error {
                         best_error = err;
                         best_weights = [0.0; 7];
                         best_weights[i] = w1 as f64 / 10.0;
@@ -301,8 +305,9 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
                             let c = 4 - a - b;
                             if c == 0 { continue; }
                             let mix = cache.mix(&[i, j, k], &[q[a], q[b], q[c]]);
-                            let err = lab_distance_sq(&target_lab, &linear_to_lab(mix.x, mix.y, mix.z));
-                            if err < best_error {
+                            let mix_lab = linear_rgb_to_cielab(mix.x, mix.y, mix.z);
+                            let err = ciede2000_distance(&target_lab, &mix_lab);
+                            if err <= best_error {
                                 best_error = err;
                                 best_weights = [0.0; 7];
                                 best_weights[i] = a as f64 / 4.0;
@@ -369,9 +374,10 @@ pub fn separate_colors_with_lut(
     height: u32,
     lut: &[u8],
     grid_size: u32,
+    num_colors: u32,
 ) -> Vec<u8> {
     let pixel_count = (width * height) as usize;
-    let num_colors = 7; // fixed for our riso palette (non-white)
+    let num_colors = num_colors.max(1).min(7) as usize;
     let mut plates = vec![0u8; pixel_count * 4 * num_colors];
 
     if pixel_count == 0 || lut.is_empty() {
@@ -432,7 +438,8 @@ pub fn separate_colors(
     max_mix: u32,
 ) -> Vec<u8> {
     let lut = build_color_lut(riso_colors, max_mix, 32);
-    separate_colors_with_lut(image_data, width, height, &lut, 32)
+    let num_colors = (riso_colors.len() / 3).max(1).min(7) as u32;
+    separate_colors_with_lut(image_data, width, height, &lut, 32, num_colors)
 }
 
 /// Apply a simple threshold-based halftone to a single grayscale plate.
@@ -473,4 +480,141 @@ pub fn halftone_plate(
         }
     }
     out
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CALIBRATION  ·  Evaluate multiple palettes and score them
+════════════════════════════════════════════════════════════════════ */
+
+/// Simulate a physical risograph print by blending grayscale plates
+/// with their ink colors using subtractive (multiply) blending.
+///
+/// `plates` — flat RGBA array from `separate_colors_with_lut`.
+///            Layout: [plate0_rgba…, plate1_rgba…, …]  (0 = full ink, 255 = no ink)
+/// `colors` — flat RGB array of ink colors, one per plate.
+/// Returns a flat RGBA composite image.
+#[wasm_bindgen]
+pub fn simulate_print(
+    plates: &[u8],
+    colors: &[u8],
+    width: u32,
+    height: u32,
+    num_colors: u32,
+) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let n = num_colors as usize;
+    let pixel_count = w * h;
+    let mut composite = vec![255u8; pixel_count * 4];
+
+    if n == 0 || plates.is_empty() {
+        return composite;
+    }
+
+    for c in 0..n {
+        let ir = colors[c * 3] as u32;
+        let ig = colors[c * 3 + 1] as u32;
+        let ib = colors[c * 3 + 2] as u32;
+
+        for p in 0..pixel_count {
+            let src = (c * pixel_count + p) * 4;
+            let gray = plates[src] as u32; // 0 = full ink, 255 = no ink
+            let alpha = 255 - gray;        // ink coverage
+
+            if alpha == 0 {
+                continue;
+            }
+
+            let dst = p * 4;
+            let mr = 255 * (255 - alpha) + ir * alpha;
+            let mg = 255 * (255 - alpha) + ig * alpha;
+            let mb = 255 * (255 - alpha) + ib * alpha;
+
+            composite[dst]     = ((composite[dst]     as u32 * mr) / (255 * 255)) as u8;
+            composite[dst + 1] = ((composite[dst + 1] as u32 * mg) / (255 * 255)) as u8;
+            composite[dst + 2] = ((composite[dst + 2] as u32 * mb) / (255 * 255)) as u8;
+            // alpha stays 255
+        }
+    }
+
+    composite
+}
+
+/// Evaluate multiple candidate palettes and return the average CIEDE2000
+/// distance for each.  Lower score = better match to the original image.
+///
+/// `image_data`     — flat RGBA source image.
+/// `candidate_colors` — flattened RGB values for all palettes concatenated.
+/// `candidate_counts` — number of colors in each palette (length = num candidates).
+/// `max_mix`        — max colors mixed per LUT cell (1–3).
+/// `grid_size`      — LUT resolution per channel (e.g. 16 or 32).
+///
+/// Returns a `Vec<f64>` where each element is the average ΔE for the
+/// corresponding candidate palette.
+#[wasm_bindgen]
+pub fn evaluate_palettes(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    candidate_colors: &[u8],
+    candidate_counts: &[u32],
+    max_mix: u32,
+    grid_size: u32,
+) -> Vec<f64> {
+    let pixel_count = (width * height) as usize;
+    let mut scores = Vec::with_capacity(candidate_counts.len());
+
+    // Pre-compute original-image CieLab values once.
+    let mut orig_lab = Vec::with_capacity(pixel_count);
+    for p in 0..pixel_count {
+        let base = p * 4;
+        orig_lab.push(srgb_to_cielab(
+            image_data[base],
+            image_data[base + 1],
+            image_data[base + 2],
+        ));
+    }
+
+    let mut color_offset = 0usize;
+    for &count in candidate_counts {
+        let count = count as usize;
+        let palette = &candidate_colors[color_offset..color_offset + count * 3];
+        color_offset += count * 3;
+
+        // Build LUT and separate
+        let lut = build_color_lut(palette, max_mix, grid_size);
+        let plates = separate_colors_with_lut(
+            image_data, width, height, &lut, grid_size, count as u32,
+        );
+
+        // Simulate print
+        let composite = simulate_print(&plates, palette, width, height, count as u32);
+
+        // Compute average CIEDE2000
+        let mut total_de = 0.0f64;
+        let mut valid_pixels = 0usize;
+        for p in 0..pixel_count {
+            let base = p * 4;
+            // Skip fully-transparent source pixels
+            if image_data[base + 3] < 10 {
+                continue;
+            }
+            let comp_lab = srgb_to_cielab(
+                composite[base],
+                composite[base + 1],
+                composite[base + 2],
+            );
+            total_de += ciede2000_distance(&orig_lab[p], &comp_lab);
+            valid_pixels += 1;
+        }
+
+        let avg = if valid_pixels > 0 {
+            total_de / valid_pixels as f64
+        } else {
+            f64::INFINITY
+        };
+        scores.push(avg);
+    }
+
+    scores
 }

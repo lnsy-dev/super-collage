@@ -574,8 +574,8 @@ export const ImageProcessor = {
 
   // Per-color screen angles to minimize moiré when multiple plates overlap
   _separationAngles: {
-    '#212121': 45, '#E02B2B': 75, '#FF6C0A': 15,
-    '#FFE800': 90, '#FF48B0': 105, '#28C8C8': 30, '#0078BF': 60,
+    '#010101': 45, '#f65058': 75, '#ff7477': 15,
+    '#ffe800': 90, '#ff48b0': 105, '#5ec8e5': 30, '#0078bf': 60,
   },
 
   processColorSeparation(layer, forExport) {

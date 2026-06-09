@@ -93,7 +93,8 @@ export async function openProject(projectId) {
           const { r, g, b } = hexToRgb(rc.hex);
           risoColors.push(r, g, b);
         }
-        const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16);
+        const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
+        const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16, numColors);
         const pixelCount = nw * nh;
         const numPlates = RISO_COLORS.length - 1;
         const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);

@@ -15,13 +15,13 @@ test.describe('Color Modes', () => {
     await createProject(page, 'Solid Color Test');
     await addImage(page, TEST_IMAGE);
 
-    await page.click('.color-swatch[data-color="#E02B2B"]'); // Red
+    await page.click('.color-swatch[data-color="#ff48b0"]'); // Fluorescent Pink
 
     const color = await page.evaluate(() => {
       // @ts-ignore
       return State.layers[0].color;
     });
-    expect(color).toBe('#E02B2B');
+    expect(color).toBe('#ff48b0');
   });
 
   test('switch to gradient mode', async ({ page }) => {
@@ -127,15 +127,15 @@ test.describe('Color Modes', () => {
     await addImage(page, TEST_IMAGE);
 
     await page.click('#btn-mode-pattern');
-    await page.locator('#pat-color1-swatches .pat-color-sw[data-pat-color="#E02B2B"]').click();
-    await page.locator('#pat-color2-swatches .pat-color-sw[data-pat-color="#0078BF"]').click();
+    await page.locator('#pat-color1-swatches .pat-color-sw[data-pat-color="#ff48b0"]').click();
+    await page.locator('#pat-color2-swatches .pat-color-sw[data-pat-color="#5ec8e5"]').click();
 
     const colors = await page.evaluate(() => {
       // @ts-ignore
       const p = State.layers[0].pattern;
       return { c1: p.color1, c2: p.color2 };
     });
-    expect(colors.c1).toBe('#E02B2B');
-    expect(colors.c2).toBe('#0078BF');
+    expect(colors.c1).toBe('#ff48b0');
+    expect(colors.c2).toBe('#5ec8e5');
   });
 });

@@ -22,14 +22,14 @@ export const PAGE_SIZE_DIMS = {
 };
 
 export const RISO_COLORS = [
-  { name: 'Black',       hex: '#212121' },
-  { name: 'Red',         hex: '#E02B2B' },
-  { name: 'Neon Orange', hex: '#FF6C0A' },
-  { name: 'Yellow',      hex: '#FFE800' },
-  { name: 'Neon Pink',   hex: '#FF48B0' },
-  { name: 'Aqua',        hex: '#28C8C8' },
-  { name: 'Blue',        hex: '#0078BF' },
-  { name: 'White',       hex: '#FFFFFF' },
+  { name: 'Black',       hex: '#010101', pantone: 'BLACK U' },
+  { name: 'Red',         hex: '#f65058', pantone: 'RED 032 U'},
+  { name: 'Neon Orange', hex: '#ff7477', pantone: '805 U' },
+  { name: 'Yellow',      hex: '#ffe800', pantone: 'YELLOW U' },
+  { name: 'Neon Pink',   hex: '#ff48b0', pantone: '806 U' },
+  { name: 'Aqua',        hex: '#5ec8e5', pantone: '637 U' },
+  { name: 'Blue',        hex: '#0078bf', pantone: '3005 U' },
+  { name: 'White',       hex: '#FFFFFF', pantone: '' },
 ];
 
 // 8×8 Bayer matrix (values 0-255)

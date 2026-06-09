@@ -29,7 +29,7 @@ export class Layer {
     this.halftoneAngle = data.halftoneAngle ?? 45;
     this.hatchLineHeight = data.hatchLineHeight ?? 10;
     this.hatchLineLength = data.hatchLineLength ?? 60;
-    this.color = data.color || '#212121';
+    this.color = data.color || '#010101';
     this.colorMode = data.colorMode || 'solid';
     this.gradient = data.gradient ? JSON.parse(JSON.stringify(data.gradient)) : {
       type: 'linear',
@@ -37,15 +37,15 @@ export class Layer {
       centerX: 0.5,
       centerY: 0.5,
       stops: [
-        { color: '#212121', position: 0 },
-        { color: '#0078BF', position: 1 },
+        { color: '#010101', position: 0 },
+        { color: '#0078bf', position: 1 },
       ],
       poles: [],
     };
     this.pattern = data.pattern ? JSON.parse(JSON.stringify(data.pattern)) : {
       type: 'stripes',
-      color1: '#212121',
-      color2: '#0078BF',
+      color1: '#010101',
+      color2: '#0078bf',
       size: 20,
       angle: 0,
     };
