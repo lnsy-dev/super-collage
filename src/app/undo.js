@@ -46,7 +46,6 @@ export async function applySnapshot(layer, snap) {
     rotation: snap.rotation, flipH: snap.flipH, flipV: snap.flipV,
     brightness: snap.brightness, contrast: snap.contrast, saturation: snap.saturation, invert: snap.invert,
     halftoneType: snap.halftoneType, halftoneSize: snap.halftoneSize, halftoneAngle: snap.halftoneAngle,
-    hatchLineHeight: snap.hatchLineHeight, hatchLineLength: snap.hatchLineLength,
     color: snap.color,
     colorMode: snap.colorMode || 'solid',
     gradient: snap.gradient ? JSON.parse(JSON.stringify(snap.gradient)) : layer.gradient,

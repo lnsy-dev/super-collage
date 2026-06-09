@@ -117,23 +117,6 @@ test.describe('Halftone', () => {
     expect(type).toBe('grunge');
   });
 
-  test('set halftone to crosshatch', async ({ page }) => {
-    await createProject(page, 'Halftone Hatch Test');
-    await addImage(page, TEST_IMAGE);
-
-    await page.click('.halftone-opt[data-halftone="crosshatch"]');
-
-    const type = await page.evaluate(() => {
-      // @ts-ignore
-      return State.layers[0].halftoneType;
-    });
-    expect(type).toBe('crosshatch');
-
-    // Hatch-specific controls should be visible
-    await expect(page.locator('#hatch-height-row')).toBeVisible();
-    await expect(page.locator('#hatch-length-row')).toBeVisible();
-  });
-
   test('adjust halftone size', async ({ page }) => {
     await createProject(page, 'Halftone Size Test');
     await addImage(page, TEST_IMAGE);

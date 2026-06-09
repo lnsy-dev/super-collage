@@ -144,7 +144,7 @@ export const ExportEngine = {
           const baseAngle = layer.halftoneAngle || 45;
           const offsetAngle = ImageProcessor._separationAngles[plateColor] || 0;
           const angle = (baseAngle + offsetAngle) % 180;
-          px = ImageProcessor.applyHalftone(px, layer.width, layer.height, layer.halftoneType, layer.halftoneSize, angle, layer.hatchLineHeight, layer.hatchLineLength);
+          px = ImageProcessor.applyHalftone(px, layer.width, layer.height, layer.halftoneType, layer.halftoneSize, angle);
           sCtx.putImageData(px, 0, 0);
           const colored = ImageProcessor.colorize(sCtx.getImageData(0, 0, layer.width, layer.height), plateColor, null);
           sCtx.putImageData(colored, 0, 0);

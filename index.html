@@ -33,7 +33,7 @@
   <meta name="creator" content="LNSY">
 
   <!-- ─── Descriptions for Humans, AI, and Scrapers ─── -->
-  <meta name="description" content="Super Collage is a free, browser-based risograph layout helper. Design multi-layer prints with real Riso color separation, halftones (dither, dots, grunge, crosshatch), screentones, gradients, patterns, masks, and shape tools. Export print-ready color plates at 600 DPI.">
+  <meta name="description" content="Super Collage is a free, browser-based risograph layout helper. Design multi-layer prints with real Riso color separation, halftones (dither, dots, grunge), screentones, gradients, patterns, masks, and shape tools. Export print-ready color plates at 600 DPI.">
   <meta name="abstract" content="Browser-based risograph design tool with layer management, halftone effects, color separation, and 600 DPI plate export.">
 
   <!-- ─── Keywords & Classification ─── -->
@@ -80,7 +80,7 @@
   <!-- ─── AI / LLM Context Metadata ─── -->
   <meta name="ai-purpose" content="Creative design tool for risograph printing and multi-layer image composition.">
   <meta name="ai-target-audience" content="Graphic designers, printmakers, zine makers, illustrators, DIY publishers, risograph enthusiasts.">
-  <meta name="ai-capabilities" content="Layer management, image import, color separation, halftone rendering (grayscale, dither, magazine dots, grunge, crosshatch), screentone overlays, gradient and pattern fills, mask painting, shape drawing (rectangles, ellipses, polygons, stars), transform controls, undo/redo, 600 DPI plate export, composite preview export.">
+  <meta name="ai-capabilities" content="Layer management, image import, color separation, halftone rendering (grayscale, dither, magazine dots, grunge), screentone overlays, gradient and pattern fills, mask painting, shape drawing (rectangles, ellipses, polygons, stars), transform controls, undo/redo, 600 DPI plate export, composite preview export.">
   <meta name="ai-technology" content="Vanilla JavaScript (ES modules), HTML5 Canvas 2D, WebAssembly (Rust/wasm-pack), IndexedDB for local project storage.">
   <meta name="ai-interaction" content="Mouse and keyboard driven desktop web application. Drag-and-drop image import. Menu bar and toolbar UI reminiscent of classic Mac OS.">
   <meta name="ai-content-policy" content="User-generated content only. No user tracking. All data stored locally in the browser.">
@@ -108,7 +108,7 @@
           "Multi-layer canvas with drag-and-drop image import",
           "Risograph color assignment and subtractive color simulation",
           "Automatic color separation with LUT-based quantization",
-          "Halftone effects: grayscale, Bayer dither, magazine dots, grunge, crosshatch",
+          "Halftone effects: grayscale, Bayer dither, magazine dots, grunge",
           "Screentone library with searchable overlay patterns",
           "Gradient fills: linear, radial, conic, multipolar",
           "Pattern fills: stripes, polka dots, stars",
@@ -384,7 +384,7 @@
           <div id="shape-stroke-row" style="display:none;">
             <div style="font-size:8px;text-align:center;line-height:1.8;">Stroke</div>
             <input type="range" id="shape-stroke-input" min="1" max="50" value="4"
-              style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
+              style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;">
             <div id="shape-stroke-val" style="font-size:8px;">4</div>
           </div>
           <div id="poly-options" style="display:none;">
@@ -397,7 +397,7 @@
             <div id="star-ratio-row" style="display:none;">
               <div style="font-size:8px;text-align:center;">Inner</div>
               <input type="range" id="star-ratio-input" min="10" max="90" value="40"
-                style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
+                style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;">
               <div id="star-ratio-val" style="font-size:8px;">40%</div>
             </div>
           </div>
@@ -405,7 +405,7 @@
         <div class="tool-separator"></div>
         <div style="font-size:8px;text-align:center;line-height:1.8;">Brush</div>
         <input type="range" id="brush-size-input" min="4" max="200" value="30"
-          style="writing-mode:vertical-lr;direction:rtl;width:8px;height:56px;padding:0;appearance:slider-vertical;-webkit-appearance:slider-vertical;">
+          style="writing-mode:vertical-lr;direction:rtl;width:8px;height:56px;padding:0;">
         <div id="brush-size-val" style="font-size:8px;">30</div>
       </div>
     </div>
@@ -517,7 +517,7 @@
                     <button class="halftone-opt" data-halftone="dither">Dither</button>
                     <button class="halftone-opt" data-halftone="magazine">Dots</button>
                     <button class="halftone-opt" data-halftone="grunge">Grunge</button>
-                    <button class="halftone-opt" data-halftone="crosshatch">Hatch</button>
+
                   </div>
                 </div>
                 <div class="prop-row" id="halftone-size-row">
@@ -525,16 +525,7 @@
                   <input type="range" id="prop-halftone-size" min="2" max="40" value="8">
                   <span class="prop-value" id="val-halftone-size">8</span>
                 </div>
-                <div class="prop-row hidden" id="hatch-height-row">
-                  <span class="prop-label">Thickness</span>
-                  <input type="range" id="prop-hatch-height" min="1" max="30" value="10">
-                  <span class="prop-value" id="val-hatch-height">10</span>
-                </div>
-                <div class="prop-row hidden" id="hatch-length-row">
-                  <span class="prop-label">Length</span>
-                  <input type="range" id="prop-hatch-length" min="10" max="200" value="60">
-                  <span class="prop-value" id="val-hatch-length">60</span>
-                </div>
+
                 <div class="prop-row" id="halftone-angle-row">
                   <span class="prop-label">Angle</span>
                   <input type="range" id="prop-halftone-angle" min="0" max="180" value="45">

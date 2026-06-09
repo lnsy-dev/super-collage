@@ -280,14 +280,9 @@ export const UI = {
     document.getElementById('btn-invert-image').classList.toggle('active', layer.invert);
     setRange('prop-halftone-size', 'val-halftone-size', layer.halftoneSize);
     setRange('prop-halftone-angle', 'val-halftone-angle', layer.halftoneAngle);
-    setRange('prop-hatch-height', 'val-hatch-height', layer.hatchLineHeight ?? 10);
-    setRange('prop-hatch-length', 'val-hatch-length', layer.hatchLineLength ?? 60);
 
-    const isHatch = layer.halftoneType === 'crosshatch';
     const isGrayscale = layer.halftoneType === 'grayscale';
-    document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch || isGrayscale);
-    document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
-    document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
+    document.getElementById('halftone-size-row').classList.toggle('hidden', isGrayscale);
     document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
 
     document.querySelectorAll('.halftone-opt').forEach(b =>

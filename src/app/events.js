@@ -382,8 +382,6 @@ export function wireControls() {
   });
   rangeField('prop-halftone-size', 'halftoneSize', 'val-halftone-size');
   rangeField('prop-halftone-angle', 'halftoneAngle', 'val-halftone-angle');
-  rangeField('prop-hatch-height', 'hatchLineHeight', 'val-hatch-height');
-  rangeField('prop-hatch-length', 'hatchLineLength', 'val-hatch-length');
 
   document.querySelectorAll('.halftone-opt').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -392,11 +390,8 @@ export function wireControls() {
       l.halftoneType = btn.dataset.halftone;
       l._dirty = true;
       document.querySelectorAll('.halftone-opt').forEach(b => b.classList.toggle('active', b === btn));
-      const isHatch = btn.dataset.halftone === 'crosshatch';
       const isGrayscale = btn.dataset.halftone === 'grayscale';
-      document.getElementById('halftone-size-row').classList.toggle('hidden', isHatch || isGrayscale);
-      document.getElementById('hatch-height-row').classList.toggle('hidden', !isHatch);
-      document.getElementById('hatch-length-row').classList.toggle('hidden', !isHatch);
+      document.getElementById('halftone-size-row').classList.toggle('hidden', isGrayscale);
       document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
       DB.saveLayer(l);
       Renderer.schedule();

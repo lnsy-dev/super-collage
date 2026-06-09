@@ -257,7 +257,8 @@ export const ImageProcessor = {
             d[i] = d[i+1] = d[i+2] = Math.max(d[i], deepened);
           }
         }
-        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle, layer.hatchLineHeight, layer.hatchLineLength);
+        px = this.posterize(px, 6);
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
       }
       px = this.colorize(px, layer.color, layer);
     }
@@ -313,11 +314,20 @@ export const ImageProcessor = {
     return px;
   },
 
-  applyHalftone(px, w, h, type, size, angle, lineHeight, lineLength) {
+  posterize(px, levels) {
+    const d = px.data;
+    const step = 255 / (levels - 1);
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.round(Math.round(d[i] / step) * step);
+      d[i] = d[i+1] = d[i+2] = v;
+    }
+    return px;
+  },
+
+  applyHalftone(px, w, h, type, size, angle) {
     if (type === 'dither')    return this.bayerDither(px, w, h, size);
     if (type === 'magazine')  return this.magazineDots(px, w, h, size, angle ?? 45);
     if (type === 'grunge')    return this.grungeDots(px, w, h, size, angle ?? 45);
-    if (type === 'crosshatch')return this.hatch(px, w, h, size, angle ?? 45, lineHeight ?? 10, lineLength ?? 60);
     return px;
   },
 
@@ -465,71 +475,6 @@ export const ImageProcessor = {
     return ctx.getImageData(0, 0, w, h);
   },
 
-  hatch(px, w, h, cellSize, angleDeg, lineHeight, lineLength) {
-    const out = new OffscreenCanvas(w, h);
-    const ctx = out.getContext('2d');
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'black';
-    const angle = (angleDeg ?? 45) * Math.PI / 180;
-    const halfLen = lineLength ?? 60;
-    const maxThick = lineHeight ?? 10;
-    const STEPS = 40;
-    const d = px.data;
-    for (let gy = 0; gy < h; gy += cellSize) {
-      for (let gx = 0; gx < w; gx += cellSize) {
-        let sum = 0, cnt = 0;
-        const maxY = Math.min(gy + cellSize, h);
-        const maxX = Math.min(gx + cellSize, w);
-        for (let dy = gy; dy < maxY; dy++) {
-          for (let dx = gx; dx < maxX; dx++) {
-            const i = (dy * w + dx) * 4;
-            sum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-            cnt++;
-          }
-        }
-        const avg = cnt ? sum / cnt : 255;
-        const darkness = 1 - avg / 255;
-        if (darkness < 0.08) continue;
-        const cx2 = gx + cellSize / 2, cy2 = gy + cellSize / 2;
-        // Max half-width at the thickest point, scaled by darkness
-        const maxHalfWidth = darkness * maxThick * 0.5;
-
-        ctx.save();
-        ctx.translate(cx2, cy2);
-        ctx.rotate(angle);
-
-        // Draw tapered filled shape: thick at center, tapering to points at ends
-        // Uses ease-in-out (smoothstep) for curved transition
-        ctx.beginPath();
-        // Upper contour left to right
-        for (let i = 0; i <= STEPS; i++) {
-          const t = i / STEPS;
-          const x = -halfLen + t * 2 * halfLen;
-          // Smoothstep easing: peaks at center (t=0.5), zero at both ends
-          const u = 2 * t - 1; // -1..1
-          const ease = 1 - u * u * u * u; // quartic ease for curved taper
-          const yw = maxHalfWidth * ease;
-          if (i === 0) ctx.moveTo(x, -yw);
-          else ctx.lineTo(x, -yw);
-        }
-        // Lower contour right to left
-        for (let i = STEPS; i >= 0; i--) {
-          const t = i / STEPS;
-          const x = -halfLen + t * 2 * halfLen;
-          const u = 2 * t - 1;
-          const ease = 1 - u * u * u * u;
-          const yw = maxHalfWidth * ease;
-          ctx.lineTo(x, yw);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-    return ctx.getImageData(0, 0, w, h);
-  },
-
   colorize(px, hex, layer) {
     const d = px.data;
     if (layer && layer.colorMode === 'gradient' && layer.gradient) {
@@ -619,7 +564,8 @@ export const ImageProcessor = {
         const baseAngle = layer.halftoneAngle || 45;
         const offsetAngle = this._separationAngles[colorHex] || 0;
         const angle = (baseAngle + offsetAngle) % 180;
-        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, angle, layer.hatchLineHeight, layer.hatchLineLength);
+        px = this.posterize(px, 6);
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, angle);
         pCtx.putImageData(px, 0, 0);
 
         // Colorize: black dots → riso color, white → transparent

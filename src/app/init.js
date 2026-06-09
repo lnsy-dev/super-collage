@@ -17,7 +17,7 @@ export let colorSepLut = null;
 
 export async function init() {
   const wasmMod = await import('/src/wasm/super_collage.js');
-  await wasmMod.default('/src/wasm/super_collage_bg.wasm');
+  await wasmMod.default({ module_or_path: '/src/wasm/super_collage_bg.wasm' });
   blendSubtractive = wasmMod.blend_subtractive;
   separateColorsWithLut = wasmMod.separate_colors_with_lut;
   buildColorLut = wasmMod.build_color_lut;

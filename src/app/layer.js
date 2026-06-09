@@ -27,8 +27,6 @@ export class Layer {
     this.halftoneType = data.halftoneType || 'none';
     this.halftoneSize = data.halftoneSize ?? 8;
     this.halftoneAngle = data.halftoneAngle ?? 45;
-    this.hatchLineHeight = data.hatchLineHeight ?? 10;
-    this.hatchLineLength = data.hatchLineLength ?? 60;
     this.color = data.color || '#010101';
     this.colorMode = data.colorMode || 'solid';
     this.gradient = data.gradient ? JSON.parse(JSON.stringify(data.gradient)) : {
@@ -89,8 +87,6 @@ export class Layer {
       halftoneType: this.halftoneType,
       halftoneSize: this.halftoneSize,
       halftoneAngle: this.halftoneAngle,
-      hatchLineHeight: this.hatchLineHeight,
-      hatchLineLength: this.hatchLineLength,
       color: this.color,
       colorMode: this.colorMode,
       gradient: JSON.parse(JSON.stringify(this.gradient)),
