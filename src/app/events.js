@@ -148,20 +148,29 @@ function onPointerDown(e) {
 
   const hit = Renderer.hitTestLayer(x, y);
   if (hit) {
-    // If the hit layer is already in the multi-select, keep the group intact
-    if (!State.selectedIds.includes(hit.id)) {
-      State.selectedId = hit.id;
-      State.selectedIds = [hit.id];
+    if (e.shiftKey) {
+      const idx = State.selectedIds.indexOf(hit.id);
+      if (idx === -1) {
+        State.selectedIds.push(hit.id);
+        State.selectedId = hit.id;
+      } else {
+        State.selectedIds.splice(idx, 1);
+        State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
+      }
     } else {
       State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
     }
-    pushUndo(snapshotLayer(hit));
-    const extraSnaps = getExtraSnaps(hit.id);
-    extraSnaps.forEach(es => {
-      const el = State.layers.find(l => l.id === es.id);
-      if (el) pushUndo(snapshotLayer(el));
-    });
-    State.drag = { type: 'move', startX: x, startY: y, layerSnap: { x: hit.x, y: hit.y }, extraSnaps };
+    // Only start a drag if the hit layer is still selected after toggle/select.
+    if (State.selectedIds.includes(hit.id)) {
+      pushUndo(snapshotLayer(hit));
+      const extraSnaps = getExtraSnaps(hit.id);
+      extraSnaps.forEach(es => {
+        const el = State.layers.find(l => l.id === es.id);
+        if (el) pushUndo(snapshotLayer(el));
+      });
+      State.drag = { type: 'move', startX: x, startY: y, layerSnap: { x: hit.x, y: hit.y }, extraSnaps };
+    }
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.drawOverlay();
@@ -306,6 +315,7 @@ async function onPointerUp(e) {
       const ch = Math.max(1, Math.round(sh / State.zoom));
       const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch);
       await LayerManager.addShape(shapeCanvas, cx, cy, cw, ch);
+      UI.setTool('move');
     }
     return;
   }
@@ -332,6 +342,84 @@ export function wireControls() {
   overlayCanvas.addEventListener('pointermove', onPointerMove);
   overlayCanvas.addEventListener('pointerup',   onPointerUp);
   overlayCanvas.addEventListener('pointerleave', e => { if (!(e.buttons & 1)) onPointerUp(e); });
+
+  /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
+  const layerList = document.getElementById('layer-list');
+  let draggedLayerId = null;
+
+  function clearDragIndicators() {
+    layerList.querySelectorAll('.layer-row').forEach(r => {
+      r.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  }
+
+  layerList.addEventListener('dragstart', e => {
+    const row = e.target.closest('.layer-row');
+    if (!row) return;
+    const layer = State.layers.find(l => l.id === row.dataset.layerId);
+    if (!layer || layer.locked) {
+      e.preventDefault();
+      return;
+    }
+    draggedLayerId = layer.id;
+    UI._suppressLayerClick = true;
+    e.dataTransfer.setData('text/plain', layer.id);
+    e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+
+  layerList.addEventListener('dragend', e => {
+    const row = e.target.closest('.layer-row');
+    if (row) row.classList.remove('dragging');
+    clearDragIndicators();
+    draggedLayerId = null;
+    // Delay clearing the click guard so any post-drag click is ignored
+    setTimeout(() => { UI._suppressLayerClick = false; }, 0);
+  });
+
+  layerList.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!draggedLayerId) return;
+    e.dataTransfer.dropEffect = 'move';
+
+    const row = e.target.closest('.layer-row');
+    clearDragIndicators();
+    if (!row) return;
+
+    const rect = row.getBoundingClientRect();
+    const overTop = e.clientY < rect.top + rect.height / 2;
+    row.classList.add(overTop ? 'drag-over-top' : 'drag-over-bottom');
+  });
+
+  layerList.addEventListener('dragleave', e => {
+    const row = e.target.closest('.layer-row');
+    if (row && !layerList.contains(e.relatedTarget)) {
+      row.classList.remove('drag-over-top', 'drag-over-bottom');
+    }
+  });
+
+  layerList.addEventListener('drop', e => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedLayerId;
+    const row = e.target.closest('.layer-row');
+    clearDragIndicators();
+    draggedLayerId = null;
+    if (!sourceId) return;
+
+    const N = State.layers.length;
+    let targetStateIndex;
+    if (row) {
+      const domIdx = [...layerList.querySelectorAll('.layer-row')].indexOf(row);
+      const overTop = e.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+      const slot = overTop ? domIdx : domIdx + 1;
+      targetStateIndex = N - slot;
+    } else {
+      // Dropped in empty list space → move to bottom (index 0 in State.layers)
+      targetStateIndex = 0;
+    }
+
+    LayerManager.moveToIndex(sourceId, targetStateIndex);
+  });
 
   document.querySelectorAll('.close-box').forEach(box => {
     box.addEventListener('click', () => {

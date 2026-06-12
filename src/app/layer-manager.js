@@ -334,4 +334,39 @@ export const LayerManager = {
     UI.refreshLayerList();
     Renderer.schedule();
   },
+
+  moveToIndex(layerId, targetStateIndex) {
+    const layer = State.layers.find(l => l.id === layerId);
+    if (!layer) return;
+    // Resolve to base layer of this group
+    const baseId = layer.isMaskFor || layer.id;
+    const base = State.layers.find(l => l.id === baseId);
+    const groupIds = new Set([baseId, ...((base?.imageMaskIds) || [])]);
+
+    const indices = [...groupIds]
+      .map(id => State.layers.findIndex(l => l.id === id))
+      .filter(i => i !== -1)
+      .sort((a, b) => a - b);
+    const sourceStart = indices[0];
+    const sourceEnd = indices[indices.length - 1] + 1; // exclusive
+    const count = sourceEnd - sourceStart;
+
+    // Dropping inside the same group is a no-op
+    if (targetStateIndex >= sourceStart && targetStateIndex <= sourceEnd) return;
+
+    pushUndoState();
+    const group = State.layers.splice(sourceStart, count);
+
+    // targetStateIndex was computed against the original array; adjust for removed group
+    let insertIdx = targetStateIndex;
+    if (targetStateIndex > sourceStart) insertIdx -= count;
+    insertIdx = Math.max(0, Math.min(State.layers.length, insertIdx));
+
+    State.layers.splice(insertIdx, 0, ...group);
+
+    DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
 };

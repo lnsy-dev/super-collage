@@ -176,6 +176,8 @@ export const UI = {
       if (l.locked)      rowClass += ' locked-row';
       const row = document.createElement('div');
       row.className = rowClass;
+      row.draggable = !l.locked;
+      row.dataset.layerId = l.id;
 
       const vis = document.createElement('span');
       vis.className = 'layer-vis';
@@ -237,6 +239,7 @@ export const UI = {
 
       row.append(vis, lock, dot, name);
       row.addEventListener('click', e => {
+        if (UI._suppressLayerClick) return;
         if (l.locked) return;
         if (e.shiftKey) {
           const idx = State.selectedIds.indexOf(l.id);

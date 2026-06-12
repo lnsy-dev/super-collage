@@ -232,6 +232,9 @@ body {
 .layer-lock.locked { opacity: 1; }
 .layer-row.locked-row { opacity: 0.6; }
 .layer-row.locked-row .layer-name { font-style: italic; }
+.layer-row.dragging { opacity: 0.4; }
+.layer-row.drag-over-top { border-top: 2px solid var(--black); }
+.layer-row.drag-over-bottom { border-bottom: 2px solid var(--black); }
 .layer-color-dot {
   width: 9px; height: 9px;
   border: 1px solid var(--black);
