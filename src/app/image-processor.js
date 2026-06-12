@@ -534,7 +534,7 @@ export const ImageProcessor = {
         layer._originalCanvas.width !== targetW ||
         layer._originalCanvas.height !== targetH) {
       const renderer = new TypeSetRenderer({
-        fontBase: './node_modules/type-set/dist/fonts/',
+        fontBase: './vendor/type-set/fonts/',
         fontFamily: layer.textFontFamily,
         fontSize: layer.textFontSize,
         fontWeight: layer.textFontWeight,
