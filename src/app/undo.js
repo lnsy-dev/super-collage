@@ -60,6 +60,15 @@ export async function applySnapshot(layer, snap) {
     isSvg: snap.isSvg,
     isColorSeparation: snap.isColorSeparation,
     separationColors: snap.separationColors ? [...snap.separationColors] : [],
+    isText: snap.isText,
+    text: snap.text,
+    textFontFamily: snap.textFontFamily,
+    textFontSize: snap.textFontSize,
+    textFontWeight: snap.textFontWeight,
+    textFontStyle: snap.textFontStyle,
+    textLetterSpacing: snap.textLetterSpacing,
+    textLineHeight: snap.textLineHeight,
+    textAlign: snap.textAlign,
   });
 
   // Restore mask canvas if image data was saved
@@ -73,6 +82,9 @@ export async function applySnapshot(layer, snap) {
     }
   }
 
+  if (layer.isText) {
+    layer._originalCanvas = null;
+  }
   layer._dirty = true;
   UI.refreshProperties();
   Renderer.schedule();

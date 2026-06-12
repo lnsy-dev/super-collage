@@ -174,6 +174,18 @@
   <!-- ─── Styles ─── -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/styles.css">
+
+  <!-- ─── Import Map for type-set and its dependencies ─── -->
+  <script type="importmap">
+  {
+    "imports": {
+      "type-set": "./node_modules/type-set/src/index.js",
+      "type-set/": "./node_modules/type-set/src/",
+      "opentype.js": "./node_modules/type-set/node_modules/opentype.js/dist/opentype.mjs",
+      "hyphen/": "./node_modules/type-set/node_modules/hyphen/"
+    }
+  }
+  </script>
 </head>
 <body>
 
@@ -319,6 +331,7 @@
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="add-image">Add Image… <span class="shortcut">&#8984;I</span></div>
         <div class="menu-entry" data-action="add-screentone">Add Screentone…</div>
+        <div class="menu-entry" data-action="add-text">Add Text…</div>
         <div class="menu-entry" data-action="import-color-separation">Import Color Separation…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="export">Export Plates… <span class="shortcut">&#8984;E</span></div>
@@ -505,6 +518,54 @@
                   <button class="mac-btn sm" id="btn-invert-image" data-action="invert-image">Invert</button>
                 </div>
 
+              </div>
+
+              <!-- TEXT -->
+              <div class="prop-section" id="text-props" style="display:none;">
+                <div class="prop-section-title">Text</div>
+                <div class="prop-row">
+                  <textarea id="prop-text" rows="3" style="width:100%;font-family:var(--font);font-size:8px;padding:4px;border:1px solid var(--black);resize:vertical;"></textarea>
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Font</span>
+                  <select id="prop-text-font" style="flex:1;font-family:var(--font);font-size:8px;">
+                    <option>IBM Plex Serif</option>
+                    <option>IBM Plex Sans</option>
+                    <option>Crimson Text</option>
+                    <option>Fira Code</option>
+                    <option>League Gothic</option>
+                    <option>Atkinson Hyperlegible</option>
+                    <option>Cormorant Garamond</option>
+                    <option>EB Garamond</option>
+                    <option>Spectral</option>
+                    <option>UnifrakturMaguntia</option>
+                  </select>
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Size</span>
+                  <input type="number" id="prop-text-size" min="8" max="800" step="1" style="flex:1;">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Weight</span>
+                  <input type="number" id="prop-text-weight" min="100" max="900" step="100" style="flex:1;">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Space</span>
+                  <input type="number" id="prop-text-spacing" min="-20" max="50" step="0.5" style="flex:1;">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Lead</span>
+                  <input type="number" id="prop-text-leading" min="0.5" max="5" step="0.05" style="flex:1;">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Align</span>
+                  <select id="prop-text-align" style="flex:1;font-family:var(--font);font-size:8px;">
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                    <option value="justify">Justify</option>
+                  </select>
+                </div>
               </div>
 
               <!-- HALFTONE -->

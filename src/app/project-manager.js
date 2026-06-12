@@ -64,6 +64,12 @@ export async function openProject(projectId) {
 
   for (const rec of layerRecords) {
     const layer = Layer.fromRecord(rec);
+    if (layer.isText) {
+      MaskEngine.initMask(layer);
+      layer._dirty = true;
+      State.layers.push(layer);
+      continue;
+    }
     const imgRec = await DB.get('imageBlobs', layer.id);
     if (imgRec?.blob) {
       if (layer.isSvg) {

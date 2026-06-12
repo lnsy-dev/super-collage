@@ -14,6 +14,31 @@ import { MaskEngine } from './mask-engine.js';
 import { pushUndoState } from './undo.js';
 
 export const LayerManager = {
+  async addText(defaultText, x, y, w, h) {
+    pushUndoState();
+    const layer = new Layer({
+      name: 'Text',
+      isText: true,
+      text: defaultText,
+      x, y, width: w, height: h,
+      naturalWidth: w, naturalHeight: h,
+    });
+    layer._dirty = true;
+
+    State.layers.push(layer);
+    State.selectedId = layer.id;
+    State.selectedIds = [layer.id];
+
+    await DB.put('layers', layer.toRecord());
+    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+
+    document.getElementById('no-layer-msg').style.display = 'none';
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+    return layer;
+  },
+
   async addShape(shapeCanvas, x, y, w, h) {
     pushUndoState();
     const toolNames = {

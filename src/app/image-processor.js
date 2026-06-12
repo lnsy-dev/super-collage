@@ -6,6 +6,7 @@ import { State } from './state.js';
 import { hexToRgb } from '../utils/color.js';
 import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
+import { TypeSetRenderer } from 'type-set';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
 export function generateGradientCanvas(width, height, gradient) {
@@ -158,7 +159,11 @@ export const ImageProcessor = {
     return { w: targetW, h: targetH };
   },
 
-  processLayer(layer, { forExport = false } = {}) {
+  async processLayer(layer, { forExport = false } = {}) {
+    if (layer.isText) {
+      await this.processTextLayer(layer, forExport);
+      return layer._processedCanvas;
+    }
     if (layer.isColorSeparation) {
       return this.processColorSeparation(layer, forExport);
     }
@@ -515,6 +520,76 @@ export const ImageProcessor = {
       }
     }
     return px;
+  },
+
+  async processTextLayer(layer, forExport) {
+    // Supersample text for display so zoomed-out previews stay sharp.
+    const renderScale = forExport ? 1 : 2;
+    const layoutW = forExport ? layer.naturalWidth : layer.width;
+    const layoutH = forExport ? layer.naturalHeight : layer.height;
+    const targetW = Math.round(layoutW * renderScale);
+    const targetH = Math.round(layoutH * renderScale);
+
+    if (!layer._originalCanvas ||
+        layer._originalCanvas.width !== targetW ||
+        layer._originalCanvas.height !== targetH) {
+      const renderer = new TypeSetRenderer({
+        fontBase: './node_modules/type-set/dist/fonts/',
+        fontFamily: layer.textFontFamily,
+        fontSize: layer.textFontSize,
+        fontWeight: layer.textFontWeight,
+        fontStyle: layer.textFontStyle,
+        letterSpacing: layer.textLetterSpacing,
+        lineHeight: layer.textLineHeight,
+        textAlign: layer.textAlign,
+        text: layer.text,
+        color: '#000000',
+        useLigatures: true,
+        useKerning: true,
+        useHyphenation: false,
+      });
+      const canvas = new OffscreenCanvas(targetW, targetH);
+      await renderer.renderToCanvas(canvas, { width: layoutW, height: layoutH, clear: true, dpr: renderScale });
+      const tCtx = canvas.getContext('2d');
+      tCtx.globalCompositeOperation = 'destination-over';
+      tCtx.fillStyle = 'white';
+      tCtx.fillRect(0, 0, canvas.width, canvas.height);
+      tCtx.globalCompositeOperation = 'source-over';
+      layer._originalCanvas = canvas;
+    }
+
+    const work = new OffscreenCanvas(targetW, targetH);
+    const ctx = work.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
+
+    let px = ctx.getImageData(0, 0, targetW, targetH);
+    px = this.toGrayscale(px);
+    px = this.applyBrightness(px, layer.brightness);
+    px = this.applyContrast(px, layer.contrast);
+    if (layer.invert) px = this.applyInvert(px);
+
+    if (layer.halftoneType === 'grayscale') {
+      const d = px.data;
+      const { r: cr, g: cg, b: cb } = hexToRgb(layer.color);
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = Math.round(255 - gray);
+      }
+    } else {
+      if (layer.halftoneType !== 'none') {
+        px = this.posterize(px, 6);
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+      }
+      px = this.colorize(px, layer.color, layer);
+    }
+
+    ctx.putImageData(px, 0, 0);
+
+    if (forExport) return work;
+    layer._processedCanvas = work;
+    layer._processedAtZoom = State.zoom;
+    layer._dirty = false;
+    return work;
   },
 
   // Per-color screen angles to minimize moiré when multiple plates overlap

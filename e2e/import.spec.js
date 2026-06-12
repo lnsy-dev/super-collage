@@ -81,13 +81,13 @@ test.describe('Image Import', () => {
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
 
     // Scale the SVG layer up to 3x its imported size and reprocess for export
-    const exportSize = await page.evaluate(() => {
+    const exportSize = await page.evaluate(async () => {
       const layer = State.layers[0];
       if (!layer || !layer.isSvg) return null;
       layer.width = Math.round(layer.width * 3);
       layer.height = Math.round(layer.height * 3);
       layer._dirty = true;
-      const canvas = ImageProcessor.processLayer(layer, { forExport: true });
+      const canvas = await ImageProcessor.processLayer(layer, { forExport: true });
       return {
         exportW: canvas?.width || 0,
         exportH: canvas?.height || 0,

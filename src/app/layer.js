@@ -51,6 +51,15 @@ export class Layer {
     this.isMaskFor = data.isMaskFor || null;
     this.isSvg = data.isSvg || false;
     this.isColorSeparation = data.isColorSeparation || false;
+    this.isText = data.isText || false;
+    this.text = data.text || '';
+    this.textFontFamily = data.textFontFamily || 'IBM Plex Serif';
+    this.textFontSize = data.textFontSize ?? 96;
+    this.textFontWeight = data.textFontWeight ?? 400;
+    this.textFontStyle = data.textFontStyle || 'normal';
+    this.textLetterSpacing = data.textLetterSpacing ?? 0;
+    this.textLineHeight = data.textLineHeight ?? 1.2;
+    this.textAlign = data.textAlign || 'left';
     this.separationColors = data.separationColors || [];
     this.separationPlates = new Map();
     this._originalCanvas = null;
@@ -95,6 +104,15 @@ export class Layer {
       isMaskFor: this.isMaskFor,
       isSvg: this.isSvg,
       isColorSeparation: this.isColorSeparation,
+      isText: this.isText,
+      text: this.text,
+      textFontFamily: this.textFontFamily,
+      textFontSize: this.textFontSize,
+      textFontWeight: this.textFontWeight,
+      textFontStyle: this.textFontStyle,
+      textLetterSpacing: this.textLetterSpacing,
+      textLineHeight: this.textLineHeight,
+      textAlign: this.textAlign,
       separationColors: this.separationColors,
     };
   }

@@ -212,7 +212,8 @@ export const UI = {
 
       const name = document.createElement('div');
       name.className = 'layer-name';
-      name.textContent = (l.isMaskFor ? '⬦ ' : '') + l.name;
+      const prefix = l.isText ? 'T ' : l.isMaskFor ? '⬦ ' : '';
+      name.textContent = prefix + l.name;
       name.addEventListener('dblclick', e => {
         e.stopPropagation();
         const n = prompt('Layer name:', l.name);
@@ -273,6 +274,24 @@ export const UI = {
     document.getElementById('prop-w').value   = Math.round(layer.width);
     document.getElementById('prop-h').value   = Math.round(layer.height);
     document.getElementById('prop-rot').value = Math.round(layer.rotation);
+
+    // Show/hide text vs image controls
+    const textProps = document.getElementById('text-props');
+    const imageSection = document.querySelector('#layer-props .prop-section:has(#prop-brightness)');
+    const halftoneSection = document.querySelector('#layer-props .prop-section:has(.halftone-opts)');
+    if (textProps) textProps.style.display = layer.isText ? '' : 'none';
+    if (imageSection) imageSection.style.display = layer.isText ? 'none' : '';
+    if (halftoneSection) halftoneSection.style.display = layer.isText ? 'none' : '';
+
+    if (layer.isText) {
+      document.getElementById('prop-text').value = layer.text;
+      document.getElementById('prop-text-font').value = layer.textFontFamily;
+      document.getElementById('prop-text-size').value = layer.textFontSize;
+      document.getElementById('prop-text-weight').value = layer.textFontWeight;
+      document.getElementById('prop-text-spacing').value = layer.textLetterSpacing;
+      document.getElementById('prop-text-leading').value = layer.textLineHeight;
+      document.getElementById('prop-text-align').value = layer.textAlign;
+    }
 
     const setRange = (id, valId, val) => {
       document.getElementById(id).value = val;

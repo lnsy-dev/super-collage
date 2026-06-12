@@ -107,6 +107,13 @@ test.describe('Shapes', () => {
     // A new shape layer should have been created
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
     await expect(page.locator('#layer-list .layer-name').first()).toContainText('Rectangle');
+
+    // Tool should switch back to move after drawing a shape
+    const currentTool = await page.evaluate(() => {
+      // @ts-ignore
+      return State.tool;
+    });
+    expect(currentTool).toBe('move');
   });
 
   test('draw an ellipse shape on canvas', async ({ page }) => {

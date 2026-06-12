@@ -13,7 +13,7 @@ import { appendKofiNotice } from './ui.js';
 export const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
   // OffscreenCanvas, applying both painted mask (_maskCanvas) and image masks (imageMaskIds).
-  _renderLayerToBuffer(layer, sourceCanvas) {
+  async _renderLayerToBuffer(layer, sourceCanvas) {
     const buf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
     const bCtx = buf.getContext('2d');
     bCtx.save();
@@ -35,7 +35,7 @@ export const ExportEngine = {
     for (const maskId of (layer.imageMaskIds || [])) {
       const maskLayer = State.layers.find(l => l.id === maskId);
       if (!maskLayer) continue;
-      const maskCanvas = ImageProcessor.processLayer(maskLayer, { forExport: true });
+      const maskCanvas = await ImageProcessor.processLayer(maskLayer, { forExport: true });
       if (!maskCanvas) continue;
       const maskBuf = new OffscreenCanvas(CANVAS_W, CANVAS_H);
       const mCtx = maskBuf.getContext('2d');
@@ -116,9 +116,9 @@ export const ExportEngine = {
       // Solid layers
       for (const layer of plate.solidLayers) {
         if (!layer._processedCanvas && !layer._originalCanvas) continue;
-        const sourceCanvas = ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
         if (!sourceCanvas) continue;
-        ctx.drawImage(this._renderLayerToBuffer(layer, sourceCanvas), 0, 0);
+        ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas), 0, 0);
       }
 
       // Color separation layer contributions
@@ -149,13 +149,13 @@ export const ExportEngine = {
           const colored = ImageProcessor.colorize(sCtx.getImageData(0, 0, layer.width, layer.height), plateColor, null);
           sCtx.putImageData(colored, 0, 0);
         }
-        ctx.drawImage(this._renderLayerToBuffer(layer, scaled), 0, 0);
+        ctx.drawImage(await this._renderLayerToBuffer(layer, scaled), 0, 0);
       }
 
       // Gradient / pattern layer contributions (weighted by color dominance)
       for (const { layer, stopIdx } of plate.gradContributions) {
         if (!layer._processedCanvas && !layer._originalCanvas) continue;
-        const sourceCanvas = ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
         if (!sourceCanvas) continue;
         const nw = layer.naturalWidth, nh = layer.naturalHeight;
         const weightMap = layer.colorMode === 'pattern' && layer.pattern
@@ -171,7 +171,7 @@ export const ExportEngine = {
           d[i*4 + 3] = Math.round(d[i*4 + 3] * weightMap[i]);
         }
         wCtx.putImageData(imgData, 0, 0);
-        ctx.drawImage(this._renderLayerToBuffer(layer, weightedCanvas), 0, 0);
+        ctx.drawImage(await this._renderLayerToBuffer(layer, weightedCanvas), 0, 0);
       }
 
       // Remap to greyscale ink on white (solid layers stay binary; gradients get smooth greyscale)
@@ -211,15 +211,15 @@ export const ExportEngine = {
     let accumulator = new Uint8Array(CANVAS_W * CANVAS_H * 4).fill(255);
 
     // Exclude mask layers — they render as part of their paired base layer
-    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor && (l._processedCanvas || l._originalCanvas || l.isColorSeparation));
+    const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor && (l._processedCanvas || l._originalCanvas || l.isColorSeparation || l.isText));
     for (let li = 0; li < visibleLayers.length; li++) {
       const layer = visibleLayers[li];
       prog.textContent = `Blending layer ${li + 1} / ${visibleLayers.length}…`;
       await new Promise(r => setTimeout(r, 0));
 
-      const sourceCanvas = ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+      const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
       if (!sourceCanvas) continue;
-      const layerBuf = this._renderLayerToBuffer(layer, sourceCanvas);
+      const layerBuf = await this._renderLayerToBuffer(layer, sourceCanvas);
       const layerData = layerBuf.getContext('2d').getImageData(0, 0, CANVAS_W, CANVAS_H);
       accumulator = window.blendSubtractive(accumulator, new Uint8Array(layerData.data.buffer));
     }

@@ -19,6 +19,16 @@ export async function handleAction(action) {
   switch (action) {
     case 'add-image':     document.getElementById('file-input').click(); break;
     case 'add-screentone': showScreentoneDialog(); break;
+    case 'add-text': {
+      const text = prompt('Enter text:', 'Hello, world!');
+      if (text !== null) {
+        const { CANVAS_W, CANVAS_H } = await import('./constants.js');
+        const w = Math.min(CANVAS_W, 1200);
+        const h = Math.min(CANVAS_H, 400);
+        await LayerManager.addText(text, Math.round((CANVAS_W - w) / 2), Math.round((CANVAS_H - h) / 2), w, h);
+      }
+      break;
+    }
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;

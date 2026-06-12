@@ -499,6 +499,39 @@ export function wireControls() {
     });
   });
 
+  // Text layer property controls
+  function updateTextField(field, value, parser = v => v) {
+    const l = selectedLayer(); if (!l || !l.isText) return;
+    pushUndo(snapshotLayer(l));
+    l[field] = parser(value);
+    l._originalCanvas = null;
+    l._dirty = true;
+    DB.saveLayer(l);
+    Renderer.schedule();
+  }
+
+  document.getElementById('prop-text')?.addEventListener('input', e => {
+    updateTextField('text', e.target.value);
+  });
+  document.getElementById('prop-text-font')?.addEventListener('change', e => {
+    updateTextField('textFontFamily', e.target.value);
+  });
+  document.getElementById('prop-text-size')?.addEventListener('change', e => {
+    updateTextField('textFontSize', e.target.value, parseFloat);
+  });
+  document.getElementById('prop-text-weight')?.addEventListener('change', e => {
+    updateTextField('textFontWeight', e.target.value, parseInt);
+  });
+  document.getElementById('prop-text-spacing')?.addEventListener('change', e => {
+    updateTextField('textLetterSpacing', e.target.value, parseFloat);
+  });
+  document.getElementById('prop-text-leading')?.addEventListener('change', e => {
+    updateTextField('textLineHeight', e.target.value, parseFloat);
+  });
+  document.getElementById('prop-text-align')?.addEventListener('change', e => {
+    updateTextField('textAlign', e.target.value);
+  });
+
   document.getElementById('brush-size-input').addEventListener('input', e => {
     State.brushSize = parseInt(e.target.value);
     document.getElementById('brush-size-val').textContent = State.brushSize;

@@ -51,7 +51,7 @@ export const Renderer = {
   schedule() {
     if (State.renderPending) return;
     State.renderPending = true;
-    requestAnimationFrame(() => { this.draw(); State.renderPending = false; });
+    requestAnimationFrame(async () => { await this.draw(); State.renderPending = false; });
   },
 
   _getLayerScreenBounds(layer, z) {
@@ -85,7 +85,7 @@ export const Renderer = {
     return !(b.right < viewLeft || b.left > viewRight || b.bottom < viewTop || b.top > viewBottom);
   },
 
-  draw() {
+  async draw() {
     const z = State.zoom;
     const w = displayCanvas.width, h = displayCanvas.height;
     // Reset composite mode — ensures white paper fill is correct regardless of prior state
@@ -98,7 +98,7 @@ export const Renderer = {
       if (!layer.visible) continue;
       if (layer.isMaskFor) continue; // rendered as part of the masked layer below it
       if (!this._layerIntersectsViewport(layer, z)) continue;
-      if (layer._dirty) ImageProcessor.processLayer(layer);
+      if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       dCtx.save();
       if (layer.imageMaskIds?.length) {
@@ -126,19 +126,23 @@ export const Renderer = {
   _compositeLayer(ctx, layer, z) {
     const dw = layer.width * z, dh = layer.height * z;
     ctx.globalCompositeOperation = 'multiply';
+    const quality = ctx.imageSmoothingQuality;
+    if (layer.isText) ctx.imageSmoothingQuality = 'high';
     if (!layer._maskCanvas) {
       ctx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
     } else {
       const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
       const tCtx = tmp.getContext('2d');
+      tCtx.imageSmoothingQuality = layer.isText ? 'high' : quality;
       tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
       tCtx.globalCompositeOperation = 'destination-in';
       tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
       ctx.drawImage(tmp, 0, 0);
     }
+    ctx.imageSmoothingQuality = quality;
   },
 
-  _compositeLayerWithImageMask(ctx, layer, z) {
+  async _compositeLayerWithImageMask(ctx, layer, z) {
     const maskLayers = (layer.imageMaskIds || [])
       .map(id => State.layers.find(l => l.id === id))
       .filter(ml => ml);
@@ -165,9 +169,11 @@ export const Renderer = {
     lCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
     lCtx.translate(-layer.width / 2 * z, -layer.height / 2 * z);
     const dw = layer.width * z, dh = layer.height * z;
+    if (layer.isText) lCtx.imageSmoothingQuality = 'high';
     if (layer._maskCanvas) {
       const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
       const tCtx = tmp.getContext('2d');
+      tCtx.imageSmoothingQuality = layer.isText ? 'high' : lCtx.imageSmoothingQuality;
       tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
       tCtx.globalCompositeOperation = 'destination-in';
       tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
@@ -179,7 +185,7 @@ export const Renderer = {
 
     // Apply each mask sequentially — each further clips the base layer
     for (const maskLayer of maskLayers) {
-      if (maskLayer._dirty) ImageProcessor.processLayer(maskLayer);
+      if (maskLayer._dirty) await ImageProcessor.processLayer(maskLayer);
       if (!maskLayer._processedCanvas) continue;
 
       // Buffer B: render mask layer into a full-size buffer, then convert to alpha channel
