@@ -122,4 +122,101 @@ test.describe('Text layer integration', () => {
     expect(pixelStats.opaque).toBeGreaterThan(0);
     expect(pixelStats.transparent).toBeGreaterThan(0);
   });
+
+  test('resizing text box re-renders text instead of stretching', async ({ page }) => {
+    const errors = [];
+    page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+    page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
+
+    await page.goto('/');
+
+    // Create a project
+    await page.fill('#new-project-name', 'Text Resize Test');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    // Add text via File menu
+    page.on('dialog', async dialog => {
+      if (dialog.type() === 'prompt') {
+        await dialog.accept('Hello, type-set!');
+      }
+    });
+    await page.click('[data-menu="file"]');
+    await page.click('[data-action="add-text"]');
+
+    // Wait for the layer to render
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
+    await page.waitForFunction(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return !!layer?._processedCanvas;
+    }, { timeout: 10000 });
+
+    // Resize the text box via the W property input
+    await page.fill('#prop-w', '600');
+    await page.keyboard.press('Enter');
+
+    // Wait for re-render and verify dimensions match the new box size
+    await page.waitForFunction(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return layer && layer._processedCanvas && layer._processedCanvas.width === Math.round(layer.width * 2);
+    }, { timeout: 10000 });
+
+    const dims = await page.evaluate(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return {
+        width: layer.width,
+        height: layer.height,
+        naturalWidth: layer.naturalWidth,
+        naturalHeight: layer.naturalHeight,
+        processedWidth: layer._processedCanvas.width,
+        processedHeight: layer._processedCanvas.height,
+      };
+    });
+    expect(dims.width).toBe(600);
+    expect(dims.naturalWidth).toBe(600);
+    expect(dims.processedWidth).toBe(Math.round(dims.width * 2));
+    expect(dims.processedHeight).toBe(Math.round(dims.height * 2));
+
+    // Also resize by dragging the right-middle handle
+    const canvasBox = await page.locator('#interaction-overlay').boundingBox();
+    if (!canvasBox) throw new Error('Canvas not found');
+
+    const startHandle = await page.evaluate(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      const h = window.Renderer.getHandles(layer, window.State.zoom).find(h => h.id === 'mr');
+      return h;
+    });
+
+    const startX = canvasBox.x + startHandle.x;
+    const startY = canvasBox.y + startHandle.y;
+    const endX = startX + 100;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(endX, startY, { steps: 5 });
+    await page.mouse.up();
+
+    // Wait for re-render after handle resize
+    await page.waitForFunction(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return layer && layer._processedCanvas && layer._processedCanvas.width === Math.round(layer.width * 2);
+    }, { timeout: 10000 });
+
+    const handleDims = await page.evaluate(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return {
+        width: layer.width,
+        naturalWidth: layer.naturalWidth,
+        processedWidth: layer._processedCanvas.width,
+      };
+    });
+    expect(handleDims.width).toBeGreaterThan(600);
+    expect(handleDims.naturalWidth).toBe(handleDims.width);
+    expect(handleDims.processedWidth).toBe(Math.round(handleDims.width * 2));
+
+    if (errors.length) {
+      errors.forEach(err => console.log('CONSOLE ERROR:', err));
+    }
+    expect(errors).toHaveLength(0);
+  });
 });

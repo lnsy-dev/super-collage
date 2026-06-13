@@ -282,6 +282,11 @@ function onPointerMove(e) {
       else if (id === 'bm') { layer.height = Math.max(10, snap.height + dyF); }
       else if (id === 'tm') { layer.y = snap.y + dyF; layer.height = Math.max(10, snap.height - dyF); }
     }
+    if (layer.isText) {
+      layer.naturalWidth = layer.width;
+      layer.naturalHeight = layer.height;
+      layer._dirty = true;
+    }
     // Apply same scale factor and position delta to all other selected layers
     const scaleX = layer.width / snap.width;
     const scaleY = layer.height / snap.height;
@@ -294,6 +299,11 @@ function onPointerMove(e) {
       el.height = Math.max(10, es.height * scaleY);
       el.x = es.x + posDx;
       el.y = es.y + posDy;
+      if (el.isText) {
+        el.naturalWidth = el.width;
+        el.naturalHeight = el.height;
+        el._dirty = true;
+      }
     }
   }
 
@@ -433,6 +443,11 @@ export function wireControls() {
       const l = selectedLayer(); if (!l) return;
       pushUndo(snapshotLayer(l));
       l[field] = parseFloat(e.target.value) || 0;
+      if (l.isText && (field === 'width' || field === 'height')) {
+        l.naturalWidth = l.width;
+        l.naturalHeight = l.height;
+        l._dirty = true;
+      }
       DB.saveLayer(l);
       Renderer.schedule();
     });
