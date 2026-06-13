@@ -285,7 +285,6 @@ function onPointerMove(e) {
     if (layer.isText) {
       layer.naturalWidth = layer.width;
       layer.naturalHeight = layer.height;
-      layer._dirty = true;
     }
     // Apply same scale factor and position delta to all other selected layers
     const scaleX = layer.width / snap.width;
@@ -302,7 +301,6 @@ function onPointerMove(e) {
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
-        el._dirty = true;
       }
     }
   }
@@ -341,6 +339,24 @@ async function onPointerUp(e) {
     for (const es of (State.drag.extraSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
       if (el) DB.saveLayer(el);
+    }
+    if (State.drag.type === 'resize') {
+      // Re-render text layers only after the user releases the handle,
+      // keeping drag interactions fast on large pages.
+      if (layer && layer.isText) {
+        layer.naturalWidth = layer.width;
+        layer.naturalHeight = layer.height;
+        layer._dirty = true;
+      }
+      for (const es of (State.drag.extraSnaps || [])) {
+        const el = State.layers.find(l => l.id === es.id);
+        if (el && el.isText) {
+          el.naturalWidth = el.width;
+          el.naturalHeight = el.height;
+          el._dirty = true;
+        }
+      }
+      Renderer.schedule();
     }
   }
   State.drag = null;
