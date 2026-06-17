@@ -296,31 +296,62 @@ export const LayerManager = {
     pushUndoState();
     const src = State.layers.find(l => l.id === layerId);
     if (!src) return;
-    const imgRec = await DB.get('imageBlobs', layerId);
-    if (!imgRec) return;
+
     const layer = new Layer({ ...src.toRecord(), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
-    const bmp = await createImageBitmap(imgRec.blob);
-    const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-    const ctx = orig.getContext('2d');
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
-    layer._originalCanvas = orig;
-    if (src._maskCanvas) {
-      const mc = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-      mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
-      layer._maskCanvas = mc;
-    } else {
+
+    if (src.isText) {
+      // Text layers have no image blob — just mark dirty so the renderer re-renders text
+      layer._dirty = true;
       MaskEngine.initMask(layer);
+    } else {
+      const imgRec = await DB.get('imageBlobs', layerId);
+      if (!imgRec) return;
+
+      const bmp = await createImageBitmap(imgRec.blob);
+      const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+      const ctx = orig.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      layer._originalCanvas = orig;
+
+      // Rebuild separation plates for color separation layers
+      if (src.isColorSeparation) {
+        const imageData = orig.getContext('2d').getImageData(0, 0, layer.naturalWidth, layer.naturalHeight);
+        const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
+        const plateBuffer = window.separateColorsWithLut(imageData.data, layer.naturalWidth, layer.naturalHeight, window.colorSepLut, 16, numColors);
+        const pixelCount = layer.naturalWidth * layer.naturalHeight;
+        const numPlates = numColors;
+        const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+        for (let i = 0; i < numPlates; i++) {
+          const plateCanvas = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+          const pCtx = plateCanvas.getContext('2d');
+          pCtx.putImageData(new ImageData(
+            new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
+            layer.naturalWidth, layer.naturalHeight
+          ), 0, 0);
+          layer.separationPlates.set(separationColors[i], plateCanvas);
+        }
+      }
+
+      if (src._maskCanvas) {
+        const mc = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+        mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
+        layer._maskCanvas = mc;
+      } else {
+        MaskEngine.initMask(layer);
+      }
+
+      await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
+      await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     }
+
     const insertIdx = State.layers.findIndex(l => l.id === layerId);
     State.layers.splice(insertIdx + 1, 0, layer);
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
     await DB.put('layers', layer.toRecord());
-    await DB.put('imageBlobs', { layerId: layer.id, blob: imgRec.blob });
-    await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
     await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
     UI.refreshLayerList();
     UI.refreshProperties();
