@@ -363,6 +363,9 @@ async function onPointerUp(e) {
 }
 
 export function wireControls() {
+  // Re-render when user scrolls so viewport culling re-evaluates
+  document.getElementById('canvas-scroll').addEventListener('scroll', () => Renderer.schedule(), { passive: true });
+
   // Canvas pointer events
   overlayCanvas.addEventListener('pointerdown', onPointerDown);
   overlayCanvas.addEventListener('pointermove', onPointerMove);

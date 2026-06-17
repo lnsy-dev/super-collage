@@ -77,12 +77,20 @@ export const Renderer = {
   _layerIntersectsViewport(layer, z) {
     const scroll = document.getElementById('canvas-scroll');
     if (!scroll) return true;
-    const viewLeft = scroll.scrollLeft;
-    const viewTop = scroll.scrollTop;
-    const viewRight = viewLeft + scroll.clientWidth;
-    const viewBottom = viewTop + scroll.clientHeight;
+    // Layer bounds are relative to the canvas top-left.
+    // Convert to scroll-container space by adding the canvas's offset within the container.
+    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
+    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
     const b = this._getLayerScreenBounds(layer, z);
-    return !(b.right < viewLeft || b.left > viewRight || b.bottom < viewTop || b.top > viewBottom);
+    const layerLeft   = b.left   + canvasOffsetLeft;
+    const layerTop    = b.top    + canvasOffsetTop;
+    const layerRight  = b.right  + canvasOffsetLeft;
+    const layerBottom = b.bottom + canvasOffsetTop;
+    const viewLeft   = scroll.scrollLeft;
+    const viewTop    = scroll.scrollTop;
+    const viewRight  = viewLeft + scroll.clientWidth;
+    const viewBottom = viewTop  + scroll.clientHeight;
+    return !(layerRight < viewLeft || layerLeft > viewRight || layerBottom < viewTop || layerTop > viewBottom);
   },
 
   async draw() {
