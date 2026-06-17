@@ -543,11 +543,12 @@
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Size</span>
-                  <input type="number" id="prop-text-size" min="8" max="800" step="1" style="flex:1;">
+                  <input type="range" id="prop-text-size-range" min="8" max="900" step="1" style="flex:1;height:3px;">
+                  <input type="number" id="prop-text-size" min="8" max="900" step="1" style="width:52px;margin-left:4px;">
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Weight</span>
-                  <input type="number" id="prop-text-weight" min="100" max="900" step="100" style="flex:1;">
+                  <select id="prop-text-weight" style="flex:1;font-family:var(--font);font-size:8px;"></select>
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Space</span>

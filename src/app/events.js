@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast } from './ui.js';
+import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateWeightSelect } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 import { LayerManager } from './layer-manager.js';
@@ -548,9 +548,20 @@ export function wireControls() {
     updateTextField('text', e.target.value);
   });
   document.getElementById('prop-text-font')?.addEventListener('change', e => {
-    updateTextField('textFontFamily', e.target.value);
+    const font = e.target.value;
+    updateTextField('textFontFamily', font);
+    const layer = State.selectedLayers.size === 1
+      ? [...State.selectedLayers][0]
+      : null;
+    populateWeightSelect(font, layer?.textFontWeight ?? 400);
+    updateTextField('textFontWeight', document.getElementById('prop-text-weight').value, parseInt);
+  });
+  document.getElementById('prop-text-size-range')?.addEventListener('input', e => {
+    document.getElementById('prop-text-size').value = e.target.value;
+    updateTextField('textFontSize', e.target.value, parseFloat);
   });
   document.getElementById('prop-text-size')?.addEventListener('change', e => {
+    document.getElementById('prop-text-size-range').value = e.target.value;
     updateTextField('textFontSize', e.target.value, parseFloat);
   });
   document.getElementById('prop-text-weight')?.addEventListener('change', e => {

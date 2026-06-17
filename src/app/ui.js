@@ -8,6 +8,31 @@ import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 
+const FONT_WEIGHTS = {
+  'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
+  'IBM Plex Sans':         [100, 200, 300, 400, 500, 600, 700],
+  'Crimson Text':          [400, 600, 700],
+  'Fira Code':             [300, 400, 500, 600, 700],
+  'League Gothic':         [400],
+  'Atkinson Hyperlegible': [400, 700],
+  'Cormorant Garamond':    [300, 400, 500, 600, 700],
+  'EB Garamond':           [400, 500, 600, 700, 800],
+  'Spectral':              [200, 300, 400, 500, 600, 700, 800],
+  'UnifrakturMaguntia':    [400],
+};
+const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium', 600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black' };
+
+export function populateWeightSelect(font, currentWeight) {
+  const sel = document.getElementById('prop-text-weight');
+  if (!sel) return;
+  const weights = FONT_WEIGHTS[font] ?? [100,200,300,400,500,600,700,800,900];
+  sel.innerHTML = weights.map(w =>
+    `<option value="${w}">${w} – ${WEIGHT_NAMES[w]}</option>`
+  ).join('');
+  const best = weights.reduce((a, b) => Math.abs(b - currentWeight) < Math.abs(a - currentWeight) ? b : a);
+  sel.value = best;
+}
+
 export function appendKofiNotice(parentEl) {
   const existing = parentEl.querySelector('.kofi-notice');
   if (existing) existing.remove();
@@ -287,7 +312,8 @@ export const UI = {
       document.getElementById('prop-text').value = layer.text;
       document.getElementById('prop-text-font').value = layer.textFontFamily;
       document.getElementById('prop-text-size').value = layer.textFontSize;
-      document.getElementById('prop-text-weight').value = layer.textFontWeight;
+      document.getElementById('prop-text-size-range').value = layer.textFontSize;
+      populateWeightSelect(layer.textFontFamily, layer.textFontWeight);
       document.getElementById('prop-text-spacing').value = layer.textLetterSpacing;
       document.getElementById('prop-text-leading').value = layer.textLineHeight;
       document.getElementById('prop-text-align').value = layer.textAlign;
