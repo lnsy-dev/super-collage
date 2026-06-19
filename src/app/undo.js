@@ -84,6 +84,7 @@ export async function applySnapshot(layer, snap) {
 
   if (layer.isText) {
     layer._originalCanvas = null;
+    layer._exportOriginalCanvas = null;
   }
   layer._dirty = true;
   UI.refreshProperties();

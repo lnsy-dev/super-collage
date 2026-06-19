@@ -115,8 +115,8 @@ export const ExportEngine = {
 
       // Solid layers
       for (const layer of plate.solidLayers) {
-        if (!layer._processedCanvas && !layer._originalCanvas) continue;
-        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+        if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
         if (!sourceCanvas) continue;
         ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas), 0, 0);
       }
@@ -154,8 +154,8 @@ export const ExportEngine = {
 
       // Gradient / pattern layer contributions (weighted by color dominance)
       for (const { layer, stopIdx } of plate.gradContributions) {
-        if (!layer._processedCanvas && !layer._originalCanvas) continue;
-        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+        if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+        const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
         if (!sourceCanvas) continue;
         const nw = layer.naturalWidth, nh = layer.naturalHeight;
         const weightMap = layer.colorMode === 'pattern' && layer.pattern
@@ -217,7 +217,7 @@ export const ExportEngine = {
       prog.textContent = `Blending layer ${li + 1} / ${visibleLayers.length}…`;
       await new Promise(r => setTimeout(r, 0));
 
-      const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true }) || layer._processedCanvas;
+      const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
       const layerBuf = await this._renderLayerToBuffer(layer, sourceCanvas);
       const layerData = layerBuf.getContext('2d').getImageData(0, 0, CANVAS_W, CANVAS_H);

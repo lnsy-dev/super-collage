@@ -161,8 +161,7 @@ export const ImageProcessor = {
 
   async processLayer(layer, { forExport = false } = {}) {
     if (layer.isText) {
-      await this.processTextLayer(layer, forExport);
-      return layer._processedCanvas;
+      return await this.processTextLayer(layer, forExport);
     }
     if (layer.isColorSeparation) {
       return this.processColorSeparation(layer, forExport);
@@ -524,15 +523,19 @@ export const ImageProcessor = {
 
   async processTextLayer(layer, forExport) {
     // Supersample text for display so zoomed-out previews stay sharp.
+    // Export renders at 1x (full canvas coords); display renders at 2x for sharpness.
     const renderScale = forExport ? 1 : 2;
-    const layoutW = forExport ? layer.naturalWidth : layer.width;
-    const layoutH = forExport ? layer.naturalHeight : layer.height;
+    const layoutW = layer.naturalWidth;
+    const layoutH = layer.naturalHeight;
     const targetW = Math.round(layoutW * renderScale);
     const targetH = Math.round(layoutH * renderScale);
 
-    if (!layer._originalCanvas ||
-        layer._originalCanvas.width !== targetW ||
-        layer._originalCanvas.height !== targetH) {
+    // Use separate base-render caches for display (2x) and export (1x) to prevent invalidation.
+    const cacheKey = forExport ? '_exportOriginalCanvas' : '_originalCanvas';
+
+    if (!layer[cacheKey] ||
+        layer[cacheKey].width !== targetW ||
+        layer[cacheKey].height !== targetH) {
       const renderer = new TypeSetRenderer({
         fontBase: './vendor/type-set/fonts/',
         fontFamily: layer.textFontFamily,
@@ -555,12 +558,12 @@ export const ImageProcessor = {
       tCtx.fillStyle = 'white';
       tCtx.fillRect(0, 0, canvas.width, canvas.height);
       tCtx.globalCompositeOperation = 'source-over';
-      layer._originalCanvas = canvas;
+      layer[cacheKey] = canvas;
     }
 
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
+    ctx.drawImage(layer[cacheKey], 0, 0, targetW, targetH);
 
     let px = ctx.getImageData(0, 0, targetW, targetH);
     px = this.toGrayscale(px);

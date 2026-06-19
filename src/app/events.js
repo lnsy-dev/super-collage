@@ -539,6 +539,7 @@ export function wireControls() {
     pushUndo(snapshotLayer(l));
     l[field] = parser(value);
     l._originalCanvas = null;
+    l._exportOriginalCanvas = null;
     l._dirty = true;
     DB.saveLayer(l);
     Renderer.schedule();

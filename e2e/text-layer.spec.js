@@ -219,4 +219,44 @@ test.describe('Text layer integration', () => {
     }
     expect(errors).toHaveLength(0);
   });
+
+  test('export processLayer returns 1x canvas sized to layer dimensions', async ({ page }) => {
+    await page.goto('/');
+    await page.fill('#new-project-name', 'Text Export Size Test');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    page.on('dialog', async dialog => {
+      if (dialog.type() === 'prompt') await dialog.accept('Export size test');
+    });
+    await page.click('[data-menu="file"]');
+    await page.click('[data-action="add-text"]');
+
+    await page.waitForFunction(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return !!layer?._processedCanvas;
+    }, { timeout: 10000 });
+
+    // Simulate what the export engine does: call processLayer with forExport=true
+    const result = await page.evaluate(async () => {
+      const layer = window.State.layers.find(l => l.isText);
+      const exportCanvas = await window.ImageProcessor.processLayer(layer, { forExport: true });
+      return {
+        layerWidth: layer.width,
+        layerHeight: layer.height,
+        exportWidth: exportCanvas?.width,
+        exportHeight: exportCanvas?.height,
+        // Display canvas is 2x supersampled
+        displayWidth: layer._processedCanvas?.width,
+        displayHeight: layer._processedCanvas?.height,
+      };
+    });
+
+    // Export canvas must be 1x (layer.width × layer.height)
+    expect(result.exportWidth).toBe(result.layerWidth);
+    expect(result.exportHeight).toBe(result.layerHeight);
+    // Display canvas must be 2x
+    expect(result.displayWidth).toBe(Math.round(result.layerWidth * 2));
+    expect(result.displayHeight).toBe(Math.round(result.layerHeight * 2));
+  });
 });
