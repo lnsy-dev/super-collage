@@ -138,7 +138,7 @@ export class TypeSetRenderer {
     for (let i = 0; i < this.text.length; i++) {
       const char = this.text[i];
       const weight = String(this.perCharWeight[i] || globalWeight);
-      const style = this.perCharItalic.has(i) ? 'italic' : 'normal';
+      const style = (this.perCharItalic.has(i) || this.fontStyle === 'italic') ? 'italic' : 'normal';
 
       if (!currentRun || currentRun.weight !== weight || currentRun.style !== style) {
         currentRun = { start: i, weight, style, text: '' };

@@ -288,7 +288,23 @@ test.describe('Text layer integration', () => {
     expect(serifOptions).toContain('400:italic');
     expect(serifOptions).toContain('700:normal');
 
-    // Select an italic variant and verify layer weight/style.
+    // Helper: checksum of rendered text pixels to detect actual visual changes.
+    const pixelChecksum = async () => page.evaluate(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      const ctx = layer._processedCanvas.getContext('2d');
+      const { width, height } = layer._processedCanvas;
+      const d = ctx.getImageData(0, 0, width, height).data;
+      let h = 2166136261;
+      for (let i = 3; i < d.length; i += 4) {
+        h ^= d[i];
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+      }
+      return h >>> 0;
+    });
+
+    const normalChecksum = await pixelChecksum();
+
+    // Select an italic variant and verify layer weight/style and re-render.
     await variantSelect.selectOption('400:italic');
     await expect(async () => {
       const props = await page.evaluate(() => {
@@ -297,6 +313,9 @@ test.describe('Text layer integration', () => {
       });
       expect(props).toEqual({ weight: 400, style: 'italic' });
     }).toPass({ timeout: 5000 });
+
+    const italicChecksum = await pixelChecksum();
+    expect(italicChecksum).not.toBe(normalChecksum);
 
     // Switch to a font without italic; dropdown should only contain normal variants.
     await page.selectOption('#prop-text-font', 'Fira Code');
