@@ -10,8 +10,9 @@ import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
 import { handleAction } from './actions.js';
-import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS } from './constants.js';
-import { showProjectDialog, _selProjectId, openProject, loadProjectList } from './project-manager.js';
+import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
+import { showProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
+import { PageManager } from './page-manager.js';
 import { DB } from './db.js';
 
 export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
@@ -450,6 +451,91 @@ export function wireControls() {
     LayerManager.moveToIndex(sourceId, targetStateIndex);
   });
 
+  /* ─── PAGE LIST DRAG-AND-DROP REORDERING ─────────────────────────── */
+  const pageList = document.getElementById('page-list');
+  let draggedPageId = null;
+
+  function clearPageDragIndicators() {
+    pageList.querySelectorAll('.page-row').forEach(r => {
+      r.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  }
+
+  pageList.addEventListener('dragstart', e => {
+    const row = e.target.closest('.page-row');
+    if (!row) return;
+    draggedPageId = row.dataset.pageId;
+    UI._suppressLayerClick = true;
+    e.dataTransfer.setData('text/plain', draggedPageId);
+    e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+
+  pageList.addEventListener('dragend', e => {
+    const row = e.target.closest('.page-row');
+    if (row) row.classList.remove('dragging');
+    clearPageDragIndicators();
+    draggedPageId = null;
+    setTimeout(() => { UI._suppressLayerClick = false; }, 0);
+  });
+
+  pageList.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!draggedPageId) return;
+    e.dataTransfer.dropEffect = 'move';
+    const row = e.target.closest('.page-row');
+    clearPageDragIndicators();
+    if (!row) return;
+    const rect = row.getBoundingClientRect();
+    const overTop = e.clientY < rect.top + rect.height / 2;
+    row.classList.add(overTop ? 'drag-over-top' : 'drag-over-bottom');
+  });
+
+  pageList.addEventListener('dragleave', e => {
+    const row = e.target.closest('.page-row');
+    if (row && !pageList.contains(e.relatedTarget)) {
+      row.classList.remove('drag-over-top', 'drag-over-bottom');
+    }
+  });
+
+  pageList.addEventListener('drop', e => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedPageId;
+    const row = e.target.closest('.page-row');
+    clearPageDragIndicators();
+    draggedPageId = null;
+    if (!sourceId) return;
+
+    const rows = [...pageList.querySelectorAll('.page-row')];
+    const sourceIdx = rows.findIndex(r => r.dataset.pageId === sourceId);
+    if (sourceIdx === -1) return;
+
+    let targetIdx;
+    if (row) {
+      const domIdx = rows.indexOf(row);
+      const overTop = e.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+      targetIdx = overTop ? domIdx : domIdx + 1;
+    } else {
+      targetIdx = rows.length;
+    }
+
+    if (targetIdx === sourceIdx || targetIdx === sourceIdx + 1) return;
+
+    const order = State.project.pageOrder.filter(id => id !== sourceId);
+    let insertIdx = targetIdx;
+    if (targetIdx > sourceIdx) insertIdx--;
+    insertIdx = Math.max(0, Math.min(order.length, insertIdx));
+    order.splice(insertIdx, 0, sourceId);
+
+    PageManager.reorderPages(order).then(() => {
+      State.pages.sort((a, b) => {
+        const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+        return ai - bi;
+      });
+      UI.refreshPageList();
+    });
+  });
+
   document.querySelectorAll('.close-box').forEach(box => {
     box.addEventListener('click', () => {
       document.getElementById('main-app').style.display = 'none';
@@ -854,7 +940,17 @@ export function wireControls() {
     btn.disabled = true;
     try {
       const pageSize = document.querySelector('input[name="new-page-size"]:checked')?.value || 'letter';
-      const project = { id: crypto.randomUUID(), name, pageSize, createdAt: Date.now(), updatedAt: Date.now(), layerOrder: [] };
+      const pageCount = parseInt(document.querySelector('input[name="new-page-count"]:checked')?.value || '1', 10);
+      const project = {
+        id: crypto.randomUUID(),
+        name,
+        pageSize,
+        pageOrder: [],
+        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      let dims = PAGE_SIZE_DIMS[pageSize];
       if (pageSize === 'custom') {
         const wIn = parseFloat(document.getElementById('custom-width').value);
         const hIn = parseFloat(document.getElementById('custom-height').value);
@@ -864,8 +960,17 @@ export function wireControls() {
         }
         project.customW = Math.round(wIn * 600);
         project.customH = Math.round(hIn * 600);
+        dims = { w: project.customW, h: project.customH };
       }
+      if (!dims) dims = PAGE_SIZE_DIMS['letter'];
+
       await DB.put('projects', project);
+
+      // Create requested number of blank pages.
+      const pages = await PageManager.createPages(project.id, pageCount, dims.w, dims.h);
+      project.pageOrder = pages.map(p => p.id);
+      await DB.put('projects', project);
+
       document.getElementById('new-project-name').value = '';
       await openProject(project.id);
       showKofiToast();
@@ -889,6 +994,22 @@ export function wireControls() {
   document.getElementById('new-project-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
   });
+
+  // ── Export dialog controls ────────────────────────────────────────
+  document.getElementById('export-target-size')?.addEventListener('change', updateExportLayoutInfo);
+  document.getElementById('export-custom-width')?.addEventListener('change', updateExportLayoutInfo);
+  document.getElementById('export-custom-height')?.addEventListener('change', updateExportLayoutInfo);
+  document.querySelectorAll('input[name="export-binding"]').forEach(r =>
+    r.addEventListener('change', updateExportLayoutInfo));
+  document.querySelectorAll('input[name="export-booklet-layout"]').forEach(r =>
+    r.addEventListener('change', updateExportLayoutInfo));
+
+  // ── Composite export dialog controls ──────────────────────────────
+  document.getElementById('composite-target-size')?.addEventListener('change', updateCompositeLayoutInfo);
+  document.getElementById('composite-custom-width')?.addEventListener('change', updateCompositeLayoutInfo);
+  document.getElementById('composite-custom-height')?.addEventListener('change', updateCompositeLayoutInfo);
+  document.querySelectorAll('input[name="composite-booklet-layout"]').forEach(r =>
+    r.addEventListener('change', updateCompositeLayoutInfo));
 
   // ── Export dialog buttons ─────────────────────────────────────────
   document.getElementById('btn-export-cancel').addEventListener('click', () =>

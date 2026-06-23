@@ -8,6 +8,7 @@ export class Layer {
   constructor(data = {}) {
     this.id = data.id || crypto.randomUUID();
     this.projectId = data.projectId || (State.project && State.project.id);
+    this.pageId = data.pageId || (State.pageId || null);
     this.name = data.name || 'Layer';
     this.visible = data.visible !== false;
     this.locked = data.locked || false;
@@ -77,6 +78,7 @@ export class Layer {
     return {
       id: this.id,
       projectId: this.projectId,
+      pageId: this.pageId,
       name: this.name,
       visible: this.visible,
       locked: this.locked,

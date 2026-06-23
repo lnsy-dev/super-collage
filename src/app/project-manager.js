@@ -4,14 +4,13 @@
 
 import { State } from './state.js';
 import { DB } from './db.js';
-import { Layer } from './layer.js';
-import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
 import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS } from './constants.js';
-import { hexToRgb } from '../utils/color.js';
-import { MaskEngine } from './mask-engine.js';
+import { PageManager } from './page-manager.js';
+import { calculateLayout } from './imposition.js';
+import { computeViewUnits } from './spread-manager.js';
 
 export let _selProjectId = null;
 
@@ -48,94 +47,58 @@ export async function openProject(projectId) {
   document.getElementById('project-dialog').classList.add('hidden');
   const project = await DB.get('projects', projectId);
   if (!project) return;
+
+  // Ensure v2 projects have page metadata even if migration missed them.
+  if (!project.pageOrder || !project.pageOrder.length) {
+    await PageManager.createPages(projectId, 1, _resolveProjectDims(project).w, _resolveProjectDims(project).h);
+    const updated = await DB.get('projects', projectId);
+    Object.assign(project, updated);
+  }
+
   State.project = project;
+  State.booklet = project.booklet || { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 };
   State.layers = [];
   State.selectedId = null;
   State.selectedIds = [];
   State.undoStack = [];
   State.redoStack = [];
 
-  const layerRecords = await DB.getByIndex('layers', 'by-project', projectId);
-  const order = project.layerOrder || [];
-  layerRecords.sort((a, b) => {
+  // Cache lightweight page metadata.
+  const pages = await DB.getByIndex('pages', 'by-project', projectId);
+  const order = project.pageOrder || [];
+  pages.sort((a, b) => {
+    const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+  State.pages = pages;
+
+  document.getElementById('main-app').style.display = 'flex';
+  document.getElementById('status-project').textContent = project.name;
+
+  // Compute/update spread metadata for all pages, then refresh the cache.
+  await PageManager.recomputeSpreadMeta();
+  State.pages = (await DB.getByIndex('pages', 'by-project', projectId)).sort((a, b) => {
     const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
-  for (const rec of layerRecords) {
-    const layer = Layer.fromRecord(rec);
-    if (layer.isText) {
-      MaskEngine.initMask(layer);
-      layer._dirty = true;
-      State.layers.push(layer);
-      continue;
-    }
-    const imgRec = await DB.get('imageBlobs', layer.id);
-    if (imgRec?.blob) {
-      if (layer.isSvg) {
-        const text = await imgRec.blob.text();
-        layer._svgText = text;
-        const svgBlob = new Blob([text], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(svgBlob);
-        const img = new Image();
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-        URL.revokeObjectURL(url);
-        layer._svgImage = img;
-      } else if (layer.isColorSeparation) {
-        const bmp = await createImageBitmap(imgRec.blob);
-        const nw = layer.naturalWidth, nh = layer.naturalHeight;
-        const sourceCanvas = new OffscreenCanvas(nw, nh);
-        const sCtx = sourceCanvas.getContext('2d');
-        sCtx.fillStyle = 'white';
-        sCtx.fillRect(0, 0, nw, nh);
-        sCtx.drawImage(bmp, 0, 0);
-        bmp.close();
-        layer._originalCanvas = sourceCanvas;
-
-        const imageData = sCtx.getImageData(0, 0, nw, nh);
-        const risoColors = [];
-        for (const rc of RISO_COLORS) {
-          if (rc.hex === '#FFFFFF') continue;
-          const { r, g, b } = hexToRgb(rc.hex);
-          risoColors.push(r, g, b);
-        }
-        const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
-        const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16, numColors);
-        const pixelCount = nw * nh;
-        const numPlates = RISO_COLORS.length - 1;
-        const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
-        for (let i = 0; i < numPlates; i++) {
-          const plateCanvas = new OffscreenCanvas(nw, nh);
-          const pCtx = plateCanvas.getContext('2d');
-          const plateData = new ImageData(
-            new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-            nw, nh
-          );
-          pCtx.putImageData(plateData, 0, 0);
-          layer.separationPlates.set(separationColors[i], plateCanvas);
-        }
-      } else {
-        const bmp = await createImageBitmap(imgRec.blob);
-        const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-        const ctx = orig.getContext('2d');
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-        ctx.drawImage(bmp, 0, 0);
-        bmp.close();
-        layer._originalCanvas = orig;
-      }
-    }
-    const maskRec = await DB.get('maskBlobs', layer.id);
-    if (maskRec?.blob) {
-      await MaskEngine.loadMask(layer, maskRec.blob);
-    } else {
-      MaskEngine.initMask(layer);
-    }
-    layer._dirty = true;
-    State.layers.push(layer);
+  // Load the first editor unit (spread or single page).
+  const units = computeViewUnits(project.pageOrder, project.booklet?.binding);
+  const firstUnit = units[0];
+  if (firstUnit) {
+    await PageManager.loadUnit(firstUnit.id);
+  } else {
+    _setProjectCanvasSize(project);
+    document.getElementById('canvas-title').textContent = `${project.name} @ 600dpi`;
+    UI.fitZoom();
+    UI.refreshOrientation();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
   }
+}
 
-  document.getElementById('main-app').style.display = 'flex';
+function _resolveProjectDims(project) {
   const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"', 'manga': '5.04" × 7.17"', 'business-card': '3.5" × 2"' };
   let sizeLabel = pageSizeLabels[project.pageSize];
   let dims = PAGE_SIZE_DIMS[project.pageSize];
@@ -146,28 +109,100 @@ export async function openProject(projectId) {
   }
   if (!sizeLabel) sizeLabel = '8.5" × 11"';
   if (!dims) dims = PAGE_SIZE_DIMS['letter'];
-  setCanvasSize(dims.w, dims.h);
-  if (project.orientation === 'landscape' && CANVAS_H > CANVAS_W) { setCanvasSize(CANVAS_H, CANVAS_W); }
-  if (project.orientation === 'portrait'  && CANVAS_W > CANVAS_H) { setCanvasSize(CANVAS_H, CANVAS_W); }
-  document.getElementById('canvas-title').textContent = `${project.name} — ${sizeLabel} @ 600dpi`;
-  document.getElementById('status-project').textContent = project.name;
-  document.getElementById('no-layer-msg').style.display = State.layers.length ? 'none' : '';
-
-  UI.fitZoom();
-  UI.refreshOrientation();
-  UI.refreshLayerList();
-  UI.refreshProperties();
-  Renderer.schedule();
+  let { w, h } = dims;
+  if (project.orientation === 'landscape' && h > w) [w, h] = [h, w];
+  return { w, h, sizeLabel };
 }
 
-export function showExportDialog() {
-  document.getElementById('export-dims-text').textContent = `Exports one PNG per risograph color at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`;
-  const visibleLayers = State.layers.filter(l => l.visible);
-  // Collect all plates (solid colors + gradient stop colors)
+function _setProjectCanvasSize(project) {
+  const { w, h } = _resolveProjectDims(project);
+  setCanvasSize(w, h);
+}
+
+export function updateExportLayoutInfo() {
+  const targetSize = document.getElementById('export-target-size')?.value || 'letter';
+  const customRow = document.getElementById('export-custom-size-row');
+  if (customRow) {
+    customRow.style.display = targetSize === 'custom' ? '' : 'none';
+  }
+
+  const binding = document.querySelector('input[name="export-binding"]:checked')?.value || 'saddle-stitch';
+  const bookletRow = document.getElementById('export-booklet-layout-row');
+  if (bookletRow) bookletRow.style.display = '';
+
+  const info = document.getElementById('export-layout-info');
+  if (!info) return;
+
+  const customW = parseFloat(document.getElementById('export-custom-width')?.value || '0') * 600;
+  const customH = parseFloat(document.getElementById('export-custom-height')?.value || '0') * 600;
+
+  // In spread view the canvas is two pages wide; layout calculation should use a single page.
+  let pageW = CANVAS_W, pageH = CANVAS_H;
+  if (State.spreadView && State.pageId) {
+    const page = State.pages.find(p => p.id === State.pageId);
+    if (page) { pageW = page.width; pageH = page.height; }
+  }
+  const layout = calculateLayout(pageW, pageH, targetSize, customW, customH);
+  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+
+  const bookletLayout = document.querySelector('input[name="export-booklet-layout"]:checked')?.value || 'folio';
+  const perSide = bookletLayout === 'folio' ? 2 : bookletLayout === 'quarto' ? 4 : 8;
+  info.textContent = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}`;
+}
+
+export function updateCompositeLayoutInfo() {
+  const targetSize = document.getElementById('composite-target-size')?.value || 'letter';
+  const customRow = document.getElementById('composite-custom-size-row');
+  if (customRow) {
+    customRow.style.display = targetSize === 'custom' ? '' : 'none';
+  }
+
+  const info = document.getElementById('composite-layout-info');
+  if (!info) return;
+
+  const customW = parseFloat(document.getElementById('composite-custom-width')?.value || '0') * 600;
+  const customH = parseFloat(document.getElementById('composite-custom-height')?.value || '0') * 600;
+
+  // In spread view the canvas is two pages wide; layout calculation should use a single page.
+  let pageW = CANVAS_W, pageH = CANVAS_H;
+  if (State.spreadView && State.pageId) {
+    const page = State.pages.find(p => p.id === State.pageId);
+    if (page) { pageW = page.width; pageH = page.height; }
+  }
+  const layout = calculateLayout(pageW, pageH, targetSize, customW, customH);
+  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+
+  const bookletLayout = document.querySelector('input[name="composite-booklet-layout"]:checked')?.value || 'folio';
+  const perSide = bookletLayout === 'folio' ? 2 : bookletLayout === 'quarto' ? 4 : 8;
+  info.textContent = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}`;
+}
+
+export async function showExportDialog() {
+  const dimsText = State.spreadView
+    ? `Exports the active spread as separate left/right pages at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`
+    : `Exports one PNG per risograph color at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`;
+  document.getElementById('export-dims-text').textContent = dimsText;
+  updateExportLayoutInfo();
+
+  // Collect all plates across the project so the dialog preview is accurate
+  // regardless of which page/spread is currently visible.
+  const allLayerRecords = [];
+  if (State.project?.id) {
+    for (const pageId of State.project.pageOrder || []) {
+      const recs = await DB.getByIndex('layers', 'by-page', pageId);
+      allLayerRecords.push(...recs);
+    }
+  }
+  // Fall back to visible layers on the current page if no project is loaded.
+  const layersToInspect = allLayerRecords.length
+    ? allLayerRecords.filter(r => r.visible !== false)
+    : State.layers.filter(l => l.visible);
+
+  // Collect all plates (solid colors + gradient stop colors + separation colors)
   const plateMap = new Map(); // hex → { name, layerCount }
-  for (const l of visibleLayers) {
+  for (const l of layersToInspect) {
     if (l.isColorSeparation) {
-      for (const c of l.separationColors) {
+      for (const c of l.separationColors || []) {
         if (!plateMap.has(c)) {
           const name = RISO_COLORS.find(rc => rc.hex === c)?.name || c;
           plateMap.set(c, { name, layerCount: 0, mode: 'separation' });
@@ -213,7 +248,13 @@ export function showExportDialog() {
 }
 
 export function showCompositeExportDialog() {
-  document.getElementById('composite-dims-text').textContent = `Renders all visible layers at ${CANVAS_W}×${CANVAS_H} px with subtractive ink mixing (riso simulation).`;
+  const dimsText = State.spreadView
+    ? `Renders the active spread as separate left/right pages at ${CANVAS_W}×${CANVAS_H} px with subtractive ink mixing (riso simulation).`
+    : State.pages.length > 1
+      ? `Renders all ${State.pages.length} pages as full-color composites and imposes them into printer-ready booklet sheets.`
+      : `Renders all visible layers at ${CANVAS_W}×${CANVAS_H} px with subtractive ink mixing (riso simulation).`;
+  document.getElementById('composite-dims-text').textContent = dimsText;
+  updateCompositeLayoutInfo();
   document.getElementById('composite-export-progress').textContent = '';
   document.getElementById('btn-composite-go').disabled = false;
   document.getElementById('composite-export-dialog').classList.remove('hidden');
