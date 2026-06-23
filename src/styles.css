@@ -547,6 +547,26 @@ input[type="number"] {
   outline: none;
 }
 .mac-input:focus { outline: 2px solid var(--black); }
+.margin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.margin-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 9px;
+  gap: 4px;
+}
+.margin-grid .mac-input { width: 100%; box-sizing: border-box; }
+.grid-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 9px;
+}
+.grid-row label { flex-shrink: 0; }
+.grid-row .mac-input { width: 70px; flex: none; }
 
 /* Scrollbars */
 ::-webkit-scrollbar { width: 12px; height: 12px; }

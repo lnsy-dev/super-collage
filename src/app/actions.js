@@ -16,6 +16,50 @@ import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
 
+function updateViewMenuLabels() {
+  document.getElementById('menu-toggle-margins').textContent = State.showMargins ? 'Hide Margins' : 'View Margins';
+  document.getElementById('menu-toggle-grid').textContent = State.showGrid ? 'Hide Grid' : 'View Grid';
+}
+
+function showMarginsDialog() {
+  const m = State.margins;
+  document.getElementById('margin-top').value = (m.top / 600).toFixed(3).replace(/\.?0+$/, '');
+  document.getElementById('margin-right').value = (m.right / 600).toFixed(3).replace(/\.?0+$/, '');
+  document.getElementById('margin-bottom').value = (m.bottom / 600).toFixed(3).replace(/\.?0+$/, '');
+  document.getElementById('margin-left').value = (m.left / 600).toFixed(3).replace(/\.?0+$/, '');
+  document.getElementById('margins-dialog').classList.remove('hidden');
+}
+
+function showGridDialog() {
+  document.getElementById('grid-size').value = (State.grid.size / 600).toFixed(3).replace(/\.?0+$/, '');
+  const radios = document.querySelectorAll('input[name="grid-type"]');
+  radios.forEach(r => r.checked = r.value === State.grid.type);
+  document.getElementById('grid-dialog').classList.remove('hidden');
+}
+
+export function applyMargins() {
+  const toPx = v => Math.max(0, Math.round((parseFloat(v) || 0) * 600));
+  State.margins = {
+    top: toPx(document.getElementById('margin-top').value),
+    right: toPx(document.getElementById('margin-right').value),
+    bottom: toPx(document.getElementById('margin-bottom').value),
+    left: toPx(document.getElementById('margin-left').value),
+  };
+  PageManager.saveViewSettings();
+  Renderer.schedule();
+}
+
+export function applyGrid() {
+  const sizeIn = parseFloat(document.getElementById('grid-size').value);
+  State.grid.size = Math.max(1, Math.round((sizeIn || 0.25) * 600));
+  const typeRadio = document.querySelector('input[name="grid-type"]:checked');
+  State.grid.type = typeRadio?.value === 'isometric' ? 'isometric' : 'standard';
+  PageManager.saveViewSettings();
+  Renderer.schedule();
+}
+
+export { updateViewMenuLabels, showMarginsDialog, showGridDialog };
+
 export async function handleAction(action, value = null) {
   const layer = selectedLayer();
   switch (action) {
@@ -270,5 +314,23 @@ export async function handleAction(action, value = null) {
     }
     case 'export': await showExportDialog(); break;
     case 'export-composite': showCompositeExportDialog(); break;
+    case 'toggle-margins':
+      State.showMargins = !State.showMargins;
+      PageManager.saveViewSettings();
+      updateViewMenuLabels();
+      Renderer.schedule();
+      break;
+    case 'toggle-grid':
+      State.showGrid = !State.showGrid;
+      PageManager.saveViewSettings();
+      updateViewMenuLabels();
+      Renderer.schedule();
+      break;
+    case 'set-margins':
+      showMarginsDialog();
+      break;
+    case 'set-grid':
+      showGridDialog();
+      break;
   }
 }

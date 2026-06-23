@@ -3,13 +3,13 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateWeightSelect } from './ui.js';
+import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateVariantSelect } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
 import { showProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -637,11 +637,11 @@ export function wireControls() {
   document.getElementById('prop-text-font')?.addEventListener('change', e => {
     const font = e.target.value;
     updateTextField('textFontFamily', font);
-    const layer = State.selectedLayers.size === 1
-      ? [...State.selectedLayers][0]
-      : null;
-    populateWeightSelect(font, layer?.textFontWeight ?? 400);
-    updateTextField('textFontWeight', document.getElementById('prop-text-weight').value, parseInt);
+    const layer = selectedLayer();
+    populateVariantSelect(font, layer?.textFontWeight ?? 400, layer?.textFontStyle);
+    const [weight, style] = document.getElementById('prop-text-variant').value.split(':');
+    updateTextField('textFontWeight', weight, parseInt);
+    updateTextField('textFontStyle', style);
   });
   document.getElementById('prop-text-size-range')?.addEventListener('input', e => {
     document.getElementById('prop-text-size').value = e.target.value;
@@ -651,8 +651,10 @@ export function wireControls() {
     document.getElementById('prop-text-size-range').value = e.target.value;
     updateTextField('textFontSize', e.target.value, parseFloat);
   });
-  document.getElementById('prop-text-weight')?.addEventListener('change', e => {
-    updateTextField('textFontWeight', e.target.value, parseInt);
+  document.getElementById('prop-text-variant')?.addEventListener('change', e => {
+    const [weight, style] = e.target.value.split(':');
+    updateTextField('textFontWeight', weight, parseInt);
+    updateTextField('textFontStyle', style);
   });
   document.getElementById('prop-text-spacing')?.addEventListener('change', e => {
     updateTextField('textLetterSpacing', e.target.value, parseFloat);
@@ -1047,6 +1049,20 @@ export function wireControls() {
       e.stopPropagation();
     });
   });
+
+  // Update View menu labels when the menu opens
+  document.querySelector('.menu-item[data-menu="view"]')?.addEventListener('click', () => {
+    updateViewMenuLabels();
+  });
+
+  // ── Margin / Grid dialogs ─────────────────────────────────────────
+  function hideDialog(id) { document.getElementById(id).classList.add('hidden'); }
+  document.getElementById('btn-margins-ok')?.addEventListener('click', () => { applyMargins(); hideDialog('margins-dialog'); });
+  document.getElementById('btn-margins-cancel')?.addEventListener('click', () => hideDialog('margins-dialog'));
+  document.getElementById('margins-dialog')?.addEventListener('click', e => { if (e.target === document.getElementById('margins-dialog')) hideDialog('margins-dialog'); });
+  document.getElementById('btn-grid-ok')?.addEventListener('click', () => { applyGrid(); hideDialog('grid-dialog'); });
+  document.getElementById('btn-grid-cancel')?.addEventListener('click', () => hideDialog('grid-dialog'));
+  document.getElementById('grid-dialog')?.addEventListener('click', e => { if (e.target === document.getElementById('grid-dialog')) hideDialog('grid-dialog'); });
 
   // ── Toolbar & panel buttons ───────────────────────────────────────
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn =>

@@ -57,6 +57,7 @@ export async function openProject(projectId) {
 
   State.project = project;
   State.booklet = project.booklet || { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 };
+  PageManager.loadViewSettings(project);
   State.layers = [];
   State.selectedId = null;
   State.selectedIds = [];

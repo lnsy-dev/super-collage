@@ -8,6 +8,7 @@ import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 import { computeViewUnits } from './spread-manager.js';
+import { hasItalic } from 'type-set';
 
 const FONT_WEIGHTS = {
   'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
@@ -23,15 +24,31 @@ const FONT_WEIGHTS = {
 };
 const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium', 600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black' };
 
-export function populateWeightSelect(font, currentWeight) {
-  const sel = document.getElementById('prop-text-weight');
+export function populateVariantSelect(font, currentWeight, currentStyle) {
+  const sel = document.getElementById('prop-text-variant');
   if (!sel) return;
   const weights = FONT_WEIGHTS[font] ?? [100,200,300,400,500,600,700,800,900];
-  sel.innerHTML = weights.map(w =>
-    `<option value="${w}">${w} – ${WEIGHT_NAMES[w]}</option>`
+  const variants = [];
+  weights.forEach(w => {
+    variants.push({ weight: w, style: 'normal', label: `${w} – ${WEIGHT_NAMES[w]}` });
+  });
+  if (hasItalic(font)) {
+    weights.forEach(w => {
+      variants.push({ weight: w, style: 'italic', label: `${w} – ${WEIGHT_NAMES[w]} Italic` });
+    });
+  }
+  sel.innerHTML = variants.map(v =>
+    `<option value="${v.weight}:${v.style}">${v.label}</option>`
   ).join('');
-  const best = weights.reduce((a, b) => Math.abs(b - currentWeight) < Math.abs(a - currentWeight) ? b : a);
-  sel.value = best;
+
+  const style = hasItalic(font) ? (currentStyle || 'normal') : 'normal';
+  let match = variants.find(v => v.weight === currentWeight && v.style === style);
+  if (!match) {
+    match = variants.filter(v => v.style === 'normal').reduce((a, b) =>
+      Math.abs(b.weight - currentWeight) < Math.abs(a.weight - currentWeight) ? b : a
+    );
+  }
+  sel.value = `${match.weight}:${match.style}`;
 }
 
 export function appendKofiNotice(parentEl) {
@@ -390,7 +407,7 @@ export const UI = {
       document.getElementById('prop-text-font').value = layer.textFontFamily;
       document.getElementById('prop-text-size').value = layer.textFontSize;
       document.getElementById('prop-text-size-range').value = layer.textFontSize;
-      populateWeightSelect(layer.textFontFamily, layer.textFontWeight);
+      populateVariantSelect(layer.textFontFamily, layer.textFontWeight, layer.textFontStyle);
       document.getElementById('prop-text-spacing').value = layer.textLetterSpacing;
       document.getElementById('prop-text-leading').value = layer.textLineHeight;
       document.getElementById('prop-text-align').value = layer.textAlign;

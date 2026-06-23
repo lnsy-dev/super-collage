@@ -28,6 +28,11 @@ export const State = {
   shapeIsStar: false,
   shapeStarRatio: 0.4,
   shapeDrag: null,
+  showMargins: false,
+  showGrid: false,
+  margins: { top: 300, right: 300, bottom: 300, left: 300 }, // 0.5 in @ 600 dpi
+  grid: { size: 150, type: 'standard' }, // 0.25 in @ 600 dpi
+  spreadSplitX: 0,
 };
 
 export function selectedLayer() {

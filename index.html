@@ -374,6 +374,54 @@
   </div>
 </div>
 
+<!-- ═══ SET MARGINS DIALOG ════════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="margins-dialog">
+  <div class="mac-dialog" style="min-width:260px;max-width:320px;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Set Margins</div>
+    </div>
+    <div class="dialog-body">
+      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;">Margins are applied to each page in the current unit.</p>
+      <div class="margin-grid">
+        <label>Top<input type="number" id="margin-top" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
+        <label>Right<input type="number" id="margin-right" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
+        <label>Bottom<input type="number" id="margin-bottom" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
+        <label>Left<input type="number" id="margin-left" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
+      </div>
+      <div style="font-size:9px;margin-top:8px;color:var(--dark-gray);">inches</div>
+    </div>
+    <div class="dialog-footer">
+      <button class="mac-btn" id="btn-margins-cancel">Cancel</button>
+      <button class="mac-btn primary" id="btn-margins-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SET GRID DIALOG ═══════════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="grid-dialog">
+  <div class="mac-dialog" style="min-width:260px;max-width:320px;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Set Grid Size</div>
+    </div>
+    <div class="dialog-body">
+      <div class="grid-row">
+        <label>Size</label>
+        <input type="number" id="grid-size" class="mac-input" step="0.125" min="0.0625" max="10" value="0.25">
+        <span style="font-size:9px;">inches</span>
+      </div>
+      <div class="grid-row" style="margin-top:12px;">
+        <label>Type</label>
+        <label style="font-size:9px;cursor:pointer;"><input type="radio" name="grid-type" value="standard" checked> Standard</label>
+        <label style="font-size:9px;cursor:pointer;"><input type="radio" name="grid-type" value="isometric"> Isometric</label>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="mac-btn" id="btn-grid-cancel">Cancel</button>
+      <button class="mac-btn primary" id="btn-grid-ok">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MAIN APP ══════════════════════════════════════════════════= -->
 <div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100vh;">
 
@@ -412,6 +460,12 @@
         <div class="menu-entry" data-action="zoom-out">Zoom Out <span class="shortcut">&#8984;-</span></div>
         <div class="menu-entry" data-action="zoom-fit">Fit to Window <span class="shortcut">&#8984;0</span></div>
         <div class="menu-entry" data-action="zoom-100">Actual Size <span class="shortcut">&#8984;1</span></div>
+        <div class="menu-divider"></div>
+        <div class="menu-entry" data-action="toggle-margins" id="menu-toggle-margins">View Margins</div>
+        <div class="menu-entry" data-action="set-margins">Set Margins…</div>
+        <div class="menu-divider"></div>
+        <div class="menu-entry" data-action="toggle-grid" id="menu-toggle-grid">View Grid</div>
+        <div class="menu-entry" data-action="set-grid">Set Grid Size…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="rotate-page-cw">Rotate Page 90° CW</div>
         <div class="menu-entry" data-action="rotate-page-ccw">Rotate Page 90° CCW</div>
@@ -613,8 +667,8 @@
                   <input type="number" id="prop-text-size" min="8" max="900" step="1" style="width:52px;margin-left:4px;">
                 </div>
                 <div class="prop-row">
-                  <span class="prop-label">Weight</span>
-                  <select id="prop-text-weight" style="flex:1;font-family:var(--font);font-size:8px;"></select>
+                  <span class="prop-label">Variant</span>
+                  <select id="prop-text-variant" style="flex:1;font-family:var(--font);font-size:8px;"></select>
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Space</span>

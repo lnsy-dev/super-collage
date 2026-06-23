@@ -259,4 +259,58 @@ test.describe('Text layer integration', () => {
     expect(result.displayWidth).toBe(Math.round(result.layerWidth * 2));
     expect(result.displayHeight).toBe(Math.round(result.layerHeight * 2));
   });
+
+  test('variant dropdown lists weight/style combinations and updates layer', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
+    await page.goto('/');
+    await page.fill('#new-project-name', 'Text Variant Test');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    page.on('dialog', async dialog => {
+      if (dialog.type() === 'prompt') await dialog.accept('Hello, variant!');
+    });
+    await page.click('[data-menu="file"]');
+    await page.click('[data-action="add-text"]');
+
+    await page.waitForFunction(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return !!layer?._processedCanvas;
+    }, { timeout: 10000 });
+
+    // Default font (IBM Plex Serif) has italic, so variant list should include italic combos.
+    const variantSelect = page.locator('#prop-text-variant');
+    await expect(variantSelect).toBeVisible();
+    await expect(variantSelect).toHaveValue('400:normal');
+
+    const serifOptions = await variantSelect.evaluate(sel => [...sel.options].map(o => o.value));
+    expect(serifOptions).toContain('400:italic');
+    expect(serifOptions).toContain('700:normal');
+
+    // Select an italic variant and verify layer weight/style.
+    await variantSelect.selectOption('400:italic');
+    await expect(async () => {
+      const props = await page.evaluate(() => {
+        const layer = window.State.layers.find(l => l.isText);
+        return { weight: layer?.textFontWeight, style: layer?.textFontStyle };
+      });
+      expect(props).toEqual({ weight: 400, style: 'italic' });
+    }).toPass({ timeout: 5000 });
+
+    // Switch to a font without italic; dropdown should only contain normal variants.
+    await page.selectOption('#prop-text-font', 'Fira Code');
+    const firaOptions = await variantSelect.evaluate(sel => [...sel.options].map(o => o.value));
+    expect(firaOptions.every(v => v.endsWith(':normal'))).toBe(true);
+    await expect(variantSelect).toHaveValue('400:normal');
+
+    const propsAfterSwitch = await page.evaluate(() => {
+      const layer = window.State.layers.find(l => l.isText);
+      return { weight: layer?.textFontWeight, style: layer?.textFontStyle };
+    });
+    expect(propsAfterSwitch).toEqual({ weight: 400, style: 'normal' });
+
+    if (errors.length) errors.forEach(err => console.log('CONSOLE ERROR:', err));
+    expect(errors).toHaveLength(0);
+  });
 });

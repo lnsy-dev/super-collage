@@ -14,6 +14,26 @@ import { hexToRgb } from '../utils/color.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 
 export const PageManager = {
+  loadViewSettings(project) {
+    const vs = project?.viewSettings || {};
+    State.showMargins = !!vs.showMargins;
+    State.showGrid = !!vs.showGrid;
+    State.margins = vs.margins || { top: 300, right: 300, bottom: 300, left: 300 };
+    State.grid = vs.grid || { size: 150, type: 'standard' };
+    State.spreadSplitX = 0;
+  },
+
+  async saveViewSettings() {
+    if (!State.project) return;
+    State.project.viewSettings = {
+      showMargins: State.showMargins,
+      showGrid: State.showGrid,
+      margins: { ...State.margins },
+      grid: { ...State.grid },
+    };
+    await DB.put('projects', { ...State.project, updatedAt: Date.now() });
+  },
+
   async createPage(projectId, name, width, height, options = {}) {
     const page = {
       id: crypto.randomUUID(),
@@ -105,6 +125,7 @@ export const PageManager = {
       State.pageId = page.id;
       State.unitId = unit.id;
       State.spreadView = false;
+      State.spreadSplitX = 0;
       State.layers = [];
       State.selectedId = null;
       State.selectedIds = [];
@@ -136,6 +157,7 @@ export const PageManager = {
     State.pageId = leftPage.id;
     State.unitId = unit.id;
     State.spreadView = true;
+    State.spreadSplitX = leftPage.width;
     State.layers = [];
     State.selectedId = null;
     State.selectedIds = [];

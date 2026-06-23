@@ -95,6 +95,8 @@ export const Renderer = {
 
   async draw() {
     await this.drawLayers(dCtx, State.layers, displayCanvas.width, displayCanvas.height, State.zoom);
+    if (State.showMargins) this.drawMargins();
+    if (State.showGrid) this.drawGrid();
     this.drawOverlay();
   },
 
@@ -229,6 +231,93 @@ export const Renderer = {
     // Composite the masked result onto the main canvas using multiply
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(layerBuf, b.left, b.top);
+  },
+
+  drawMargins() {
+    const z = State.zoom;
+    dCtx.save();
+    dCtx.strokeStyle = '#87CEEB';
+    dCtx.lineWidth = 1;
+    dCtx.beginPath();
+    if (State.spreadView && State.spreadSplitX > 0) {
+      const split = State.spreadSplitX * z;
+      // Center split line
+      dCtx.moveTo(split, 0);
+      dCtx.lineTo(split, displayCanvas.height);
+      // Left page margins
+      const m = State.margins;
+      const lLeft = m.left * z;
+      const lTop = m.top * z;
+      const lRight = split - m.right * z;
+      const lBottom = displayCanvas.height - m.bottom * z;
+      dCtx.rect(lLeft, lTop, lRight - lLeft, lBottom - lTop);
+      // Right page margins
+      const rLeft = split + m.left * z;
+      const rTop = m.top * z;
+      const rRight = displayCanvas.width - m.right * z;
+      const rBottom = displayCanvas.height - m.bottom * z;
+      dCtx.rect(rLeft, rTop, rRight - rLeft, rBottom - rTop);
+    } else {
+      const m = State.margins;
+      const x = m.left * z;
+      const y = m.top * z;
+      const w = displayCanvas.width - (m.left + m.right) * z;
+      const h = displayCanvas.height - (m.top + m.bottom) * z;
+      dCtx.rect(x, y, w, h);
+    }
+    dCtx.stroke();
+    dCtx.restore();
+  },
+
+  drawGrid() {
+    const z = State.zoom;
+    const size = State.grid.size * z;
+    if (size <= 0) return;
+    dCtx.save();
+    dCtx.strokeStyle = 'rgba(135, 206, 235, 0.35)';
+    dCtx.lineWidth = 1;
+    dCtx.beginPath();
+    if (State.grid.type === 'isometric') {
+      this._drawIsometricGrid(size);
+    } else {
+      for (let x = 0; x <= displayCanvas.width; x += size) {
+        dCtx.moveTo(Math.round(x) + 0.5, 0);
+        dCtx.lineTo(Math.round(x) + 0.5, displayCanvas.height);
+      }
+      for (let y = 0; y <= displayCanvas.height; y += size) {
+        dCtx.moveTo(0, Math.round(y) + 0.5);
+        dCtx.lineTo(displayCanvas.width, Math.round(y) + 0.5);
+      }
+    }
+    dCtx.stroke();
+    dCtx.restore();
+  },
+
+  _drawIsometricGrid(size) {
+    const W = displayCanvas.width, H = displayCanvas.height;
+    const diag = Math.sqrt(W * W + H * H) + size;
+    const toRad = a => a * Math.PI / 180;
+    const families = [0, 60, 120];
+    for (const angle of families) {
+      const theta = toRad(angle);
+      const dx = Math.cos(theta), dy = Math.sin(theta);
+      const nx = -dy, ny = dx; // unit normal
+      // Perpendicular distance range that covers the rectangle
+      const d0 = 0 * nx + 0 * ny;
+      const d1 = W * nx + 0 * ny;
+      const d2 = 0 * nx + H * ny;
+      const d3 = W * nx + H * ny;
+      const minD = Math.min(d0, d1, d2, d3);
+      const maxD = Math.max(d0, d1, d2, d3);
+      const kMin = Math.floor(minD / size) - 1;
+      const kMax = Math.ceil(maxD / size) + 1;
+      for (let k = kMin; k <= kMax; k++) {
+        const c = k * size;
+        const cx = c * nx, cy = c * ny;
+        dCtx.moveTo(cx - dx * diag, cy - dy * diag);
+        dCtx.lineTo(cx + dx * diag, cy + dy * diag);
+      }
+    }
   },
 
   drawOverlay() {
