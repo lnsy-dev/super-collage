@@ -13,8 +13,10 @@ import { showProjectDialog, showExportDialog, showCompositeExportDialog } from '
 import { showScreentoneDialog } from './screentone-manager.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize } from './constants.js';
 import { DB } from './db.js';
+import { PageManager } from './page-manager.js';
+import { computeViewUnits, findUnitForPage } from './spread-manager.js';
 
-export async function handleAction(action) {
+export async function handleAction(action, value = null) {
   const layer = selectedLayer();
   switch (action) {
     case 'add-image':     document.getElementById('file-input').click(); break;
@@ -84,7 +86,7 @@ export async function handleAction(action) {
       State.selectedIds = [maskLayerObj.id];
       await DB.saveLayer(baseLayer);
       await DB.saveLayer(maskLayerObj);
-      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      await PageManager.saveActivePage();
       UI.refreshLayerList();
       UI.refreshProperties();
       Renderer.schedule();
@@ -158,7 +160,7 @@ export async function handleAction(action) {
 
       await DB.saveLayer(baseLayer);
       await DB.saveLayer(maskLayerObj);
-      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      await PageManager.saveActivePage();
 
       // Select the duplicated layer so user can change its color immediately
       State.selectedId = dup.id;
@@ -179,7 +181,7 @@ export async function handleAction(action) {
       maskLayerObj.isMaskFor = null;
       await DB.saveLayer(maskLayerObj);
       if (baseLayer) await DB.saveLayer(baseLayer);
-      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      await PageManager.saveActivePage();
       State.selectedIds = [maskLayerObj.id];
       UI.refreshLayerList();
       UI.refreshProperties();
@@ -191,15 +193,23 @@ export async function handleAction(action) {
     case 'zoom-fit': UI.fitZoom(); break;
     case 'zoom-100': State.zoom = 1; Renderer.resize(); UI.refreshZoom(); break;
     case 'orient-portrait':
+      if (State.spreadView) break;
       if (CANVAS_W > CANVAS_H) { setCanvasSize(CANVAS_H, CANVAS_W); }
-      if (State.project) { State.project.orientation = 'portrait'; DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) }); }
+      if (State.project) {
+        State.project.orientation = 'portrait';
+        PageManager.saveActivePage();
+      }
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
     case 'orient-landscape':
+      if (State.spreadView) break;
       if (CANVAS_H > CANVAS_W) { setCanvasSize(CANVAS_H, CANVAS_W); }
-      if (State.project) { State.project.orientation = 'landscape'; DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) }); }
+      if (State.project) {
+        State.project.orientation = 'landscape';
+        PageManager.saveActivePage();
+      }
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
     case 'rotate-page-cw': {
-      if (!State.project) break;
+      if (!State.project || State.spreadView) break;
       const oldW = CANVAS_W, oldH = CANVAS_H;
       setCanvasSize(oldH, oldW);
       for (const layer of State.layers) {
@@ -215,12 +225,12 @@ export async function handleAction(action) {
         DB.saveLayer(layer);
       }
       State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
-      DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      PageManager.saveActivePage();
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
       break;
     }
     case 'rotate-page-ccw': {
-      if (!State.project) break;
+      if (!State.project || State.spreadView) break;
       const oldW = CANVAS_W, oldH = CANVAS_H;
       setCanvasSize(oldH, oldW);
       for (const layer of State.layers) {
@@ -236,7 +246,7 @@ export async function handleAction(action) {
         DB.saveLayer(layer);
       }
       State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
-      DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      PageManager.saveActivePage();
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
       break;
     }
@@ -244,7 +254,21 @@ export async function handleAction(action) {
     case 'redo': redo(); break;
     case 'new-project':  showProjectDialog(); break;
     case 'open-project': showProjectDialog(); break;
-    case 'export': showExportDialog(); break;
+    case 'next-page': {
+      const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+      const idx = units.findIndex(u => u.id === State.unitId);
+      const next = units[idx + 1];
+      if (next) { await PageManager.loadUnit(next.id); UI.refreshPageList(); }
+      break;
+    }
+    case 'prev-page': {
+      const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+      const idx = units.findIndex(u => u.id === State.unitId);
+      const prev = units[idx - 1];
+      if (prev) { await PageManager.loadUnit(prev.id); UI.refreshPageList(); }
+      break;
+    }
+    case 'export': await showExportDialog(); break;
     case 'export-composite': showCompositeExportDialog(); break;
   }
 }

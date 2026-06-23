@@ -94,31 +94,32 @@ export const Renderer = {
   },
 
   async draw() {
-    const z = State.zoom;
-    const w = displayCanvas.width, h = displayCanvas.height;
-    // Reset composite mode — ensures white paper fill is correct regardless of prior state
-    dCtx.globalCompositeOperation = 'source-over';
-    dCtx.clearRect(0, 0, w, h);
-    dCtx.fillStyle = '#fff';
-    dCtx.fillRect(0, 0, w, h);
+    await this.drawLayers(dCtx, State.layers, displayCanvas.width, displayCanvas.height, State.zoom);
+    this.drawOverlay();
+  },
 
-    for (const layer of State.layers) {
+  async drawLayers(targetCtx, layers, width, height, zoom) {
+    // Reset composite mode — ensures white paper fill is correct regardless of prior state
+    targetCtx.globalCompositeOperation = 'source-over';
+    targetCtx.clearRect(0, 0, width, height);
+    targetCtx.fillStyle = '#fff';
+    targetCtx.fillRect(0, 0, width, height);
+
+    for (const layer of layers) {
       if (!layer.visible) continue;
       if (layer.isMaskFor) continue; // rendered as part of the masked layer below it
-      if (!this._layerIntersectsViewport(layer, z)) continue;
+      if (!this._layerIntersectsViewport(layer, zoom)) continue;
       if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
-      dCtx.save();
+      targetCtx.save();
       if (layer.imageMaskIds?.length) {
-        this._compositeLayerWithImageMask(dCtx, layer, z);
+        await this._compositeLayerWithImageMask(targetCtx, layer, zoom, layers);
       } else {
-        this._applyTransform(dCtx, layer, z);
-        this._compositeLayer(dCtx, layer, z);
+        this._applyTransform(targetCtx, layer, zoom);
+        this._compositeLayer(targetCtx, layer, zoom);
       }
-      dCtx.restore();
+      targetCtx.restore();
     }
-
-    this.drawOverlay();
   },
 
   _applyTransform(ctx, layer, scale, isOverlay = false) {
@@ -150,9 +151,9 @@ export const Renderer = {
     ctx.imageSmoothingQuality = quality;
   },
 
-  async _compositeLayerWithImageMask(ctx, layer, z) {
+  async _compositeLayerWithImageMask(ctx, layer, z, layerSet = State.layers) {
     const maskLayers = (layer.imageMaskIds || [])
-      .map(id => State.layers.find(l => l.id === id))
+      .map(id => layerSet.find(l => l.id === id))
       .filter(ml => ml);
 
     if (!maskLayers.length) {

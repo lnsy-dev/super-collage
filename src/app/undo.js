@@ -6,6 +6,7 @@ import { State } from './state.js';
 import { DB } from './db.js';
 import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
+import { PageManager } from './page-manager.js';
 
 
 export function snapshotLayer(layer) { return layer.toRecord(); }
@@ -102,7 +103,7 @@ function applyStateSnapshot(snap) {
   Renderer.schedule();
   // Persist restored order and selection
   if (State.project) {
-    DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    PageManager.saveActivePage();
   }
 }
 

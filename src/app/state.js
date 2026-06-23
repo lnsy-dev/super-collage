@@ -5,7 +5,12 @@
 export const State = {
   db: null,
   project: null,
-  layers: [],          // LayerObject[] ordered bottom→top
+  layers: [],          // LayerObject[] ordered bottom→top (active page)
+  pages: [],           // lightweight Page metadata cache
+  pageId: null,        // active page id (left page when viewing a spread)
+  unitId: null,        // active editor unit id (spread or single page)
+  spreadView: false,   // when true, the active unit is a spread
+  booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
   selectedId: null,
   selectedIds: [],     // IDs for multi-select (shift+click)
   tool: 'select',

@@ -224,6 +224,16 @@
           <span style="font-size:9px;">inches @ 600dpi</span>
         </div>
       </div>
+      <div class="size-row">
+        <div class="size-row-label">Pages:</div>
+        <div class="size-options">
+          <label><input type="radio" name="new-page-count" value="1" checked> 1</label>
+          <label><input type="radio" name="new-page-count" value="4"> 4</label>
+          <label><input type="radio" name="new-page-count" value="8"> 8</label>
+          <label><input type="radio" name="new-page-count" value="12"> 12</label>
+          <label><input type="radio" name="new-page-count" value="16"> 16</label>
+        </div>
+      </div>
       <div style="font-size:9px;text-align:center;margin-top:12px;">
         <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:var(--black);text-decoration:underline;">Support me on Ko-fi</a>
       </div>
@@ -246,7 +256,32 @@
         Exports one PNG per risograph color at 600 dpi. Each plate: black ink on white.
       </p>
       <div id="export-color-list" style="font-size:9px;line-height:2.5;"></div>
-      <div style="margin-top:12px;font-size:9px;">
+      <div style="margin-top:8px;font-size:9px;">
+        <strong>Binding:</strong>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-binding" value="saddle-stitch" checked> Saddle-stitch</label>
+      </div>
+      <div style="margin-top:8px;font-size:9px;" id="export-booklet-layout-row">
+        <strong>Booklet layout:</strong>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="folio" checked> Folio (2-up)</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="quarto"> Quarto (4-up)</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="octavo"> Octavo (8-up)</label>
+      </div>
+      <div style="margin-top:8px;font-size:9px;">
+        <strong>Target paper:</strong>
+        <select id="export-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
+          <option value="letter">Letter 8.5"×11"</option>
+          <option value="legal">Legal 8.5"×14"</option>
+          <option value="tabloid">Tabloid 11"×17"</option>
+          <option value="custom">Custom</option>
+        </select>
+        <span id="export-custom-size-row" style="display:none;margin-left:8px;">
+          W <input type="number" id="export-custom-width" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="8.5">
+          H <input type="number" id="export-custom-height" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="11">
+          in
+        </span>
+        <span id="export-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
+      </div>
+      <div style="margin-top:8px;font-size:9px;">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="2up"> 2 up</label>
@@ -272,7 +307,28 @@
       <p style="font-size:9px;line-height:2.5;margin-bottom:12px;" id="composite-dims-text">
         Renders all visible layers with subtractive ink mixing (riso simulation).
       </p>
-      <div style="margin-top:12px;font-size:9px;">
+      <div style="margin-top:8px;font-size:9px;" id="composite-booklet-layout-row">
+        <strong>Booklet layout:</strong>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="folio" checked> Folio (2-up)</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="quarto"> Quarto (4-up)</label>
+        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="octavo"> Octavo (8-up)</label>
+      </div>
+      <div style="margin-top:8px;font-size:9px;">
+        <strong>Target paper:</strong>
+        <select id="composite-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
+          <option value="letter">Letter 8.5"×11"</option>
+          <option value="legal">Legal 8.5"×14"</option>
+          <option value="tabloid">Tabloid 11"×17"</option>
+          <option value="custom">Custom</option>
+        </select>
+        <span id="composite-custom-size-row" style="display:none;margin-left:8px;">
+          W <input type="number" id="composite-custom-width" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="8.5">
+          H <input type="number" id="composite-custom-height" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="11">
+          in
+        </span>
+        <span id="composite-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
+      </div>
+      <div style="margin-top:8px;font-size:9px;">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="2up"> 2 up</label>
@@ -469,6 +525,16 @@
             <button class="mac-btn sm" data-action="duplicate-layer" title="Duplicate">&#8853;</button>
             <button class="mac-btn sm danger" data-action="delete-layer" title="Delete">&#10005;</button>
           </div>
+        </div>
+      </div>
+
+      <!-- PAGES -->
+      <div class="mac-window" id="pages-window">
+        <div class="titlebar">
+          <div class="title-text">Pages</div>
+        </div>
+        <div class="window-content">
+          <div id="page-list"></div>
         </div>
       </div>
 
@@ -746,6 +812,13 @@ window.showExportDialog = showExportDialog;
 window.showCompositeExportDialog = showCompositeExportDialog;
 window.openProject = openProject;
 window.loadProjectList = loadProjectList;
+
+import { PageManager } from './src/app/page-manager.js';
+window.PageManager = PageManager;
+
+import { SpreadManager, computeSpreads } from './src/app/spread-manager.js';
+window.SpreadManager = SpreadManager;
+window.computeSpreads = computeSpreads;
 
 import { showScreentoneDialog, hideScreentoneDialog, addSelectedScreentone } from './src/app/screentone-manager.js';
 window.showScreentoneDialog = showScreentoneDialog;

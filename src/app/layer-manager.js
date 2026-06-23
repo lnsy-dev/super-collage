@@ -12,6 +12,7 @@ import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { pushUndoState } from './undo.js';
+import { PageManager } from './page-manager.js';
 
 export const LayerManager = {
   async addText(defaultText, x, y, w, h) {
@@ -30,7 +31,7 @@ export const LayerManager = {
     State.selectedIds = [layer.id];
 
     await DB.put('layers', layer.toRecord());
-    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    await PageManager.saveActivePage();
 
     document.getElementById('no-layer-msg').style.display = 'none';
     UI.refreshLayerList();
@@ -59,7 +60,7 @@ export const LayerManager = {
     await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
-    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    await PageManager.saveActivePage();
     document.getElementById('no-layer-msg').style.display = 'none';
     UI.refreshLayerList();
     UI.refreshProperties();
@@ -68,6 +69,12 @@ export const LayerManager = {
 
   async addFromFile(file) {
     pushUndoState();
+    // Use the active page's dimensions for scaling/centering so layers imported
+    // in spread view are positioned relative to their page, not the spread canvas.
+    const activePage = State.pages?.find(p => p.id === State.pageId);
+    const pageW = activePage ? activePage.width : CANVAS_W;
+    const pageH = activePage ? activePage.height : CANVAS_H;
+
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
     if (isSvg) {
       const text = await file.text();
@@ -80,12 +87,12 @@ export const LayerManager = {
       const dpiScale = 600 / 96;
       const nw = Math.round(img.naturalWidth * dpiScale);
       const nh = Math.round(img.naturalHeight * dpiScale);
-      const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
+      const scale = Math.min(1, pageW / nw, pageH / nh);
       const w = Math.round(nw * scale), h = Math.round(nh * scale);
       const layer = new Layer({
         name: file.name.replace(/\.[^.]+$/, ''),
-        x: Math.round((CANVAS_W - w) / 2),
-        y: Math.round((CANVAS_H - h) / 2),
+        x: Math.round((pageW - w) / 2),
+        y: Math.round((pageH - h) / 2),
         width: w, height: h,
         naturalWidth: nw, naturalHeight: nh,
         isSvg: true,
@@ -101,7 +108,7 @@ export const LayerManager = {
       await DB.put('layers', layer.toRecord());
       await DB.put('imageBlobs', { layerId: layer.id, blob: file });
       await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
-      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      await PageManager.saveActivePage();
 
       document.getElementById('no-layer-msg').style.display = 'none';
       UI.refreshLayerList();
@@ -112,12 +119,12 @@ export const LayerManager = {
 
     const bmp = await createImageBitmap(file);
     const nw = bmp.width, nh = bmp.height;
-    const scale = Math.min(1, CANVAS_W / nw, CANVAS_H / nh);
+    const scale = Math.min(1, pageW / nw, pageH / nh);
     const w = Math.round(nw * scale), h = Math.round(nh * scale);
     const layer = new Layer({
       name: file.name.replace(/\.[^.]+$/, ''),
-      x: Math.round((CANVAS_W - w) / 2),
-      y: Math.round((CANVAS_H - h) / 2),
+      x: Math.round((pageW - w) / 2),
+      y: Math.round((pageH - h) / 2),
       width: w, height: h,
       naturalWidth: nw, naturalHeight: nh,
     });
@@ -137,7 +144,7 @@ export const LayerManager = {
     await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob: file });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
-    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    await PageManager.saveActivePage();
 
     document.getElementById('no-layer-msg').style.display = 'none';
     UI.refreshLayerList();
@@ -244,7 +251,7 @@ export const LayerManager = {
       await DB.put('layers', layer.toRecord());
       await DB.put('imageBlobs', { layerId: layer.id, blob: file });
       await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
-      await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+      await PageManager.saveActivePage();
 
       document.getElementById('no-layer-msg').style.display = 'none';
       UI.refreshLayerList();
@@ -285,7 +292,7 @@ export const LayerManager = {
     await DB.del('layers', layerId);
     await DB.del('imageBlobs', layerId);
     await DB.del('maskBlobs', layerId);
-    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    await PageManager.saveActivePage();
     if (!State.layers.length) document.getElementById('no-layer-msg').style.display = '';
     UI.refreshLayerList();
     UI.refreshProperties();
@@ -352,7 +359,7 @@ export const LayerManager = {
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
     await DB.put('layers', layer.toRecord());
-    await DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    await PageManager.saveActivePage();
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
@@ -386,7 +393,7 @@ export const LayerManager = {
       State.layers.splice(newIdx, 0, l);
     }
 
-    DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    PageManager.saveActivePage();
     UI.refreshLayerList();
     Renderer.schedule();
   },
@@ -420,7 +427,7 @@ export const LayerManager = {
 
     State.layers.splice(insertIdx, 0, ...group);
 
-    DB.put('projects', { ...State.project, updatedAt: Date.now(), layerOrder: State.layers.map(l => l.id) });
+    PageManager.saveActivePage();
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();

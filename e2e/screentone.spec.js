@@ -16,8 +16,8 @@ test.describe('Screentone Dialog', () => {
     // Dialog should be visible
     await expect(page.locator('#screentone-dialog')).toBeVisible();
 
-    // Grid should populate
-    await expect(page.locator('.screentone-item')).toHaveCount(12);
+    // Grid should populate (one item per screentone asset)
+    await expect(page.locator('.screentone-item')).toHaveCount(16);
 
     // Cancel should close
     await page.click('#btn-screentone-cancel');

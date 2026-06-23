@@ -7,6 +7,7 @@ import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
+import { computeViewUnits } from './spread-manager.js';
 
 const FONT_WEIGHTS = {
   'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
@@ -283,6 +284,82 @@ export const UI = {
         this.refreshLayerList();
         this.refreshProperties();
         Renderer.drawOverlay();
+      });
+      list.appendChild(row);
+    }
+  },
+
+  refreshPageList() {
+    const list = document.getElementById('page-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const pages = State.pages || [];
+
+    if (!pages.length) {
+      list.innerHTML = '<div style="padding:8px;font-size:8px;color:var(--dark-gray);text-align:center;">No pages</div>';
+      return;
+    }
+
+    const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+    const pageById = new Map(pages.map(p => [p.id, p]));
+
+    for (const unit of units) {
+      const row = document.createElement('div');
+      row.className = 'page-row' + (unit.id === State.unitId ? ' selected' : '');
+      row.dataset.unitId = unit.id;
+      row.draggable = true;
+
+      const thumb = document.createElement('div');
+      thumb.className = 'page-thumb';
+
+      const name = document.createElement('div');
+      name.className = 'page-name';
+
+      if (unit.type === 'spread') {
+        const leftPage = pageById.get(unit.leftPageId);
+        const rightPage = pageById.get(unit.rightPageId);
+        const aspect = (leftPage?.width || 1) / (leftPage?.height || 1);
+        thumb.style.width = Math.min(24, Math.round(24 * aspect * 2)) + 'px';
+        thumb.style.height = Math.min(24, Math.round(18 / aspect)) + 'px';
+        name.textContent = `${leftPage?.name || ''} + ${rightPage?.name || ''}`;
+        name.addEventListener('dblclick', e => {
+          e.stopPropagation();
+          const target = leftPage;
+          const n = prompt('Page name:', target?.name || '');
+          if (n?.trim() && target) {
+            window.PageManager.renamePage(target.id, n.trim()).then(() => {
+              target.name = n.trim();
+              this.refreshPageList();
+            });
+          }
+        });
+      } else {
+        const page = pageById.get(unit.pageId);
+        const aspect = (page?.width || 1) / (page?.height || 1);
+        thumb.style.width = Math.min(18, Math.round(24 * aspect)) + 'px';
+        thumb.style.height = Math.min(24, Math.round(18 / aspect)) + 'px';
+        name.textContent = page?.name || '';
+        name.addEventListener('dblclick', e => {
+          e.stopPropagation();
+          const target = page;
+          const n = prompt('Page name:', target?.name || '');
+          if (n?.trim() && target) {
+            window.PageManager.renamePage(target.id, n.trim()).then(() => {
+              target.name = n.trim();
+              this.refreshPageList();
+            });
+          }
+        });
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'page-spread-meta';
+      meta.style.cssText = 'margin-left:auto;font-size:7px;color:var(--dark-gray);';
+      meta.textContent = unit.type === 'spread' ? 'S' : '';
+
+      row.append(thumb, name, meta);
+      row.addEventListener('click', () => {
+        window.PageManager.loadUnit(unit.id).then(() => this.refreshPageList());
       });
       list.appendChild(row);
     }

@@ -208,6 +208,7 @@ body {
   overflow: hidden;
 }
 #layers-window { flex: 0 0 auto; }
+#pages-window { flex: 0 0 auto; }
 #properties-window { flex: 1; overflow: hidden; }
 #properties-window .window-content { min-height: 0; }
 
@@ -256,6 +257,33 @@ body {
   flex-shrink: 0;
 }
 
+/* ─── PAGE LIST ──────────────────────────────────────────────────── */
+#page-list { flex: 1; overflow-y: auto; max-height: 120px; }
+.page-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--light-gray);
+  font-size: 8px;
+}
+.page-row:hover { background: #f0f0f0; }
+.page-row.selected { background: var(--black); color: var(--white); }
+.page-row.selected .page-spread-meta { color: var(--white); }
+.page-thumb {
+  width: 18px; height: 24px;
+  border: 1px solid var(--black);
+  background: #fff;
+  flex-shrink: 0;
+}
+.page-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 2;
+}
 /* ─── PROPERTIES ─────────────────────────────────────────────────── */
 #properties-content {
   padding: 6px;
