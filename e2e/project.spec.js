@@ -122,4 +122,44 @@ test.describe('Project Management', () => {
 
     await expect(page.locator('.project-entry', { hasText: 'Deletable Project' })).not.toBeVisible();
   });
+
+  test('dialog is not cancellable when no project is open', async ({ page }) => {
+    await gotoApp(page);
+    // No project behind the dialog → no close affordance, Escape is inert.
+    await expect(page.locator('#btn-close-project-dialog')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#project-dialog')).toBeVisible();
+  });
+
+  test('close button cancels the dialog when a project is open', async ({ page }) => {
+    await gotoApp(page);
+    await page.fill('#new-project-name', 'Cancelable Project');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    // Reopen the dialog over the open project via the File menu.
+    await page.locator('.menu-item[data-menu="file"]').click();
+    await page.locator('[data-action="open-project"]').click();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('#btn-close-project-dialog')).toBeVisible();
+
+    await page.click('#btn-close-project-dialog');
+    await expect(page.locator('#project-dialog')).toBeHidden();
+    await expect(page.locator('#main-app')).toBeVisible();
+  });
+
+  test('Escape cancels the dialog when a project is open', async ({ page }) => {
+    await gotoApp(page);
+    await page.fill('#new-project-name', 'Escapable Project');
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    await page.locator('.menu-item[data-menu="file"]').click();
+    await page.locator('[data-action="open-project"]').click();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#project-dialog')).toBeHidden();
+    await expect(page.locator('#main-app')).toBeVisible();
+  });
 });

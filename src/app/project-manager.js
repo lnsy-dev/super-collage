@@ -16,7 +16,16 @@ export let _selProjectId = null;
 
 export function showProjectDialog() {
   document.getElementById('project-dialog').classList.remove('hidden');
+  // The dialog is only cancellable when a project is already open; otherwise
+  // there is nothing to return to, so keep it modal (no close affordance).
+  document.getElementById('btn-close-project-dialog').style.display = State.project ? '' : 'none';
   loadProjectList();
+}
+
+export function hideProjectDialog() {
+  // Only allow dismissing when a project is open behind the dialog.
+  if (!State.project) return;
+  document.getElementById('project-dialog').classList.add('hidden');
 }
 
 export async function loadProjectList() {

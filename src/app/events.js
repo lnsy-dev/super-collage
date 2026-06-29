@@ -11,7 +11,7 @@ import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
 import { handleAction, applyMargins, applyGrid, updateViewMenuLabels } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
-import { showProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
+import { showProjectDialog, hideProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
 import { DB } from './db.js';
 
@@ -1060,12 +1060,28 @@ export function wireControls() {
     if (!_selProjectId) return;
     if (!confirm('Delete this project and all its layers? This cannot be undone.')) return;
     await DB.deleteProject(_selProjectId);
-    if (State.project?.id === _selProjectId) { State.project = null; State.layers = []; State.selectedId = null; }
+    if (State.project?.id === _selProjectId) {
+      State.project = null; State.layers = []; State.selectedId = null;
+      // The dialog can no longer be cancelled to an open project.
+      document.getElementById('btn-close-project-dialog').style.display = 'none';
+    }
     await loadProjectList();
   });
 
   document.getElementById('new-project-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
+  });
+
+  // Cancel the project dialog (only possible when a project is already open):
+  // the × button, the Escape key, or clicking the backdrop all dismiss it.
+  document.getElementById('btn-close-project-dialog').addEventListener('click', hideProjectDialog);
+  document.getElementById('project-dialog').addEventListener('click', e => {
+    if (e.target === document.getElementById('project-dialog')) hideProjectDialog();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('project-dialog').classList.contains('hidden')) return;
+    hideProjectDialog();
   });
 
   // ── Export dialog controls ────────────────────────────────────────

@@ -510,6 +510,23 @@ input[type="number"] {
   border: 1px solid var(--black);
   margin: 2px 8px;
 }
+.dialog-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 2px 2px 2px 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--white);
+  border: 1px solid var(--black);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dialog-close:active { background: var(--black); color: var(--white); }
 .dialog-body { padding: 16px; overflow-y: auto; flex: 1; }
 .dialog-body p {
   padding: 14px 0;

@@ -194,17 +194,13 @@
   <div class="mac-dialog">
     <div class="dialog-titlebar">
       <div class="dialog-title">Super Collage — Projects</div>
+      <button type="button" class="dialog-close" id="btn-close-project-dialog" aria-label="Close" title="Close" style="display:none;">×</button>
     </div>
     <div class="dialog-body">
       <h1>SUPER COLLAGE</h1>
       <p>RISOGRAPH LAYOUT HELPER</p>
       <div class="project-list" id="project-list">
         <div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>
-      </div>
-      <div class="input-row">
-        <label>New:</label>
-        <input type="text" class="mac-input" id="new-project-name" placeholder="Project name…" maxlength="40">
-        <button type="button" class="mac-btn primary" id="btn-create-project">Create</button>
       </div>
       <div class="size-row">
         <div class="size-row-label">Paper size:</div>
@@ -233,6 +229,11 @@
           <label><input type="radio" name="new-page-count" value="12"> 12</label>
           <label><input type="radio" name="new-page-count" value="16"> 16</label>
         </div>
+      </div>
+      <div class="input-row">
+        <label>New:</label>
+        <input type="text" class="mac-input" id="new-project-name" placeholder="Project name…" maxlength="40">
+        <button type="button" class="mac-btn primary" id="btn-create-project">Create</button>
       </div>
       <div style="font-size:9px;text-align:center;margin-top:12px;">
         <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:var(--black);text-decoration:underline;">Support me on Ko-fi</a>
