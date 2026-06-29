@@ -312,6 +312,22 @@ export async function handleAction(action, value = null) {
       if (prev) { await PageManager.loadUnit(prev.id); UI.refreshPageList(); }
       break;
     }
+    case 'move-page-up':
+    case 'move-page-down': {
+      // Touch-friendly page reordering (native drag-and-drop does not fire on
+      // touch devices). Moves the current page within the project page order.
+      if (!State.project || !State.pageId) break;
+      const order = [...State.project.pageOrder];
+      const curIdx = order.indexOf(State.pageId);
+      if (curIdx === -1) break;
+      const swapIdx = action === 'move-page-up' ? curIdx - 1 : curIdx + 1;
+      if (swapIdx < 0 || swapIdx >= order.length) break;
+      [order[curIdx], order[swapIdx]] = [order[swapIdx], order[curIdx]];
+      await PageManager.reorderPages(order);
+      State.pages.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      UI.refreshPageList();
+      break;
+    }
     case 'export': await showExportDialog(); break;
     case 'export-composite': showCompositeExportDialog(); break;
     case 'toggle-margins':

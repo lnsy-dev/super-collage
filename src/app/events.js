@@ -15,6 +15,38 @@ import { showProjectDialog, _selProjectId, openProject, loadProjectList, updateE
 import { PageManager } from './page-manager.js';
 import { DB } from './db.js';
 
+/* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
+   Tracks every active pointer on the canvas overlay so we can detect a
+   two-finger gesture and pan the viewport instead of manipulating layers. */
+const activePointers = new Map();
+let panState = null;
+// While a multi-touch gesture is active, suppress single-pointer actions until
+// every finger has lifted, so a leftover finger after a pan doesn't paint/drag.
+let suppressUntilLift = false;
+
+function pointersMidpoint() {
+  let sx = 0, sy = 0;
+  for (const p of activePointers.values()) { sx += p.x; sy += p.y; }
+  const n = activePointers.size || 1;
+  return { x: sx / n, y: sy / n };
+}
+
+function beginPan() {
+  // Abort any in-progress single-pointer interaction — the gesture is a pan.
+  State.drag = null;
+  State.shapeDrag = null;
+  State.lastMaskPt = null;
+  suppressUntilLift = true;
+  Renderer.drawOverlay();
+  const scroll = document.getElementById('canvas-scroll');
+  const mid = pointersMidpoint();
+  panState = {
+    startMidX: mid.x, startMidY: mid.y,
+    startScrollLeft: scroll.scrollLeft,
+    startScrollTop: scroll.scrollTop,
+  };
+}
+
 export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
   if (tool === 'shape-rect') {
     ctx.rect(0, 0, w, h);
@@ -100,6 +132,14 @@ export function getExtraSnaps(primaryId) {
 function onPointerDown(e) {
   e.preventDefault();
   overlayCanvas.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  // Second finger down → switch to two-finger viewport panning.
+  if (activePointers.size >= 2) {
+    beginPan();
+    return;
+  }
+
   const { x, y } = getCanvasXY(e);
   const layer = selectedLayer();
 
@@ -121,7 +161,9 @@ function onPointerDown(e) {
   }
 
   if (layer && !layer.locked) {
-    const handle = Renderer.hitTestHandle(x, y, layer);
+    // Coarse pointers (finger) need a larger handle hit area than a mouse.
+    const tol = e.pointerType === 'touch' ? 16 : (e.pointerType === 'pen' ? 11 : 8);
+    const handle = Renderer.hitTestHandle(x, y, layer, tol);
     if (handle) {
       pushUndo(snapshotLayer(layer));
       const extraSnaps = getExtraSnaps(layer.id);
@@ -185,6 +227,22 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+  if (activePointers.has(e.pointerId)) {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  }
+
+  // Two-finger pan: scroll the viewport by the midpoint delta.
+  if (panState) {
+    const scroll = document.getElementById('canvas-scroll');
+    const mid = pointersMidpoint();
+    scroll.scrollLeft = panState.startScrollLeft - (mid.x - panState.startMidX);
+    scroll.scrollTop  = panState.startScrollTop  - (mid.y - panState.startMidY);
+    return;
+  }
+
+  // A multi-touch gesture is winding down — ignore the leftover finger.
+  if (suppressUntilLift) return;
+
   const { x, y } = getCanvasXY(e);
   document.getElementById('status-pos').textContent =
     Math.round(x / State.zoom - CANVAS_PAD) + ', ' + Math.round(y / State.zoom - CANVAS_PAD);
@@ -311,6 +369,15 @@ function onPointerMove(e) {
 }
 
 async function onPointerUp(e) {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size === 0) suppressUntilLift = false;
+
+  // End (or step down from) a two-finger pan.
+  if (panState) {
+    if (activePointers.size < 2) panState = null;
+    return;
+  }
+
   if (State.shapeDrag) {
     const { x, y } = getCanvasXY(e);
     const { startX, startY } = State.shapeDrag;
@@ -371,6 +438,7 @@ export function wireControls() {
   overlayCanvas.addEventListener('pointerdown', onPointerDown);
   overlayCanvas.addEventListener('pointermove', onPointerMove);
   overlayCanvas.addEventListener('pointerup',   onPointerUp);
+  overlayCanvas.addEventListener('pointercancel', onPointerUp);
   overlayCanvas.addEventListener('pointerleave', e => { if (!(e.buttons & 1)) onPointerUp(e); });
 
   /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
@@ -866,6 +934,9 @@ export function wireControls() {
     l._dirty = true; refreshGradientEditor(l); Renderer.schedule();
   });
   gradBarCanvas.addEventListener('pointerup', () => {
+    if (gradDrag) { const l = selectedLayer(); if (l) DB.saveLayer(l); gradDrag = null; }
+  });
+  gradBarCanvas.addEventListener('pointercancel', () => {
     if (gradDrag) { const l = selectedLayer(); if (l) DB.saveLayer(l); gradDrag = null; }
   });
 

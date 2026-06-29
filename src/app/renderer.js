@@ -388,9 +388,9 @@ export const Renderer = {
     });
   },
 
-  hitTestHandle(mx, my, layer) {
+  hitTestHandle(mx, my, layer, tol = 8) {
     for (const h of this.getHandles(layer, State.zoom)) {
-      if (Math.abs(mx - h.x) < 8 && Math.abs(my - h.y) < 8) return h;
+      if (Math.abs(mx - h.x) < tol && Math.abs(my - h.y) < tol) return h;
     }
     return null;
   },

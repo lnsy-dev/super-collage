@@ -410,4 +410,86 @@ test.describe('Paginated Export', () => {
     expect(colorDistance(sheets[1].leftColor, c2)).toBeLessThan(10);
     expect(colorDistance(sheets[1].rightColor, c3)).toBeLessThan(10);
   });
+
+  test('single-page image is cropped at the page edge and does not bleed onto the adjacent imposed page', async ({ page }) => {
+    test.setTimeout(120000);
+    await createProject(page, 'Single Page Crop', { pageSize: 'half-letter', pageCount: 8 });
+    const pageIds = await getProjectPageIds(page);
+
+    // Page 2 is a single page (only the cover and centre are reader spreads in
+    // an 8-page saddle-stitch booklet). Place an oversized red image that
+    // overruns page 2's right edge. On the saddle-stitch sheet page 2 is printed
+    // to the LEFT of page 7; the overflow must be cropped, not bled onto page 7.
+    await loadPageById(page, pageIds[1]);
+    await addSolidColorImage(page, '#000000', { width: 6600, height: 5100 });
+    await setLayerColorDirect(page, '#f65058');
+    await page.evaluate(async () => {
+      const layer = State.layers[0];
+      layer.x = 0;
+      layer.y = 0;
+      layer.width = 6600;
+      layer.height = 5100;
+      layer.naturalWidth = 6600;
+      layer.naturalHeight = 5100;
+      layer._dirty = true;
+      const { DB } = await import('/src/app/db.js');
+      await DB.saveLayer(layer);
+    });
+
+    const plates = await runExportBooklet(page, {
+      binding: 'saddle-stitch',
+      bookletLayout: 'folio',
+      targetSheetSize: 'letter',
+    });
+
+    const key = findPlateKey(plates, '#f65058');
+    expect(key, 'expected a red plate').toBeTruthy();
+
+    // The image must be present on page 2's own (left) half ...
+    const leftInked = plates[key].filter(s => s.leftGrey < 250);
+    expect(leftInked.length, 'page 2 image should be present on its own page').toBeGreaterThan(0);
+
+    // ... but must never bleed onto any right half (the adjacent imposed page).
+    const rightInked = plates[key].filter(s => s.rightGrey < 250);
+    expect(rightInked.length, 'single-page image must not bleed onto the adjacent imposed page').toBe(0);
+  });
+
+  test('centre spread still spans both pages in an 8-page booklet', async ({ page }) => {
+    test.setTimeout(120000);
+    await createProject(page, 'Centre Spread Span', { pageSize: 'half-letter', pageCount: 8 });
+    const pageIds = await getProjectPageIds(page);
+
+    // The centre spread of an 8-page saddle-stitch booklet is pages 4 + 5.
+    // A layer placed on page 4 that crosses into page 5 must still bleed across
+    // the fold (gating the spanning logic must not drop genuine reader spreads).
+    await loadPageById(page, pageIds[3]);
+    await addSolidColorImage(page, '#000000', { width: 6600, height: 5100 });
+    await setLayerColorDirect(page, '#f65058');
+    await page.evaluate(async () => {
+      const layer = State.layers[0];
+      layer.x = 0;
+      layer.y = 0;
+      layer.width = 6600;
+      layer.height = 5100;
+      layer.naturalWidth = 6600;
+      layer.naturalHeight = 5100;
+      layer._dirty = true;
+      const { DB } = await import('/src/app/db.js');
+      await DB.saveLayer(layer);
+    });
+
+    const plates = await runExportBooklet(page, {
+      binding: 'saddle-stitch',
+      bookletLayout: 'folio',
+      targetSheetSize: 'letter',
+    });
+
+    const key = findPlateKey(plates, '#f65058');
+    expect(key, 'expected a red plate').toBeTruthy();
+
+    // Pages 4 and 5 are printed together; the spanning image should appear on
+    // BOTH halves of that sheet.
+    const sheet = plates[key].find(s => s.leftGrey < 250 && s.rightGrey < 250);
+    expect(sheet, 'centre spread should span both halves of its sheet').toBeTruthy();
+  });
 });

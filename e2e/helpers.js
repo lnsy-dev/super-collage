@@ -361,10 +361,7 @@ export async function runExportBooklet(page, {
 } = {}) {
   return page.evaluate(async ({ binding, bookletLayout, targetSheetSize }) => {
     const { ExportEngine } = await import('/src/app/export-engine.js');
-    const { PageManager } = await import('/src/app/page-manager.js');
     const { buildSheets } = await import('/src/app/imposition.js');
-    const { computeSpreads } = await import('/src/app/spread-manager.js');
-    const { DB } = await import('/src/app/db.js');
 
     function avgGrey(data, width, region) {
       let sum = 0;
@@ -380,91 +377,9 @@ export async function runExportBooklet(page, {
       return count === 0 ? 255 : sum / count;
     }
 
-    const pageOrder = State.project.pageOrder;
-    const spreads = computeSpreads(pageOrder, 'saddle-stitch');
-    const colorPages = new Map();
-
-    function ensurePagePlate(color) {
-      if (!colorPages.has(color)) {
-        colorPages.set(color, Array(pageOrder.length).fill(null));
-      }
-      return colorPages.get(color);
-    }
-
-    function hasSpanningLayers(leftLayers, rightLayers, leftWidth) {
-      for (const l of leftLayers) {
-        if (l.x + l.width > leftWidth + 1) return true;
-      }
-      for (const l of rightLayers) {
-        if (l.x < -1) return true;
-      }
-      return false;
-    }
-
-    for (const spread of spreads) {
-      const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
-      const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
-      const leftWidth = leftPage?.width || 0;
-      const rightWidth = rightPage?.width || 0;
-      const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
-
-      const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
-      const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = hasSpanningLayers(leftLayers, rightLayers, leftWidth);
-
-      if (!spanning) {
-        if (leftPage) {
-          const plateMap = await ExportEngine.exportLayers(leftLayers, leftWidth, pageHeight);
-          for (const [color, canvas] of plateMap.entries()) {
-            const plates = ensurePagePlate(color);
-            plates[pageOrder.indexOf(leftPage.id)] = canvas;
-          }
-        }
-        if (rightPage) {
-          const plateMap = await ExportEngine.exportLayers(rightLayers, rightWidth, pageHeight);
-          for (const [color, canvas] of plateMap.entries()) {
-            const plates = ensurePagePlate(color);
-            plates[pageOrder.indexOf(rightPage.id)] = canvas;
-          }
-        }
-      } else {
-        const spreadWidth = leftWidth + rightWidth;
-        const layers = [...leftLayers];
-        for (const l of rightLayers) {
-          l.x += leftWidth;
-          layers.push(l);
-        }
-
-        const spreadPlateMap = await ExportEngine.exportLayers(layers, spreadWidth, pageHeight);
-        for (const [color, spreadCanvas] of spreadPlateMap.entries()) {
-          const plates = ensurePagePlate(color);
-          if (leftPage) {
-            const idx = pageOrder.indexOf(leftPage.id);
-            if (idx !== -1) {
-              const plate = new OffscreenCanvas(leftWidth, pageHeight);
-              plate.getContext('2d').drawImage(spreadCanvas, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
-              plates[idx] = plate;
-            }
-          }
-          if (rightPage) {
-            const idx = pageOrder.indexOf(rightPage.id);
-            if (idx !== -1) {
-              const plate = new OffscreenCanvas(rightWidth, pageHeight);
-              plate.getContext('2d').drawImage(spreadCanvas, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
-              plates[idx] = plate;
-            }
-          }
-        }
-      }
-
-      for (const l of [...leftLayers, ...rightLayers]) {
-        l._originalCanvas = null;
-        l._processedCanvas = null;
-        l._maskCanvas = null;
-        l._svgImage = null;
-        l.separationPlates?.clear();
-      }
-    }
+    // Delegate to the production plate builder so the spanning/crop behaviour is
+    // exercised in one place (no duplicated logic in the test harness).
+    const colorPages = await ExportEngine._buildBookletPagePlates(State.project.pageOrder);
 
     const result = {};
     for (const [color, pages] of colorPages.entries()) {
@@ -537,10 +452,7 @@ export async function runExportCompositeBooklet(page, {
 } = {}) {
   return page.evaluate(async ({ bookletLayout, targetSheetSize }) => {
     const { ExportEngine } = await import('/src/app/export-engine.js');
-    const { PageManager } = await import('/src/app/page-manager.js');
     const { buildSheets } = await import('/src/app/imposition.js');
-    const { computeSpreads } = await import('/src/app/spread-manager.js');
-    const { DB } = await import('/src/app/db.js');
 
     function avgColor(data, width, region) {
       let r = 0, g = 0, b = 0, count = 0;
@@ -557,74 +469,9 @@ export async function runExportCompositeBooklet(page, {
       return count === 0 ? { r: 255, g: 255, b: 255 } : { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
     }
 
-    function hasSpanningLayers(leftLayers, rightLayers, leftWidth) {
-      for (const l of leftLayers) {
-        if (l.x + l.width > leftWidth + 1) return true;
-      }
-      for (const l of rightLayers) {
-        if (l.x < -1) return true;
-      }
-      return false;
-    }
-
-    const pageOrder = State.project.pageOrder;
-    const spreads = computeSpreads(pageOrder, 'saddle-stitch');
-    const pageComposites = Array(pageOrder.length).fill(null);
-
-    for (const spread of spreads) {
-      const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
-      const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
-      const leftWidth = leftPage?.width || 0;
-      const rightWidth = rightPage?.width || 0;
-      const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
-
-      const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
-      const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = hasSpanningLayers(leftLayers, rightLayers, leftWidth);
-
-      if (!spanning) {
-        if (leftPage) {
-          const composite = await ExportEngine._renderComposite(leftLayers, leftWidth, pageHeight);
-          pageComposites[pageOrder.indexOf(leftPage.id)] = composite;
-        }
-        if (rightPage) {
-          const composite = await ExportEngine._renderComposite(rightLayers, rightWidth, pageHeight);
-          pageComposites[pageOrder.indexOf(rightPage.id)] = composite;
-        }
-      } else {
-        const spreadWidth = leftWidth + rightWidth;
-        const layers = [...leftLayers];
-        for (const l of rightLayers) {
-          l.x += leftWidth;
-          layers.push(l);
-        }
-        const spreadComposite = await ExportEngine._renderComposite(layers, spreadWidth, pageHeight);
-        if (leftPage) {
-          const idx = pageOrder.indexOf(leftPage.id);
-          if (idx !== -1) {
-            const leftComposite = new OffscreenCanvas(leftWidth, pageHeight);
-            leftComposite.getContext('2d').drawImage(spreadComposite, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
-            pageComposites[idx] = leftComposite;
-          }
-        }
-        if (rightPage) {
-          const idx = pageOrder.indexOf(rightPage.id);
-          if (idx !== -1) {
-            const rightComposite = new OffscreenCanvas(rightWidth, pageHeight);
-            rightComposite.getContext('2d').drawImage(spreadComposite, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
-            pageComposites[idx] = rightComposite;
-          }
-        }
-      }
-
-      for (const l of [...leftLayers, ...rightLayers]) {
-        l._originalCanvas = null;
-        l._processedCanvas = null;
-        l._maskCanvas = null;
-        l._svgImage = null;
-        l.separationPlates?.clear();
-      }
-    }
+    // Delegate to the production composite builder so spanning/crop behaviour is
+    // exercised in one place (no duplicated logic in the test harness).
+    const pageComposites = await ExportEngine._buildBookletPageComposites(State.project.pageOrder);
 
     const sheets = buildSheets(pageComposites, { binding: 'saddle-stitch', bookletLayout, targetSheetSize });
     return sheets.map(sheet => {

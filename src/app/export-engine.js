@@ -295,34 +295,47 @@ export const ExportEngine = {
     }
   },
 
-  async exportBooklet({ prog, projectSlug, layout, binding, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
-    // Render spreads rather than individual pages so layers that span the
-    // center fold are preserved on both sides of the imposition. Page plates
-    // are collected in reader order (pageOrder) so buildSheets imposes them
-    // correctly.
-    const pageOrder = State.project.pageOrder;
+  // True when a layer crosses the fold of a genuine reader spread: a left-page
+  // layer extending past its right edge, or a right-page layer (already
+  // normalised to right-page coords) extending past its left edge.
+  _hasSpanningLayers(leftLayers, rightLayers, leftWidth) {
+    for (const l of leftLayers) {
+      if (l.x + l.width > leftWidth + 1) return true;
+    }
+    for (const l of rightLayers) {
+      if (l.x < -1) return true;
+    }
+    return false;
+  },
+
+  // The set of printer-spread ids that are also genuine reader spreads (cover +
+  // centre for saddle-stitch). Only these may let a layer span the fold; every
+  // other printer-spread pairing is two unrelated single pages whose content
+  // must be cropped at each page edge.
+  _genuineReaderSpreadIds(pageOrder) {
+    return new Set(
+      computeViewUnits(pageOrder, State.project.booklet?.binding)
+        .filter(u => u.type === 'spread')
+        .map(u => u.id)
+    );
+  },
+
+  // Build per-color page plates in reader order for a saddle-stitch booklet.
+  // Returns Map<colorHex, Array(pageOrder.length) of canvas|null>. Missing
+  // pages stay null so buildSheets renders them as blank white sheets. Used by
+  // both exportBooklet (production downloads) and the e2e harness so the
+  // spanning/crop behaviour is exercised in one place.
+  async _buildBookletPagePlates(pageOrder, prog = null) {
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
+    const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
+    const colorPages = new Map();
 
-    // Collect page plates per color in reader order. Missing pages are null
-    // and buildSheets treats them as blank white sheets.
-    const colorPages = new Map(); // color -> Array(pageOrder.length) of canvases | null
-
-    function ensurePagePlate(color) {
+    const ensurePagePlate = color => {
       if (!colorPages.has(color)) {
         colorPages.set(color, Array(pageOrder.length).fill(null));
       }
       return colorPages.get(color);
-    }
-
-    function hasSpanningLayers(leftLayers, rightLayers, leftWidth) {
-      for (const l of leftLayers) {
-        if (l.x + l.width > leftWidth + 1) return true;
-      }
-      for (const l of rightLayers) {
-        if (l.x < -1) return true;
-      }
-      return false;
-    }
+    };
 
     for (let si = 0; si < spreads.length; si++) {
       const spread = spreads[si];
@@ -332,31 +345,34 @@ export const ExportEngine = {
       const rightWidth = rightPage?.width || 0;
       const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
 
-      prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
-      await new Promise(r => setTimeout(r, 0));
+      if (prog) {
+        prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
+        await new Promise(r => setTimeout(r, 0));
+      }
 
       const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
       const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = hasSpanningLayers(leftLayers, rightLayers, leftWidth);
+      const spanning = readerSpreadIds.has(spread.id)
+        && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
 
       if (!spanning) {
-        // Fast path: render each page independently.
+        // Single pages (or non-spread printer pairs): render each page into its
+        // own page-sized canvas so content is cropped at the page edge.
         if (leftPage) {
           const plateMap = await this.exportLayers(leftLayers, leftWidth, pageHeight);
           for (const [color, canvas] of plateMap.entries()) {
-            const plates = ensurePagePlate(color);
-            plates[pageOrder.indexOf(leftPage.id)] = canvas;
+            ensurePagePlate(color)[pageOrder.indexOf(leftPage.id)] = canvas;
           }
         }
         if (rightPage) {
           const plateMap = await this.exportLayers(rightLayers, rightWidth, pageHeight);
           for (const [color, canvas] of plateMap.entries()) {
-            const plates = ensurePagePlate(color);
-            plates[pageOrder.indexOf(rightPage.id)] = canvas;
+            ensurePagePlate(color)[pageOrder.indexOf(rightPage.id)] = canvas;
           }
         }
       } else {
-        // Spanning layers exist: render the combined spread and split.
+        // Genuine reader spread: render combined and split so layers bleed
+        // across the fold.
         const spreadWidth = leftWidth + rightWidth;
         const layers = [...leftLayers];
         for (const l of rightLayers) {
@@ -396,6 +412,16 @@ export const ExportEngine = {
       }
     }
 
+    return colorPages;
+  },
+
+  async exportBooklet({ prog, projectSlug, layout, binding, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
+    // Render spreads rather than individual pages so layers that span the
+    // center fold are preserved on both sides of the imposition. Page plates
+    // are collected in reader order (pageOrder) so buildSheets imposes them
+    // correctly.
+    const pageOrder = State.project.pageOrder;
+    const colorPages = await this._buildBookletPagePlates(pageOrder, prog);
     const colorEntries = [...colorPages.entries()];
 
     for (let ci = 0; ci < colorEntries.length; ci++) {
@@ -535,22 +561,14 @@ export const ExportEngine = {
     }
   },
 
-  async _exportCompositeBooklet({ prog, projectSlug, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
-    // Render spreads rather than individual pages so layers that span the
-    // center fold are preserved on both sides of the imposition.
-    const pageOrder = State.project.pageOrder;
+  // Build per-page full-colour composites in reader order for a saddle-stitch
+  // booklet. Returns Array(pageOrder.length) of canvas|null. Same spanning/crop
+  // rule as _buildBookletPagePlates. Shared by _exportCompositeBooklet and the
+  // e2e harness.
+  async _buildBookletPageComposites(pageOrder, prog = null) {
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
+    const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
     const pageComposites = Array(pageOrder.length).fill(null);
-
-    function hasSpanningLayers(leftLayers, rightLayers, leftWidth) {
-      for (const l of leftLayers) {
-        if (l.x + l.width > leftWidth + 1) return true;
-      }
-      for (const l of rightLayers) {
-        if (l.x < -1) return true;
-      }
-      return false;
-    }
 
     for (let si = 0; si < spreads.length; si++) {
       const spread = spreads[si];
@@ -560,14 +578,18 @@ export const ExportEngine = {
       const rightWidth = rightPage?.width || 0;
       const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
 
-      prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
-      await new Promise(r => setTimeout(r, 0));
+      if (prog) {
+        prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
+        await new Promise(r => setTimeout(r, 0));
+      }
 
       const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
       const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = hasSpanningLayers(leftLayers, rightLayers, leftWidth);
+      const spanning = readerSpreadIds.has(spread.id)
+        && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
 
       if (!spanning) {
+        // Single pages: render each into its own page-sized canvas (cropped).
         if (leftPage) {
           const composite = await this._renderComposite(leftLayers, leftWidth, pageHeight, prog, `Page ${pageOrder.indexOf(leftPage.id) + 1}`);
           pageComposites[pageOrder.indexOf(leftPage.id)] = composite;
@@ -577,6 +599,7 @@ export const ExportEngine = {
           pageComposites[pageOrder.indexOf(rightPage.id)] = composite;
         }
       } else {
+        // Genuine reader spread: render combined and split across the fold.
         const spreadWidth = leftWidth + rightWidth;
         const layers = [...leftLayers];
         for (const l of rightLayers) {
@@ -612,6 +635,15 @@ export const ExportEngine = {
         l.separationPlates?.clear();
       }
     }
+
+    return pageComposites;
+  },
+
+  async _exportCompositeBooklet({ prog, projectSlug, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
+    // Render spreads rather than individual pages so layers that span the
+    // center fold are preserved on both sides of the imposition.
+    const pageOrder = State.project.pageOrder;
+    const pageComposites = await this._buildBookletPageComposites(pageOrder, prog);
 
     prog.textContent = 'Imposing sheets…';
     await new Promise(r => setTimeout(r, 0));

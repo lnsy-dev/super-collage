@@ -10,7 +10,7 @@
 
   <!-- ─── Basic Document ─── -->
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Super Collage — Risograph Layout Helper</title>
 
   <!-- ─── Canonical & Robots ─── -->
@@ -423,7 +423,7 @@
 </div>
 
 <!-- ═══ MAIN APP ══════════════════════════════════════════════════= -->
-<div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100vh;">
+<div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100dvh;">
 
   <!-- MENU BAR -->
   <div id="menu-bar">
@@ -589,6 +589,10 @@
         </div>
         <div class="window-content">
           <div id="page-list"></div>
+          <div id="page-buttons">
+            <button class="mac-btn sm" data-action="move-page-up" title="Move page up">&#9650;</button>
+            <button class="mac-btn sm" data-action="move-page-down" title="Move page down">&#9660;</button>
+          </div>
         </div>
       </div>
 
