@@ -74,6 +74,30 @@ test.describe('Color Separation Import', () => {
     await expect(exportItems).not.toHaveCount(0);
   });
 
+  test('split color separation into per-color layers', async ({ page }) => {
+    await createProject(page, 'Split Separation Test');
+
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('.menu-entry[data-action="import-color-separation"]');
+    await page.setInputFiles('#color-sep-input', TEST_IMAGE);
+
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+    await expect(page.locator('#btn-split-color-separation')).toBeVisible();
+
+    await page.click('#btn-split-color-separation');
+
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(7, { timeout: 15000 });
+
+    const layers = await page.evaluate(() => {
+      // @ts-ignore
+      return State.layers.map(l => ({ name: l.name, isSep: l.isColorSeparation, color: l.color }));
+    });
+
+    expect(layers.length).toBe(7);
+    expect(layers.every(l => !l.isSep)).toBe(true);
+    expect(layers.every(l => /^#[0-9A-Fa-f]{6}$/.test(l.color))).toBe(true);
+  });
+
   test('masking works on color separation layer', async ({ page }) => {
     await createProject(page, 'Separation Mask Test');
 

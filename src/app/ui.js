@@ -304,6 +304,12 @@ export const UI = {
       });
       list.appendChild(row);
     }
+
+    const splitBtn = document.getElementById('btn-split-color-separation');
+    if (splitBtn) {
+      const sel = selectedLayer();
+      splitBtn.style.display = (sel && sel.isColorSeparation) ? '' : 'none';
+    }
   },
 
   refreshPageList() {

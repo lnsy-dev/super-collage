@@ -365,6 +365,88 @@ export const LayerManager = {
     Renderer.schedule();
   },
 
+  async splitColorSeparation(layerId) {
+    pushUndoState();
+    const src = State.layers.find(l => l.id === layerId);
+    if (!src || !src.isColorSeparation) return;
+
+    // Clean up mask relationships the same way delete() does.
+    for (const maskId of (src.imageMaskIds || [])) {
+      const maskLayer = State.layers.find(l => l.id === maskId);
+      if (maskLayer) { maskLayer.isMaskFor = null; await DB.saveLayer(maskLayer); }
+    }
+    if (src.isMaskFor) {
+      const baseLayer = State.layers.find(l => l.id === src.isMaskFor);
+      if (baseLayer) {
+        baseLayer.imageMaskIds = (baseLayer.imageMaskIds || []).filter(id => id !== src.id);
+        await DB.saveLayer(baseLayer);
+      }
+    }
+
+    const sourceIdx = State.layers.findIndex(l => l.id === layerId);
+    const newLayers = [];
+
+    for (const colorHex of src.separationColors) {
+      const plate = src.separationPlates.get(colorHex);
+      if (!plate) continue;
+
+      const colorInfo = RISO_COLORS.find(c => c.hex === colorHex);
+      const colorName = colorInfo?.name || colorHex;
+      const rec = src.toRecord();
+
+      const newLayer = new Layer({
+        ...rec,
+        id: undefined,
+        name: src.name + ' ' + colorName,
+        isColorSeparation: false,
+        color: colorHex,
+        colorMode: 'solid',
+        halftoneType: rec.halftoneType,
+        halftoneSize: rec.halftoneSize,
+        halftoneAngle: (rec.halftoneAngle + (ImageProcessor._separationAngles[colorHex] || 0)) % 180,
+        separationColors: [],
+      });
+      newLayer.naturalWidth = plate.width;
+      newLayer.naturalHeight = plate.height;
+
+      const orig = new OffscreenCanvas(plate.width, plate.height);
+      orig.getContext('2d').drawImage(plate, 0, 0);
+      newLayer._originalCanvas = orig;
+
+      if (src._maskCanvas) {
+        const mc = new OffscreenCanvas(src._maskCanvas.width, src._maskCanvas.height);
+        mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
+        newLayer._maskCanvas = mc;
+      } else {
+        MaskEngine.initMask(newLayer);
+      }
+      newLayer._dirty = true;
+
+      await DB.put('layers', newLayer.toRecord());
+      await DB.put('imageBlobs', { layerId: newLayer.id, blob: await orig.convertToBlob({ type: 'image/png' }) });
+      await DB.put('maskBlobs', { layerId: newLayer.id, blob: await newLayer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+
+      newLayers.push(newLayer);
+    }
+
+    // Remove the original color-separation layer.
+    State.layers.splice(sourceIdx, 1);
+    await DB.del('layers', layerId);
+    await DB.del('imageBlobs', layerId);
+    await DB.del('maskBlobs', layerId);
+
+    // Insert the new per-color layers at the original stacking position.
+    State.layers.splice(sourceIdx, 0, ...newLayers);
+
+    State.selectedId = newLayers[0]?.id || null;
+    State.selectedIds = newLayers[0] ? [newLayers[0].id] : [];
+
+    await PageManager.saveActivePage();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
   move(layerId, delta) {
     pushUndoState();
     const layer = State.layers.find(l => l.id === layerId);

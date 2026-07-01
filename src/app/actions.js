@@ -78,6 +78,7 @@ export async function handleAction(action, value = null) {
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
+    case 'split-color-separation': if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id); break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
     case 'layer-down': if (layer) LayerManager.move(layer.id, -1); break;
     case 'flip-h':
