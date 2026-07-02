@@ -14,6 +14,7 @@ import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './c
 import { showProjectDialog, hideProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
 import { DB } from './db.js';
+import { ProjectIO } from './project-io.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1186,6 +1187,25 @@ export function wireControls() {
     const file = e.target.files[0];
     if (file) await LayerManager.addColorSeparation(file);
     e.target.value = '';
+  });
+
+  // ── Project download / upload ─────────────────────────────────────
+  document.getElementById('btn-upload-project')?.addEventListener('click', () => {
+    document.getElementById('project-import-input').click();
+  });
+
+  document.getElementById('project-import-input')?.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const newProjectId = await ProjectIO.importZip(file);
+      await loadProjectList();
+      await openProject(newProjectId);
+    } catch (err) {
+      console.error(err);
+      alert('Could not open project file: ' + err.message);
+    }
   });
 
   const wrapper = document.getElementById('canvas-wrapper');

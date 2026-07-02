@@ -175,6 +175,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/styles.css">
 
+  <!-- ─── JSZip (project download/upload) — exposes window.JSZip ─── -->
+  <script src="./vendor/jszip/jszip.min.js"></script>
+
   <!-- ─── Import Map for type-set and its dependencies ─── -->
   <script type="importmap">
   {
@@ -241,6 +244,7 @@
     </div>
     <div class="dialog-footer">
       <button class="mac-btn danger" id="btn-delete-project">Delete</button>
+      <button class="mac-btn" id="btn-upload-project">Upload</button>
       <button class="mac-btn" id="btn-open-project" disabled>Open</button>
     </div>
   </div>
@@ -433,6 +437,9 @@
       <div class="menu-dropdown">
         <div class="menu-entry" data-action="new-project">New Project</div>
         <div class="menu-entry" data-action="open-project">Open Project…</div>
+        <div class="menu-divider"></div>
+        <div class="menu-entry" data-action="download-project">Download Project…</div>
+        <div class="menu-entry" data-action="upload-project">Upload Project…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="add-image">Add Image… <span class="shortcut">&#8984;I</span></div>
         <div class="menu-entry" data-action="add-screentone">Add Screentone…</div>
@@ -827,6 +834,7 @@
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none;">
 <input type="file" id="color-sep-input" accept="image/*" style="display:none;">
+<input type="file" id="project-import-input" accept=".zip,application/zip" style="display:none;">
 
 <script type="module">
 'use strict';
@@ -875,6 +883,9 @@ window.loadProjectList = loadProjectList;
 
 import { PageManager } from './src/app/page-manager.js';
 window.PageManager = PageManager;
+
+import { ProjectIO } from './src/app/project-io.js';
+window.ProjectIO = ProjectIO;
 
 import { SpreadManager, computeSpreads } from './src/app/spread-manager.js';
 window.SpreadManager = SpreadManager;

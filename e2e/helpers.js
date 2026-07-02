@@ -498,3 +498,263 @@ export async function throttleCPU(page, rate = 4) {
   const client = await page.context().newCDPSession(page);
   await client.send('Emulation.setCPUThrottlingRate', { rate });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Project download/upload (ZIP round-trip) test helpers
+   ═══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Generate a 4-quadrant multi-color RGB PNG buffer. Useful for exercising
+ * color separation (decomposes into several riso plates).
+ */
+export function createMultiColorPngBuffer(width, height) {
+  const quad = [
+    { r: 246, g: 80, b: 88 },   // red
+    { r: 0, g: 120, b: 191 },   // blue
+    { r: 255, g: 232, b: 0 },   // yellow
+    { r: 0, g: 169, b: 92 },    // green
+  ];
+  const rowSize = 1 + width * 3;
+  const imageData = Buffer.alloc(rowSize * height);
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * rowSize;
+    imageData[rowOffset] = 0; // filter: none
+    for (let x = 0; x < width; x++) {
+      const c = quad[(y < height / 2 ? 0 : 2) + (x < width / 2 ? 0 : 1)];
+      const px = rowOffset + 1 + x * 3;
+      imageData[px] = c.r; imageData[px + 1] = c.g; imageData[px + 2] = c.b;
+    }
+  }
+  const compressed = deflateSync(imageData);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdrData = Buffer.alloc(13);
+  ihdrData.writeUInt32BE(width, 0);
+  ihdrData.writeUInt32BE(height, 4);
+  ihdrData[8] = 8; ihdrData[9] = 2; ihdrData[10] = 0; ihdrData[11] = 0; ihdrData[12] = 0;
+  const ihdr = writePngChunk('IHDR', ihdrData);
+  const idat = writePngChunk('IDAT', compressed);
+  const iend = writePngChunk('IEND', Buffer.alloc(0));
+  return Buffer.concat([signature, ihdr, idat, iend]);
+}
+
+/**
+ * Add an image to the current page from an in-memory buffer, waiting until the
+ * layer count increases (does not assume a specific total, unlike
+ * addSolidColorImage).
+ */
+export async function addImageFromBuffer(page, buffer, { name = 'image.png', mimeType = 'image/png' } = {}) {
+  const before = await page.evaluate(() => window.State.layers.length);
+  await page.setInputFiles('#file-input', { name, mimeType, buffer });
+  await page.waitForFunction((n) => window.State.layers.length === n + 1, before, { timeout: 8000 });
+}
+
+/**
+ * Build a deliberately complicated 2-page project exercising every feature the
+ * round-trip must preserve: multiple pages, image layers with transforms/adjust,
+ * an SVG layer, a solid color, a gradient, a pattern, a drawn mask, an
+ * image-mask relationship, a color-separation layer, and a text layer.
+ *
+ * Everything is persisted to IndexedDB (the source of truth the ZIP is built
+ * from).
+ */
+export async function buildComplexProject(page) {
+  await createProject(page, 'Complex Doc', { pageSize: 'half-letter' });
+  // Add a second page (the dialog only offers booklet multiples, so add one
+  // matching the first page's dimensions here for an exact 2-page document).
+  await page.evaluate(async () => {
+    const p0 = window.State.pages[0];
+    await window.PageManager.addBlankPageToProject(window.State.project.id, p0.width, p0.height);
+  });
+  const pageIds = await getProjectPageIds(page);
+  expect(pageIds.length).toBe(2);
+
+  // ── PAGE 1 ──────────────────────────────────────────────────────────
+  await loadPageById(page, pageIds[0]);
+
+  // Layer: solid-color image with a custom color + transform/adjustments.
+  await addImageFromBuffer(page, createSolidPngBuffer('#000000', 140, 90), { name: 'solid.png' });
+  await page.evaluate(async () => {
+    const l = window.State.layers[window.State.layers.length - 1];
+    l.color = '#f65058'; l.colorMode = 'solid';
+    l.x = 220; l.y = 340; l.rotation = 15; l.brightness = 25; l.contrast = -10; l.flipH = true;
+    l._dirty = true; await window.DB.saveLayer(l);
+  });
+
+  // Layer: gradient image.
+  await addImageFromBuffer(page, createShapePngBuffer('rect', 160, 120), { name: 'grad.png' });
+  await page.evaluate(async () => {
+    const l = window.State.layers[window.State.layers.length - 1];
+    l.colorMode = 'gradient';
+    l.gradient = {
+      type: 'radial', angle: 45, centerX: 0.4, centerY: 0.6,
+      stops: [
+        { color: '#010101', position: 0 },
+        { color: '#0078bf', position: 0.5 },
+        { color: '#ffe800', position: 1 },
+      ],
+      poles: [],
+    };
+    l.x = 500; l.y = 200;
+    l._dirty = true; await window.DB.saveLayer(l);
+  });
+
+  // Layer: pattern image.
+  await addImageFromBuffer(page, createShapePngBuffer('ellipse', 140, 140), { name: 'pat.png' });
+  await page.evaluate(async () => {
+    const l = window.State.layers[window.State.layers.length - 1];
+    l.colorMode = 'pattern';
+    l.pattern = { type: 'dots', color1: '#00a95c', color2: '#ff48b0', size: 32, angle: 30 };
+    l.x = 120; l.y = 1200;
+    l._dirty = true; await window.DB.saveLayer(l);
+  });
+
+  // Layer: SVG (vector).
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="black"/><circle cx="30" cy="30" r="18" fill="white"/></svg>';
+  await addImageFromBuffer(page, Buffer.from(svg, 'utf8'), { name: 'vec.svg', mimeType: 'image/svg+xml' });
+  await page.evaluate(async () => {
+    const l = window.State.layers[window.State.layers.length - 1];
+    l.color = '#5ec8e5'; l.x = 700; l.y = 1400;
+    l._dirty = true; await window.DB.saveLayer(l);
+  });
+
+  await page.evaluate(() => window.PageManager.saveActivePage());
+
+  // ── PAGE 2 ──────────────────────────────────────────────────────────
+  await loadPageById(page, pageIds[1]);
+
+  // Layer: text with custom typography.
+  await page.evaluate(async () => {
+    const l = await window.LayerManager.addText('Round Trip 1234', 150, 220, 1400, 500);
+    l.textFontSize = 132; l.textFontWeight = 700; l.textFontStyle = 'italic';
+    l.textAlign = 'center'; l.textLetterSpacing = 5; l.textLineHeight = 1.4;
+    l.color = '#0078bf';
+    l._originalCanvas = null; l._dirty = true;
+    await window.DB.saveLayer(l);
+  });
+  await page.waitForFunction(() => window.State.layers.some(l => l.isText));
+
+  // Layer: image with a drawn (hole-punched) mask.
+  await addImageFromBuffer(page, createSolidPngBuffer('#000000', 220, 220), { name: 'masked.png' });
+  await page.evaluate(async () => {
+    const l = window.State.layers[window.State.layers.length - 1];
+    l.color = '#00a95c'; l.x = 400; l.y = 900;
+    window.MaskEngine._paint(l, l.naturalWidth / 2, l.naturalHeight / 2, l.naturalWidth / 3, false);
+    l._dirty = true;
+    await window.DB.saveLayer(l);
+    await window.DB.saveMask(l);
+  });
+
+  // Layers: image-mask relationship (base + mask).
+  await addImageFromBuffer(page, createShapePngBuffer('ellipse', 160, 160), { name: 'base.png' });
+  await addImageFromBuffer(page, createShapePngBuffer('triangle', 160, 160), { name: 'maskimg.png' });
+  await page.evaluate(async () => {
+    const layers = window.State.layers;
+    const a = layers[layers.length - 2];
+    const b = layers[layers.length - 1];
+    window.State.selectedIds = [a.id, b.id];
+    window.State.selectedId = b.id;
+    await window.handleAction('create-image-mask');
+  });
+  await page.waitForFunction(() => window.State.layers.some(l => l.isMaskFor));
+
+  // Layer: color separation.
+  await page.click('.menu-item[data-menu="file"]');
+  await page.click('.menu-entry[data-action="import-color-separation"]');
+  await page.setInputFiles('#color-sep-input', {
+    name: 'sep.png', mimeType: 'image/png', buffer: createMultiColorPngBuffer(120, 120),
+  });
+  await page.waitForFunction(() => window.State.layers.some(l => l.isColorSeparation), null, { timeout: 20000 });
+
+  await page.evaluate(() => window.PageManager.saveActivePage());
+
+  return pageIds;
+}
+
+/**
+ * Capture an ID-independent fidelity snapshot of the currently open project,
+ * read straight from IndexedDB (the persisted source of truth):
+ *   - project-level fields
+ *   - per page: normalized layer records (ids stripped; cross-references
+ *     rewritten as layer indices) + image/mask blob length+checksum+type
+ *   - per page: a 16×16 downscaled composite fingerprint (rendered through the
+ *     real export composite path, so images, masks, gradients, patterns,
+ *     colors, color separation and text are all exercised).
+ */
+export async function snapshotProject(page) {
+  // Make sure any web fonts used by text layers are ready before rendering.
+  await page.evaluate(() => (document.fonts ? document.fonts.ready : null));
+  return page.evaluate(async () => {
+    const { State, DB, ExportEngine } = window;
+
+    function fnv1a(bytes) {
+      let h = 0x811c9dc5 >>> 0;
+      for (let i = 0; i < bytes.length; i++) {
+        h ^= bytes[i];
+        h = Math.imul(h, 0x01000193) >>> 0;
+      }
+      return h >>> 0;
+    }
+    async function blobSig(store, layerId) {
+      const rec = await DB.get(store, layerId);
+      if (!rec || !rec.blob) return null;
+      const bytes = new Uint8Array(await rec.blob.arrayBuffer());
+      return { len: bytes.length, hash: fnv1a(bytes), type: rec.blob.type || '' };
+    }
+    function fingerprint(canvas) {
+      const N = 16;
+      const off = new OffscreenCanvas(N, N);
+      const ctx = off.getContext('2d');
+      ctx.drawImage(canvas, 0, 0, N, N);
+      return Array.from(ctx.getImageData(0, 0, N, N).data);
+    }
+
+    const project = await DB.get('projects', State.project.id);
+    const pageOrder = project.pageOrder || [];
+
+    const pages = [];
+    for (const pid of pageOrder) {
+      const pageRec = await DB.get('pages', pid);
+      const layerRecs = await DB.getByIndex('layers', 'by-page', pid);
+      const order = pageRec.layerOrder || [];
+      layerRecs.sort((a, b) => {
+        const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      });
+      const idIndex = new Map(layerRecs.map((l, i) => [l.id, i]));
+      const layers = [];
+      for (const rec of layerRecs) {
+        const norm = { ...rec };
+        delete norm.id; delete norm.projectId; delete norm.pageId;
+        norm.imageMaskIds = (rec.imageMaskIds || []).map(id => (idIndex.has(id) ? idIndex.get(id) : -1));
+        norm.isMaskFor = rec.isMaskFor != null ? (idIndex.has(rec.isMaskFor) ? idIndex.get(rec.isMaskFor) : -1) : null;
+        norm._image = await blobSig('imageBlobs', rec.id);
+        norm._mask = await blobSig('maskBlobs', rec.id);
+        layers.push(norm);
+      }
+      pages.push({
+        name: pageRec.name,
+        width: pageRec.width,
+        height: pageRec.height,
+        index: pageRec.index,
+        layerCount: layerRecs.length,
+        layers,
+      });
+    }
+
+    const comps = await ExportEngine._buildBookletPageComposites(pageOrder);
+    const composites = comps.map(c => (c ? { width: c.width, height: c.height, fp: fingerprint(c) } : null));
+
+    return {
+      name: project.name,
+      pageSize: project.pageSize,
+      orientation: project.orientation || 'portrait',
+      customW: project.customW ?? null,
+      customH: project.customH ?? null,
+      booklet: project.booklet ?? null,
+      viewSettings: project.viewSettings ?? null,
+      pageCount: pageOrder.length,
+      pages,
+      composites,
+    };
+  });
+}

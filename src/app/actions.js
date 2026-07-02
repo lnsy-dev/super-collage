@@ -10,6 +10,7 @@ import { MaskEngine } from './mask-engine.js';
 import { Layer } from './layer.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } from './undo.js';
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
+import { ProjectIO } from './project-io.js';
 import { showScreentoneDialog } from './screentone-manager.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize } from './constants.js';
 import { DB } from './db.js';
@@ -299,6 +300,12 @@ export async function handleAction(action, value = null) {
     case 'redo': redo(); break;
     case 'new-project':  showProjectDialog(); break;
     case 'open-project': showProjectDialog(); break;
+    case 'download-project':
+      if (State.project) await ProjectIO.downloadProject(State.project.id);
+      break;
+    case 'upload-project':
+      document.getElementById('project-import-input').click();
+      break;
     case 'next-page': {
       const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
       const idx = units.findIndex(u => u.id === State.unitId);
