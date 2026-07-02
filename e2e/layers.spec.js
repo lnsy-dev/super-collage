@@ -113,6 +113,34 @@ test.describe('Layer System', () => {
     expect(layerOrder).toEqual(['test-image copy', 'test-image']);
   });
 
+  test('can still select layer rows after a drag-reorder (regression)', async ({ page }) => {
+    // Regression for: after dragging a layer row to reorder it, clicking rows no
+    // longer selects any layer until a page reload. The drop re-renders the list
+    // and removes the dragged row, so the browser never fires `dragend` — which
+    // was the only place clearing the UI._suppressLayerClick guard.
+    await createProject(page, 'Reorder Select Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    // Reorder: drag the bottom row above the top row.
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(1).dragTo(rows.nth(0), { targetPosition: { x: 10, y: 2 } });
+    await expect(page.locator('#layer-list .layer-name').nth(0)).toContainText('test-image');
+
+    // Clicking each row must select the corresponding layer. With the guard
+    // stuck these clicks are ignored and selection never moves.
+    const topId = await page.locator('#layer-list .layer-row').nth(0).getAttribute('data-layer-id');
+    const bottomId = await page.locator('#layer-list .layer-row').nth(1).getAttribute('data-layer-id');
+    expect(topId).not.toBe(bottomId);
+
+    await page.locator('#layer-list .layer-row').nth(1).click();
+    expect(await page.evaluate(() => window.State.selectedId)).toBe(bottomId);
+
+    await page.locator('#layer-list .layer-row').nth(0).click();
+    expect(await page.evaluate(() => window.State.selectedId)).toBe(topId);
+  });
+
   test('drag mask group moves base and mask together', async ({ page }) => {
     await createProject(page, 'Mask Group Drag Test');
     await addImage(page, TEST_IMAGE);

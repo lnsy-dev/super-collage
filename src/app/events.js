@@ -131,6 +131,15 @@ export function getExtraSnaps(primaryId) {
 
 function onPointerDown(e) {
   e.preventDefault();
+  // A primary pointer means no other pointers are physically down, so any
+  // leftover multi-touch state is stale (e.g. a pointerup/pointercancel was
+  // missed after a drag, or pointer capture was lost). Reset it here so a lost
+  // event can't permanently wedge selection/dragging until a page reload.
+  if (e.isPrimary) {
+    activePointers.clear();
+    panState = null;
+    suppressUntilLift = false;
+  }
   overlayCanvas.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -498,6 +507,11 @@ export function wireControls() {
 
   layerList.addEventListener('drop', e => {
     e.preventDefault();
+    // The reorder below re-renders the list and removes the dragged row. When
+    // the source node is gone mid-drop, the browser never fires `dragend`, so
+    // clear the click guard here too — otherwise it stays stuck `true` and
+    // blocks all future layer-row selection until a page reload.
+    setTimeout(() => { UI._suppressLayerClick = false; }, 0);
     const sourceId = e.dataTransfer.getData('text/plain') || draggedLayerId;
     const row = e.target.closest('.layer-row');
     clearDragIndicators();
@@ -568,6 +582,9 @@ export function wireControls() {
 
   pageList.addEventListener('drop', e => {
     e.preventDefault();
+    // Same guard-recovery as the layer list: the reorder re-renders and removes
+    // the dragged row, so `dragend` may never fire to clear the click guard.
+    setTimeout(() => { UI._suppressLayerClick = false; }, 0);
     const sourceId = e.dataTransfer.getData('text/plain') || draggedPageId;
     const row = e.target.closest('.page-row');
     clearPageDragIndicators();

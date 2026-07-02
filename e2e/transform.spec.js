@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, createProject, addImage, selectTool } from './helpers.js';
+import { clearIndexedDB, createProject, addImage, selectTool, getSelectedLayerId } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -38,6 +38,51 @@ test.describe('Transform', () => {
 
     // Position should have changed
     expect(newLayer.x).not.toBe(layer.x);
+  });
+
+  test('selection still works after a pointer is lost mid-drag (regression)', async ({ page }) => {
+    // Regression for: after dragging a layer, clicking can no longer select
+    // layers until a page reload. Root cause was the multi-touch tracker
+    // retaining a stale pointer entry when a pointerup/pointercancel was missed
+    // (e.g. pointer capture lost on a tablet); the next click was then misread
+    // as a two-finger pan and bailed out before running any selection code.
+    await createProject(page, 'Lost Pointer Test');
+    await addImage(page, TEST_IMAGE);
+
+    const layerId = await page.evaluate(() => State.layers[0].id);
+
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    // Deselect first so the final assertion genuinely proves selection ran.
+    // The layer is placed at the canvas centre (= overlay centre); a point well
+    // to its left is empty but still on-screen (the overlay's top edge sits
+    // above the viewport, so a corner click would miss the canvas entirely).
+    await page.mouse.click(cx - 150, cy);
+    expect(await getSelectedLayerId(page)).toBeNull();
+
+    // Simulate a pointer whose pointerup never reached the overlay: inject a
+    // lingering entry into the handler's active-pointer map. setPointerCapture
+    // is stubbed because a synthetic pointerId is not a real active pointer.
+    await page.evaluate(() => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const rect = el.getBoundingClientRect();
+      el.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: 999, isPrimary: false, bubbles: true, cancelable: true,
+        clientX: rect.left + 4, clientY: rect.top + 4, buttons: 1,
+      }));
+      el.setPointerCapture = orig;
+      // No matching pointerup is dispatched — the entry is now stale.
+    });
+
+    // A normal click must still select the layer, not be swallowed as a
+    // phantom "second finger" pan.
+    await page.mouse.click(cx, cy);
+    expect(await getSelectedLayerId(page)).toBe(layerId);
   });
 
   test('resize layer via property inputs', async ({ page }) => {
