@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 test.describe('App Bootstrap', () => {
   test('WASM module loads successfully', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible();
 
     const wasmLoaded = await page.evaluate(() => {
       // @ts-ignore

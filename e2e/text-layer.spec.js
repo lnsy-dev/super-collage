@@ -14,7 +14,7 @@ test.describe('Text layer integration', () => {
     await page.goto('/');
 
     // Create a project
-    await page.fill('#new-project-name', 'Text Test');
+    await page.fill('#create-project-name', 'Text Test');
     await page.click('#btn-create-project');
 
     // Wait for main app
@@ -77,7 +77,7 @@ test.describe('Text layer integration', () => {
     await page.goto('/');
 
     // Create a project
-    await page.fill('#new-project-name', 'Text Test');
+    await page.fill('#create-project-name', 'Text Test');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -131,7 +131,7 @@ test.describe('Text layer integration', () => {
     await page.goto('/');
 
     // Create a project
-    await page.fill('#new-project-name', 'Text Resize Test');
+    await page.fill('#create-project-name', 'Text Resize Test');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -222,7 +222,7 @@ test.describe('Text layer integration', () => {
 
   test('export processLayer returns 1x canvas sized to layer dimensions', async ({ page }) => {
     await page.goto('/');
-    await page.fill('#new-project-name', 'Text Export Size Test');
+    await page.fill('#create-project-name', 'Text Export Size Test');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -264,7 +264,7 @@ test.describe('Text layer integration', () => {
     const errors = [];
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
     await page.goto('/');
-    await page.fill('#new-project-name', 'Text Variant Test');
+    await page.fill('#create-project-name', 'Text Variant Test');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 

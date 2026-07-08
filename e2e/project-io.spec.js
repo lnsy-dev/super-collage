@@ -83,10 +83,9 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
     // Wipe all local state — simulate a fresh browser / different machine.
     await clearIndexedDB(page);
     await page.reload();
-    await expect(page.locator('#project-dialog')).toBeVisible();
-    await expect(page.locator('.project-entry')).toContainText('No projects yet');
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
 
-    // Upload via the project dialog's hidden input (wired to #btn-upload-project).
+    // Upload via the create dialog's hidden input (wired to #btn-upload-project in the manager).
     await page.setInputFiles('#project-import-input', {
       name: 'complex-doc.zip',
       mimeType: 'application/zip',
@@ -100,7 +99,23 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
   });
 
   test('upload button opens the file chooser', async ({ page }) => {
+    // Seed a project so the manager (with Upload button) is visible.
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const { DB } = await import('/src/app/db.js');
+      await DB.open();
+      await DB.put('projects', {
+        id: crypto.randomUUID(),
+        name: 'Existing Project',
+        pageSize: 'letter',
+        pageOrder: [],
+        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
     await gotoApp(page);
+    await expect(page.locator('#project-dialog')).toBeVisible();
     const [chooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.click('#btn-upload-project'),

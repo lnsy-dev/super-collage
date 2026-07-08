@@ -578,6 +578,11 @@ input[type="number"] {
   gap: 6px;
 }
 .size-options input[type="radio"] { display: none; }
+#create-project-dialog .size-options label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .mac-input {
   flex: 1;
   font-family: var(--font);

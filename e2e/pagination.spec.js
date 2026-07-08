@@ -13,8 +13,8 @@ test.beforeEach(async ({ page }) => {
 test.describe('Pagination', () => {
   test('create project with 4-page preset', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Four Page Zine');
-    await page.locator('label:has(input[name="new-page-count"][value="4"])').click();
+    await page.fill('#create-project-name', 'Four Page Zine');
+    await page.locator('label:has(input[name="create-page-count"][value="4"])').click();
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
     // Default saddle-stitch binding shows only the cover and centre spreads.
@@ -34,7 +34,7 @@ test.describe('Pagination', () => {
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
-    await expect(page.locator('#export-layout-info')).toContainText('per sheet');
+    await expect(page.locator('#export-layout-info')).toContainText('per side');
   });
 
   test('half-letter pages layout 2-up on landscape letter', async ({ page }) => {
@@ -43,7 +43,7 @@ test.describe('Pagination', () => {
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
     const info = await page.locator('#export-layout-info').textContent();
-    expect(info).toContain('2 per sheet');
+    expect(info).toContain('2 per side');
     expect(info).toContain('landscape');
   });
 

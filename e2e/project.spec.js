@@ -6,15 +6,67 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('Project Management', () => {
-  test('project dialog is visible on load', async ({ page }) => {
+  async function ensureCreateDialog(page) {
+    if (await page.locator('#project-dialog').isVisible()) {
+      await page.click('#btn-create-new');
+    }
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
+  }
+
+  test('project dialog is visible on load when projects exist', async ({ page }) => {
+    // Seed an existing project so the manager (not create) opens.
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const { DB } = await import('/src/app/db.js');
+      await DB.open();
+      await DB.put('projects', {
+        id: crypto.randomUUID(),
+        name: 'Existing Project',
+        pageSize: 'letter',
+        pageOrder: [],
+        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
     await gotoApp(page);
     await expect(page.locator('#project-dialog')).toBeVisible();
     await expect(page.locator('#project-dialog .dialog-title')).toContainText('Super Collage — Projects');
   });
 
+  test('empty library opens create dialog directly', async ({ page }) => {
+    await gotoApp(page);
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
+    await expect(page.locator('#create-project-dialog .dialog-title')).toContainText('Super Collage — Create New');
+  });
+
+  test('create new button opens create modal', async ({ page }) => {
+    // Seed a project so the manager stays open.
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const { DB } = await import('/src/app/db.js');
+      await DB.open();
+      await DB.put('projects', {
+        id: crypto.randomUUID(),
+        name: 'Existing Project',
+        pageSize: 'letter',
+        pageOrder: [],
+        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await gotoApp(page);
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('#create-project-dialog')).toBeHidden();
+    await page.click('#btn-create-new');
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
+  });
+
   test('create a new project with default size', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Test Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Test Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('Test Project');
@@ -35,8 +87,9 @@ test.describe('Project Management', () => {
     for (const size of sizes) {
       await clearIndexedDB(page);
       await gotoApp(page);
-      await page.fill('#new-project-name', `Project ${size.value}`);
-      await page.locator(`label:has(input[name="new-page-size"][value="${size.value}"])`).click();
+      await ensureCreateDialog(page);
+      await page.fill('#create-project-name', `Project ${size.value}`);
+      await page.locator(`label:has(input[name="create-page-size"][value="${size.value}"])`).click();
       await page.click('#btn-create-project');
       await expect(page.locator('#main-app')).toBeVisible();
       await expect(page.locator('#canvas-title')).toContainText(size.label);
@@ -45,19 +98,33 @@ test.describe('Project Management', () => {
 
   test('create project with custom size', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Custom Size Project');
-    await page.locator('label:has(input[name="new-page-size"][value="custom"])').click();
-    await expect(page.locator('#custom-size-row')).toBeVisible();
-    await page.fill('#custom-width', '5');
-    await page.fill('#custom-height', '7');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Custom Size Project');
+    await page.locator('label:has(input[name="create-page-size"][value="custom"])').click();
+    await expect(page.locator('#create-custom-size-row')).toBeVisible();
+    await page.fill('#create-custom-width', '5');
+    await page.fill('#create-custom-height', '7');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('5" × 7"');
   });
 
+  test('create project persists target sheet size', async ({ page }) => {
+    await gotoApp(page);
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Target Sheet Project');
+    await page.locator('label:has(input[name="create-target-size"][value="tabloid"])').click();
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    const booklet = await page.evaluate(() => window.State.project.booklet);
+    expect(booklet.binding).toBe('saddle-stitch');
+    expect(booklet.targetSheetSize).toBe('tabloid');
+  });
+
   test('switch orientation between portrait and landscape', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Orientation Test');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Orientation Test');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -75,7 +142,8 @@ test.describe('Project Management', () => {
 
   test('project persists across reload', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Persistent Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Persistent Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -89,7 +157,8 @@ test.describe('Project Management', () => {
 
   test('open existing project from dialog', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Openable Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Openable Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -107,7 +176,8 @@ test.describe('Project Management', () => {
 
   test('delete a project', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Deletable Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Deletable Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -123,17 +193,20 @@ test.describe('Project Management', () => {
     await expect(page.locator('.project-entry', { hasText: 'Deletable Project' })).not.toBeVisible();
   });
 
-  test('dialog is not cancellable when no project is open', async ({ page }) => {
+  test('create dialog is not cancellable when no project is open', async ({ page }) => {
     await gotoApp(page);
-    // No project behind the dialog → no close affordance, Escape is inert.
-    await expect(page.locator('#btn-close-project-dialog')).toBeHidden();
+    // Empty library opens directly into create; no project behind it → no close/back affordance.
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
+    await expect(page.locator('#btn-create-project-close')).toBeHidden();
+    await expect(page.locator('#btn-create-back')).toBeHidden();
     await page.keyboard.press('Escape');
-    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
   });
 
   test('close button cancels the dialog when a project is open', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Cancelable Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Cancelable Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 
@@ -150,7 +223,8 @@ test.describe('Project Management', () => {
 
   test('Escape cancels the dialog when a project is open', async ({ page }) => {
     await gotoApp(page);
-    await page.fill('#new-project-name', 'Escapable Project');
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Escapable Project');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
 

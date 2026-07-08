@@ -24,22 +24,32 @@ export async function clearIndexedDB(page) {
 }
 
 /**
- * Navigate to the app and wait for the project dialog to appear.
+ * Navigate to the app and wait for either the project manager or the
+ * create-new dialog to appear (empty libraries open directly into create).
  */
 export async function gotoApp(page) {
   await page.goto('/');
-  await expect(page.locator('#project-dialog')).toBeVisible();
+  await page.waitForFunction(() => window.__appReady === true, null, { timeout: 10000 });
+  await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible();
 }
 
 /**
- * Create a new project from the project dialog.
+ * Create a new project from the create-new modal.
  */
-export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1 } = {}) {
+export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1, targetSheet = 'letter' } = {}) {
   await gotoApp(page);
-  await page.fill('#new-project-name', name);
-  await page.locator(`label:has(input[name="new-page-size"][value="${pageSize}"])`).click();
+  // Empty libraries open directly into the create modal; otherwise open it manually.
+  if (await page.locator('#project-dialog').isVisible()) {
+    await page.click('#btn-create-new');
+    await expect(page.locator('#create-project-dialog')).toBeVisible();
+  }
+  await page.fill('#create-project-name', name);
+  await page.locator(`label:has(input[name="create-page-size"][value="${pageSize}"])`).click();
   if (pageCount !== 1) {
-    await page.locator(`label:has(input[name="new-page-count"][value="${pageCount}"])`).click();
+    await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
+  }
+  if (targetSheet !== 'letter') {
+    await page.locator(`label:has(input[name="create-target-size"][value="${targetSheet}"])`).click();
   }
   await page.click('#btn-create-project');
   // Wait for main app to be visible

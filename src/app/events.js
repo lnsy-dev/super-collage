@@ -11,7 +11,7 @@ import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
 import { handleAction, applyMargins, applyGrid, updateViewMenuLabels } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
-import { showProjectDialog, hideProjectDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
+import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
@@ -1016,35 +1016,52 @@ export function wireControls() {
   });
 
   // ── Custom size toggles ───────────────────────────────────────────
-  document.querySelectorAll('input[name="new-page-size"]').forEach(radio => {
+  document.querySelectorAll('input[name="create-page-size"]').forEach(radio => {
     radio.addEventListener('change', () => {
-      const isCustom = document.querySelector('input[name="new-page-size"]:checked')?.value === 'custom';
-      document.getElementById('custom-size-row').style.display = isCustom ? 'flex' : 'none';
+      const isCustom = document.querySelector('input[name="create-page-size"]:checked')?.value === 'custom';
+      document.getElementById('create-custom-size-row').style.display = isCustom ? 'flex' : 'none';
     });
   });
 
-  // ── Project dialog buttons ────────────────────────────────────────
+  // ── Create project dialog buttons ─────────────────────────────────
+  document.getElementById('btn-create-new').addEventListener('click', () => {
+    showCreateDialog();
+  });
+
+  document.getElementById('btn-create-back').addEventListener('click', () => {
+    hideCreateDialog();
+  });
+
+  document.getElementById('btn-create-project-close').addEventListener('click', () => {
+    hideCreateDialog();
+  });
+
+  document.getElementById('create-project-dialog').addEventListener('click', e => {
+    if (e.target === document.getElementById('create-project-dialog')) hideCreateDialog();
+  });
+
   document.getElementById('btn-create-project').addEventListener('click', async e => {
     const btn = e.currentTarget;
-    const name = document.getElementById('new-project-name').value.trim();
-    if (!name) { document.getElementById('new-project-name').focus(); return; }
+    const name = document.getElementById('create-project-name').value.trim();
+    if (!name) { document.getElementById('create-project-name').focus(); return; }
     btn.disabled = true;
     try {
-      const pageSize = document.querySelector('input[name="new-page-size"]:checked')?.value || 'letter';
-      const pageCount = parseInt(document.querySelector('input[name="new-page-count"]:checked')?.value || '1', 10);
+      const pageSize = document.querySelector('input[name="create-page-size"]:checked')?.value || 'letter';
+      const pageCount = parseInt(document.querySelector('input[name="create-page-count"]:checked')?.value || '1', 10);
+      const targetSheetSize = document.querySelector('input[name="create-target-size"]:checked')?.value || 'letter';
       const project = {
         id: crypto.randomUUID(),
         name,
         pageSize,
         pageOrder: [],
-        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+        booklet: { binding: 'saddle-stitch', targetSheetSize, pagesPerSheet: 1 },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
       let dims = PAGE_SIZE_DIMS[pageSize];
       if (pageSize === 'custom') {
-        const wIn = parseFloat(document.getElementById('custom-width').value);
-        const hIn = parseFloat(document.getElementById('custom-height').value);
+        const wIn = parseFloat(document.getElementById('create-custom-width').value);
+        const hIn = parseFloat(document.getElementById('create-custom-height').value);
         if (!wIn || !hIn || wIn < 1 || hIn < 1 || wIn > 100 || hIn > 100) {
           alert('Please enter valid dimensions between 1 and 100 inches.');
           return;
@@ -1062,7 +1079,8 @@ export function wireControls() {
       project.pageOrder = pages.map(p => p.id);
       await DB.put('projects', project);
 
-      document.getElementById('new-project-name').value = '';
+      document.getElementById('create-project-name').value = '';
+      document.getElementById('create-project-dialog').classList.add('hidden');
       await openProject(project.id);
       showKofiToast();
     } finally {
@@ -1070,6 +1088,11 @@ export function wireControls() {
     }
   });
 
+  document.getElementById('create-project-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
+  });
+
+  // ── Project dialog buttons ────────────────────────────────────────
   document.getElementById('btn-open-project').addEventListener('click', () => {
     if (_selProjectId) openProject(_selProjectId);
   });
@@ -1086,10 +1109,6 @@ export function wireControls() {
     await loadProjectList();
   });
 
-  document.getElementById('new-project-name').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
-  });
-
   // Cancel the project dialog (only possible when a project is already open):
   // the × button, the Escape key, or clicking the backdrop all dismiss it.
   document.getElementById('btn-close-project-dialog').addEventListener('click', hideProjectDialog);
@@ -1098,6 +1117,10 @@ export function wireControls() {
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if (!document.getElementById('create-project-dialog').classList.contains('hidden')) {
+      hideCreateDialog();
+      return;
+    }
     if (document.getElementById('project-dialog').classList.contains('hidden')) return;
     hideProjectDialog();
   });

@@ -15,7 +15,16 @@ export let separateColorsWithLut = null;
 export let buildColorLut = null;
 export let colorSepLut = null;
 
-export async function init() {
+let _initPromise = null;
+
+export function init() {
+  if (!_initPromise) {
+    _initPromise = _doInit();
+  }
+  return _initPromise;
+}
+
+async function _doInit() {
   const wasmMod = await import('/src/wasm/super_collage.js');
   await wasmMod.default({ module_or_path: '/src/wasm/super_collage_bg.wasm' });
   blendSubtractive = wasmMod.blend_subtractive;
@@ -38,5 +47,6 @@ export async function init() {
   await DB.open();
   Renderer.init();
   wireControls();
-  showProjectDialog();
+  await showProjectDialog();
+  window.__appReady = true;
 }

@@ -19,13 +19,34 @@ export function showProjectDialog() {
   // The dialog is only cancellable when a project is already open; otherwise
   // there is nothing to return to, so keep it modal (no close affordance).
   document.getElementById('btn-close-project-dialog').style.display = State.project ? '' : 'none';
-  loadProjectList();
+  return loadProjectList();
 }
 
 export function hideProjectDialog() {
   // Only allow dismissing when a project is open behind the dialog.
   if (!State.project) return;
   document.getElementById('project-dialog').classList.add('hidden');
+}
+
+export function showCreateDialog() {
+  document.getElementById('project-dialog').classList.add('hidden');
+  document.getElementById('create-project-dialog').classList.remove('hidden');
+  document.getElementById('btn-create-project-close').style.display = State.project ? '' : 'none';
+  document.getElementById('btn-create-back').style.display = State.project ? '' : 'none';
+  const input = document.getElementById('create-project-name');
+  input.value = '';
+  input.focus();
+}
+
+export function hideCreateDialog() {
+  document.getElementById('create-project-dialog').classList.add('hidden');
+  if (!State.project) {
+    // If no project is open, returning to an empty manager is pointless;
+    // keep the create dialog visible instead.
+    document.getElementById('create-project-dialog').classList.remove('hidden');
+    return;
+  }
+  document.getElementById('project-dialog').classList.remove('hidden');
 }
 
 export async function loadProjectList() {
@@ -36,6 +57,9 @@ export async function loadProjectList() {
   list.innerHTML = '';
   if (!projects.length) {
     list.innerHTML = '<div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>';
+    if (!State.project) {
+      showCreateDialog();
+    }
     return;
   }
   for (const p of projects) {
