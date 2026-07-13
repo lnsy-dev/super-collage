@@ -29,7 +29,7 @@ test.describe('Pagination', () => {
   });
 
   test('export dialog shows layout info', async ({ page }) => {
-    await createProject(page, 'Export Layout Test');
+    await createProject(page, 'Export Layout Test', { pageCount: 4 });
     await addImage(page, TEST_IMAGE);
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
@@ -38,7 +38,7 @@ test.describe('Pagination', () => {
   });
 
   test('half-letter pages layout 2-up on landscape letter', async ({ page }) => {
-    await createProject(page, 'Half Letter Layout', { pageSize: 'half-letter' });
+    await createProject(page, 'Half Letter Layout', { pageSize: 'half-letter', pageCount: 4 });
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
@@ -48,10 +48,9 @@ test.describe('Pagination', () => {
   });
 
   test('saddle-stitch half-letter uses landscape sheet', async ({ page }) => {
-    await createProject(page, 'Saddle Layout', { pageSize: 'half-letter' });
+    await createProject(page, 'Saddle Layout', { pageSize: 'half-letter', pageCount: 4 });
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
-    await page.locator('input[name="export-binding"][value="saddle-stitch"]').click();
     await expect(page.locator('#export-layout-info')).toContainText('landscape');
   });
 

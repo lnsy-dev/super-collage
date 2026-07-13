@@ -160,9 +160,17 @@ export function updateExportLayoutInfo() {
     customRow.style.display = targetSize === 'custom' ? '' : 'none';
   }
 
-  const binding = document.querySelector('input[name="export-binding"]:checked')?.value || 'saddle-stitch';
+  // Single page: only the Layout row matters. Booklet: only booklet layout and
+  // target paper. Binding is always saddle-stitch, so its row is never shown.
+  const isBooklet = State.pages.length > 1;
+  const bindingRow = document.getElementById('export-binding-row');
+  if (bindingRow) bindingRow.style.display = 'none';
   const bookletRow = document.getElementById('export-booklet-layout-row');
-  if (bookletRow) bookletRow.style.display = '';
+  if (bookletRow) bookletRow.style.display = isBooklet ? '' : 'none';
+  const targetRow = document.getElementById('export-target-size-row');
+  if (targetRow) targetRow.style.display = isBooklet ? '' : 'none';
+  const layoutRow = document.getElementById('export-layout-row');
+  if (layoutRow) layoutRow.style.display = isBooklet ? 'none' : '';
 
   const info = document.getElementById('export-layout-info');
   if (!info) return;

@@ -287,7 +287,7 @@
         Exports one PNG per risograph color at 600 dpi. Each plate: black ink on white.
       </p>
       <div id="export-color-list" style="font-size:9px;line-height:2.5;"></div>
-      <div style="margin-top:8px;font-size:9px;">
+      <div style="margin-top:8px;font-size:9px;" id="export-binding-row">
         <strong>Binding:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-binding" value="saddle-stitch" checked> Saddle-stitch</label>
       </div>
@@ -297,7 +297,7 @@
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="quarto"> Quarto (4-up)</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="octavo"> Octavo (8-up)</label>
       </div>
-      <div style="margin-top:8px;font-size:9px;">
+      <div style="margin-top:8px;font-size:9px;" id="export-target-size-row">
         <strong>Target paper:</strong>
         <select id="export-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
           <option value="letter">Letter 8.5"×11"</option>
@@ -312,7 +312,7 @@
         </span>
         <span id="export-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
       </div>
-      <div style="margin-top:8px;font-size:9px;">
+      <div style="margin-top:8px;font-size:9px;" id="export-layout-row">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="2up"> 2 up</label>

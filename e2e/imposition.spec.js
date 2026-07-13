@@ -112,13 +112,16 @@ test.describe('Imposition', () => {
   });
 
   test('export dialog shows booklet layout controls', async ({ page }) => {
-    await createProject(page, 'Booklet UI Test');
+    await createProject(page, 'Booklet UI Test', { pageCount: 4 });
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
 
-    // Booklet layout row is always visible now that only saddle-stitch is supported.
+    // Booklets show booklet layout + target paper, and hide the 1-up layout row.
     await expect(page.locator('#export-booklet-layout-row')).toBeVisible();
+    await expect(page.locator('#export-target-size-row')).toBeVisible();
+    await expect(page.locator('#export-layout-row')).toBeHidden();
+    await expect(page.locator('#export-binding-row')).toBeHidden();
     await expect(page.locator('#export-layout-info')).toContainText('folio');
 
     await page.locator('input[name="export-booklet-layout"][value="quarto"]').click();

@@ -24,8 +24,7 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
   await page.click('[data-action="export"]');
   await expect(page.locator('#export-dialog')).toBeVisible();
 
-  // Select saddle-stitch options.
-  await page.locator('input[name="export-binding"][value="saddle-stitch"]').click();
+  // Select booklet options (binding is always saddle-stitch; no UI choice).
   await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
   await page.selectOption('#export-target-size', 'letter');
 

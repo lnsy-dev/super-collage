@@ -75,6 +75,11 @@ test.describe('Export', () => {
     await expect(page.locator('input[name="export-layout"][value="1up"]')).toBeVisible();
     await expect(page.locator('input[name="export-layout"][value="2up"]')).toBeVisible();
     await expect(page.locator('input[name="export-layout"][value="4up"]')).toBeVisible();
+
+    // Single-page projects only show the Layout row.
+    await expect(page.locator('#export-booklet-layout-row')).toBeHidden();
+    await expect(page.locator('#export-target-size-row')).toBeHidden();
+    await expect(page.locator('#export-binding-row')).toBeHidden();
   });
 
   test('export layout options exist in composite dialog', async ({ page }) => {
