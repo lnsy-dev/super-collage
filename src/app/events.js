@@ -130,6 +130,84 @@ export function getExtraSnaps(primaryId) {
     .filter(Boolean);
 }
 
+/* ─── RESIZE HANDLE MATH ───────────────────────────────────────────
+   Resize drags are interpreted in the layer's own (rotated/flipped)
+   axes so the layer grows in the direction the user pulls, not along
+   the original unrotated orientation. */
+
+const FIXED_HANDLE = { tl: 'br', tr: 'bl', bl: 'tr', br: 'tl', tm: 'bm', bm: 'tm', ml: 'mr', mr: 'ml' };
+const HANDLE_SIGN = {
+  tl: [-1, -1], tm: [0, -1], tr: [1, -1],
+  ml: [-1,  0],              mr: [1,  0],
+  bl: [-1,  1], bm: [0,  1], br: [1,  1],
+};
+
+function overlayToPage(sx, sy, zoom) {
+  return { x: sx / zoom - CANVAS_PAD, y: sy / zoom - CANVAS_PAD };
+}
+
+function buildResizeMeta(layer, handleId, startX, startY, zoom) {
+  const handles = Renderer.getHandles(layer, zoom);
+  const handlePos = handles.find(h => h.id === handleId);
+  const fixedPos = handles.find(h => h.id === FIXED_HANDLE[handleId]);
+  const rad = layer.rotation * Math.PI / 180;
+  return {
+    handleId,
+    fixedPos,
+    offsetX: startX - (handlePos ? handlePos.x : startX),
+    offsetY: startY - (handlePos ? handlePos.y : startY),
+    cos: Math.cos(rad),
+    sin: Math.sin(rad),
+    fh: layer.flipH ? -1 : 1,
+    fv: layer.flipV ? -1 : 1,
+  };
+}
+
+function applyResize(layer, snap, meta, pointerX, pointerY, zoom) {
+  const { fixedPos, offsetX, offsetY, handleId, cos, sin, fh, fv } = meta;
+  const effX = pointerX - offsetX;
+  const effY = pointerY - offsetY;
+
+  // Vector from the stationary opposite edge/corner to the dragged handle.
+  const dsx = effX - fixedPos.x;
+  const dsy = effY - fixedPos.y;
+
+  // Inverse of the layer's rotate+flip transform, mapping a screen-space
+  // vector into raw (unrotated, pre-flip) local layer coordinates.
+  const rawDx = (fh * (dsx * cos + dsy * sin)) / zoom;
+  const rawDy = (fv * (-dsx * sin + dsy * cos)) / zoom;
+
+  let newW = snap.width;
+  let newH = snap.height;
+
+  if (['tl', 'tr', 'bl', 'br'].includes(handleId)) {
+    // Corner handles preserve aspect ratio, driven by the larger local axis.
+    const [sx, sy] = HANDLE_SIGN[handleId];
+    const cX = rawDx / (sx * snap.width);
+    const cY = rawDy / (sy * snap.height);
+    const s = Math.abs(cX) >= Math.abs(cY) ? cX : cY;
+    newW = Math.max(10, s * snap.width);
+    newH = Math.max(10, s * snap.height);
+  } else {
+    // Edge handles: free resize along the dragged local axis.
+    if (handleId === 'mr') newW = Math.max(10, rawDx);
+    else if (handleId === 'ml') newW = Math.max(10, -rawDx);
+    else if (handleId === 'bm') newH = Math.max(10, rawDy);
+    else if (handleId === 'tm') newH = Math.max(10, -rawDy);
+  }
+
+  // Keep the fixed edge/corner stationary on screen while the size changes.
+  const [fx, fy] = HANDLE_SIGN[FIXED_HANDLE[handleId]];
+  const newCxScreen = fixedPos.x - zoom * ((fx * newW / 2) * cos * fh - (fy * newH / 2) * sin * fv);
+  const newCyScreen = fixedPos.y - zoom * ((fx * newW / 2) * sin * fh + (fy * newH / 2) * cos * fv);
+
+  const center = overlayToPage(newCxScreen, newCyScreen, zoom);
+  layer.x = center.x - newW / 2;
+  layer.y = center.y - newH / 2;
+  layer.width = newW;
+  layer.height = newH;
+}
+
 function onPointerDown(e) {
   e.preventDefault();
   // A primary pointer means no other pointers are physically down, so any
@@ -188,6 +266,9 @@ function onPointerDown(e) {
         layerSnap: { ...layer },
         extraSnaps,
       };
+      if (dragState.type === 'resize') {
+        dragState.resizeMeta = buildResizeMeta(layer, handle.id, x, y, State.zoom);
+      }
       if (handle.id === 'rotate') {
         const cx = (layer.x + layer.width / 2) * State.zoom;
         const cy = (layer.y + layer.height / 2) * State.zoom;
@@ -317,40 +398,7 @@ function onPointerMove(e) {
       el.rotation = e.shiftKey ? Math.round(newRot / 15) * 15 : newRot;
     });
   } else if (State.drag.type === 'resize') {
-    const dxF = dx / z, dyF = dy / z;
-    const id = State.drag.handleId;
-    const ar = snap.width / snap.height; // original aspect ratio
-    const corners = ['tl', 'tr', 'bl', 'br'];
-    if (corners.includes(id)) {
-      // Corner handles: preserve aspect ratio, driven by the larger drag axis
-      if (id === 'br') {
-        const newW = Math.max(10, snap.width + dxF);
-        const newH = Math.max(10, newW / ar);
-        layer.width = newW; layer.height = newH;
-      } else if (id === 'tl') {
-        const newW = Math.max(10, snap.width - dxF);
-        const newH = Math.max(10, newW / ar);
-        layer.x = snap.x + (snap.width - newW);
-        layer.y = snap.y + (snap.height - newH);
-        layer.width = newW; layer.height = newH;
-      } else if (id === 'tr') {
-        const newW = Math.max(10, snap.width + dxF);
-        const newH = Math.max(10, newW / ar);
-        layer.y = snap.y + (snap.height - newH);
-        layer.width = newW; layer.height = newH;
-      } else if (id === 'bl') {
-        const newW = Math.max(10, snap.width - dxF);
-        const newH = Math.max(10, newW / ar);
-        layer.x = snap.x + (snap.width - newW);
-        layer.width = newW; layer.height = newH;
-      }
-    } else {
-      // Edge handles: free resize (no ratio constraint)
-      if (id === 'mr') { layer.width = Math.max(10, snap.width + dxF); }
-      else if (id === 'ml') { layer.x = snap.x + dxF; layer.width = Math.max(10, snap.width - dxF); }
-      else if (id === 'bm') { layer.height = Math.max(10, snap.height + dyF); }
-      else if (id === 'tm') { layer.y = snap.y + dyF; layer.height = Math.max(10, snap.height - dyF); }
-    }
+    applyResize(layer, snap, State.drag.resizeMeta, x, y, z);
     if (layer.isText) {
       layer.naturalWidth = layer.width;
       layer.naturalHeight = layer.height;

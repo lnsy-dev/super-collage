@@ -187,4 +187,126 @@ test.describe('Transform', () => {
     expect(state.flipV).toBe(false);
     expect(state.width).toBe(state.width); // natural size restored
   });
+
+  test('resize layer by dragging bottom-right handle', async ({ page }) => {
+    await createProject(page, 'Resize Handle Test');
+    await addImage(page, TEST_IMAGE);
+
+    // Zoom in and position the layer so handles are well separated.
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      // @ts-ignore
+      const l = State.layers[0];
+      l.x = 200; l.y = 200; l.width = 100; l.height = 100;
+      // @ts-ignore
+      State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+    });
+    await page.waitForTimeout(100);
+
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+
+    const handles = await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      // @ts-ignore
+      return Renderer.getHandles(State.layers[0], State.zoom);
+    });
+    const br = handles.find(h => h.id === 'br');
+    if (!br) throw new Error('br handle not found');
+
+    const startX = box.x + br.x;
+    const startY = box.y + br.y;
+    const before = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      return { x: l.x, y: l.y, w: l.width, h: l.height };
+    });
+
+    // Dispatch pointer events directly to the overlay so the test is not
+    // clipped by the browser viewport.
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 42, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: startX, sy: startY, ex: startX + 60, ey: startY + 60 });
+    await page.waitForTimeout(100);
+
+    const after = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      return { x: l.x, y: l.y, w: l.width, h: l.height };
+    });
+
+    expect(after.w).toBeGreaterThan(before.w);
+    expect(after.h).toBeGreaterThan(before.h);
+    // The opposite corner (top-left) should stay pinned.
+    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  });
+
+  test('resize rotated layer follows drag direction, not original orientation', async ({ page }) => {
+    await createProject(page, 'Rotated Resize Test');
+    await addImage(page, TEST_IMAGE);
+
+    // Zoom in, position the layer, and rotate 90° so the local width axis points down.
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      // @ts-ignore
+      const l = State.layers[0];
+      l.x = 200; l.y = 200; l.width = 100; l.height = 100; l.rotation = 90;
+      // @ts-ignore
+      State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+    });
+    await page.waitForTimeout(100);
+
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+
+    const handles = await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      // @ts-ignore
+      return Renderer.getHandles(State.layers[0], State.zoom);
+    });
+    const mr = handles.find(h => h.id === 'mr');
+    if (!mr) throw new Error('mr handle not found');
+
+    const startX = box.x + mr.x;
+    const startY = box.y + mr.y;
+    const before = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      return { w: l.width, h: l.height };
+    });
+
+    // Drag straight down: this is the local width direction for a 90° rotation.
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 42, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: startX, sy: startY, ex: startX, ey: startY + 60 });
+    await page.waitForTimeout(100);
+
+    const after = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      return { w: l.width, h: l.height };
+    });
+
+    expect(after.w).toBeGreaterThan(before.w);
+    expect(Math.abs(after.h - before.h)).toBeLessThan(2);
+  });
 });
