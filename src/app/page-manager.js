@@ -70,6 +70,120 @@ export const PageManager = {
     return page;
   },
 
+  async addFolio() {
+    if (!State.project) return;
+    const order = State.project.pageOrder;
+    const refPageId = order[order.length - 1] || order[0];
+    const refPage = refPageId ? await DB.get('pages', refPageId) : null;
+    const width = refPage?.width || CANVAS_W;
+    const height = refPage?.height || CANVAS_H;
+
+    const startIndex = order.length;
+    const newPages = [];
+    for (let i = 0; i < 4; i++) {
+      const page = await this.createPage(State.project.id, `Page ${startIndex + i + 1}`, width, height, { index: startIndex + i });
+      newPages.push(page);
+      order.push(page.id);
+    }
+
+    await this.saveProjectMeta();
+    await this.recomputeSpreadMeta();
+
+    State.pages = (await DB.getByIndex('pages', 'by-project', State.project.id)).sort((a, b) => {
+      const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+      return ai - bi;
+    });
+
+    const units = computeViewUnits(order, State.project.booklet?.binding);
+    const firstNewUnit = units.find(u => u.pageId === newPages[0].id || u.pageIds?.includes(newPages[0].id));
+    if (firstNewUnit) await this.loadUnit(firstNewUnit.id);
+    else if (units.length) await this.loadUnit(units[units.length - 1].id);
+
+    UI.refreshPageList();
+  },
+
+  async removeFolio(pageIds) {
+    if (!State.project || !Array.isArray(pageIds) || pageIds.length !== 4) return;
+    const order = [...State.project.pageOrder];
+    const firstRemovedIdx = order.indexOf(pageIds[0]);
+
+    for (const pageId of pageIds) {
+      const layers = await DB.getByIndex('layers', 'by-page', pageId);
+      for (const l of layers) {
+        await DB.del('imageBlobs', l.id);
+        await DB.del('maskBlobs', l.id);
+        await DB.del('layers', l.id);
+      }
+      await DB.del('pages', pageId);
+    }
+
+    const newOrder = order.filter(id => !pageIds.includes(id));
+    State.project.pageOrder = newOrder;
+
+    const units = computeViewUnits(newOrder, State.project.booklet?.binding);
+    const currentUnit = State.unitId ? units.find(u => u.id === State.unitId) : null;
+    const inCurrentUnit = currentUnit && pageIds.some(id => currentUnit.pageId === id || currentUnit.pageIds?.includes(id));
+
+    if ((State.pageId && pageIds.includes(State.pageId)) || inCurrentUnit) {
+      State.spreadView = false;
+      State.unitId = null;
+      const newIdx = Math.max(0, Math.min(firstRemovedIdx, newOrder.length - 1));
+      const nextId = newOrder[newIdx];
+      if (nextId) {
+        const unit = findUnitForPage(units, nextId);
+        if (unit) await this.loadUnit(unit.id);
+      } else {
+        State.pageId = null;
+        State.layers = [];
+        State.selectedId = null;
+        State.selectedIds = [];
+      }
+    }
+
+    await this.saveProjectMeta();
+    await this.recomputeSpreadMeta();
+
+    State.pages = (await DB.getByIndex('pages', 'by-project', State.project.id)).sort((a, b) => {
+      const ai = newOrder.indexOf(a.id), bi = newOrder.indexOf(b.id);
+      return ai - bi;
+    });
+
+    UI.refreshPageList();
+  },
+
+  async renderPageThumbnail(pageId, maxWidth = 60, maxHeight = 80) {
+    const page = await DB.get('pages', pageId);
+    if (!page) return null;
+    const layers = await this.loadPageLayers(pageId);
+    if (!layers.length) {
+      const canvas = new OffscreenCanvas(Math.max(1, Math.round(maxWidth / 4)), Math.max(1, Math.round(maxHeight / 4)));
+      canvas.getContext('2d').fillStyle = '#fff';
+      canvas.getContext('2d').fillRect(0, 0, canvas.width, canvas.height);
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      return URL.createObjectURL(blob);
+    }
+
+    const savedZoom = State.zoom;
+    const zoom = Math.min(maxWidth / page.width, maxHeight / page.height, 1);
+    try {
+      State.zoom = zoom;
+      for (const layer of layers) {
+        if (layer._dirty) await ImageProcessor.processLayer(layer);
+      }
+      const canvas = new OffscreenCanvas(Math.round(page.width * zoom), Math.round(page.height * zoom));
+      const ctx = canvas.getContext('2d');
+      await Renderer.drawLayers(ctx, layers, canvas.width, canvas.height, zoom, true);
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      return URL.createObjectURL(blob);
+    } finally {
+      State.zoom = savedZoom;
+      for (const layer of layers) {
+        layer._processedCanvas = null;
+        layer._dirty = true;
+      }
+    }
+  },
+
   async loadPage(pageId) {
     if (State.pageId === pageId && !State.spreadView) return;
 

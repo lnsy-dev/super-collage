@@ -453,6 +453,23 @@
   </div>
 </div>
 
+<!-- ═══ REMOVE FOLIO DIALOG ═══════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="remove-folio-dialog">
+  <div class="mac-dialog" style="min-width:320px;max-width:480px;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Remove Folio</div>
+    </div>
+    <div class="dialog-body">
+      <p style="font-size:9px;line-height:1.6;margin-bottom:12px;">Select a folio (4 pages) to remove. Pages are grouped in reader order.</p>
+      <div id="folio-list"></div>
+    </div>
+    <div class="dialog-footer">
+      <button class="mac-btn" id="btn-cancel-remove-folio">Cancel</button>
+      <button class="mac-btn danger" id="btn-confirm-remove-folio" disabled>Remove</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MAIN APP ══════════════════════════════════════════════════= -->
 <div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100dvh;">
 
@@ -627,6 +644,8 @@
           <div id="page-buttons">
             <button class="mac-btn sm" data-action="move-page-up" title="Move page up">&#9650;</button>
             <button class="mac-btn sm" data-action="move-page-down" title="Move page down">&#9660;</button>
+            <button class="mac-btn sm" data-action="add-folio" title="Add folio (4 pages)">+</button>
+            <button class="mac-btn sm" data-action="remove-folio" title="Remove folio (4 pages)">−</button>
           </div>
         </div>
       </div>

@@ -100,7 +100,7 @@ export const Renderer = {
     this.drawOverlay();
   },
 
-  async drawLayers(targetCtx, layers, width, height, zoom) {
+  async drawLayers(targetCtx, layers, width, height, zoom, skipCulling = false) {
     // Reset composite mode — ensures white paper fill is correct regardless of prior state
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.clearRect(0, 0, width, height);
@@ -110,7 +110,7 @@ export const Renderer = {
     for (const layer of layers) {
       if (!layer.visible) continue;
       if (layer.isMaskFor) continue; // rendered as part of the masked layer below it
-      if (!this._layerIntersectsViewport(layer, zoom)) continue;
+      if (!skipCulling && !this._layerIntersectsViewport(layer, zoom)) continue;
       if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       targetCtx.save();

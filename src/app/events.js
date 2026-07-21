@@ -13,6 +13,7 @@ import { handleAction, applyMargins, applyGrid, updateViewMenuLabels } from './a
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
+import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
 
@@ -520,6 +521,7 @@ export function wireControls() {
     draggedLayerId = layer.id;
     UI._suppressLayerClick = true;
     e.dataTransfer.setData('text/plain', layer.id);
+    e.dataTransfer.setData('application/x-supercollage-layer', layer.id);
     e.dataTransfer.effectAllowed = 'move';
     row.classList.add('dragging');
   });
@@ -588,14 +590,32 @@ export function wireControls() {
 
   function clearPageDragIndicators() {
     pageList.querySelectorAll('.page-row').forEach(r => {
-      r.classList.remove('drag-over-top', 'drag-over-bottom');
+      r.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-page', 'drag-over-left', 'drag-over-right');
     });
+  }
+
+  function isLayerDrag(e) {
+    return e.dataTransfer.types.includes('application/x-supercollage-layer');
+  }
+
+  function resolveDropTargetPage(row, clientX) {
+    const unitId = row?.dataset.unitId;
+    if (!unitId || !State.project?.pageOrder) return null;
+    const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+    const unit = units.find(u => u.id === unitId);
+    if (!unit) return null;
+    if (unit.type === 'page') return unit.pageId;
+
+    // Spread unit: choose left or right page based on horizontal drop position.
+    const rect = row.getBoundingClientRect();
+    const overLeft = clientX < rect.left + rect.width / 2;
+    return overLeft ? unit.leftPageId : unit.rightPageId;
   }
 
   pageList.addEventListener('dragstart', e => {
     const row = e.target.closest('.page-row');
     if (!row) return;
-    draggedPageId = row.dataset.pageId;
+    draggedPageId = row.dataset.unitId;
     UI._suppressLayerClick = true;
     e.dataTransfer.setData('text/plain', draggedPageId);
     e.dataTransfer.effectAllowed = 'move';
@@ -612,11 +632,28 @@ export function wireControls() {
 
   pageList.addEventListener('dragover', e => {
     e.preventDefault();
-    if (!draggedPageId) return;
+    const layerDrag = isLayerDrag(e);
+    if (!draggedPageId && !layerDrag) return;
+
     e.dataTransfer.dropEffect = 'move';
     const row = e.target.closest('.page-row');
     clearPageDragIndicators();
     if (!row) return;
+
+    if (layerDrag) {
+      const unitId = row.dataset.unitId;
+      const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+      const unit = units.find(u => u.id === unitId);
+      if (unit?.type === 'spread') {
+        const rect = row.getBoundingClientRect();
+        const overLeft = e.clientX < rect.left + rect.width / 2;
+        row.classList.add(overLeft ? 'drag-over-left' : 'drag-over-right');
+      } else {
+        row.classList.add('drag-over-page');
+      }
+      return;
+    }
+
     const rect = row.getBoundingClientRect();
     const overTop = e.clientY < rect.top + rect.height / 2;
     row.classList.add(overTop ? 'drag-over-top' : 'drag-over-bottom');
@@ -625,7 +662,7 @@ export function wireControls() {
   pageList.addEventListener('dragleave', e => {
     const row = e.target.closest('.page-row');
     if (row && !pageList.contains(e.relatedTarget)) {
-      row.classList.remove('drag-over-top', 'drag-over-bottom');
+      row.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-page', 'drag-over-left', 'drag-over-right');
     }
   });
 
@@ -634,14 +671,26 @@ export function wireControls() {
     // Same guard-recovery as the layer list: the reorder re-renders and removes
     // the dragged row, so `dragend` may never fire to clear the click guard.
     setTimeout(() => { UI._suppressLayerClick = false; }, 0);
-    const sourceId = e.dataTransfer.getData('text/plain') || draggedPageId;
     const row = e.target.closest('.page-row');
     clearPageDragIndicators();
+
+    // Handle layer drops first.
+    const draggedLayerId = e.dataTransfer.getData('application/x-supercollage-layer');
+    if (draggedLayerId) {
+      const targetPageId = resolveDropTargetPage(row, e.clientX);
+      if (targetPageId) {
+        LayerManager.moveToPage(draggedLayerId, targetPageId);
+      }
+      draggedPageId = null;
+      return;
+    }
+
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedPageId;
     draggedPageId = null;
     if (!sourceId) return;
 
     const rows = [...pageList.querySelectorAll('.page-row')];
-    const sourceIdx = rows.findIndex(r => r.dataset.pageId === sourceId);
+    const sourceIdx = rows.findIndex(r => r.dataset.unitId === sourceId);
     if (sourceIdx === -1) return;
 
     let targetIdx;
@@ -1169,6 +1218,10 @@ export function wireControls() {
       hideCreateDialog();
       return;
     }
+    if (!document.getElementById('remove-folio-dialog').classList.contains('hidden')) {
+      UI.hideRemoveFolioDialog();
+      return;
+    }
     if (document.getElementById('project-dialog').classList.contains('hidden')) return;
     hideProjectDialog();
   });
@@ -1239,6 +1292,18 @@ export function wireControls() {
   document.getElementById('btn-grid-ok')?.addEventListener('click', () => { applyGrid(); hideDialog('grid-dialog'); });
   document.getElementById('btn-grid-cancel')?.addEventListener('click', () => hideDialog('grid-dialog'));
   document.getElementById('grid-dialog')?.addEventListener('click', e => { if (e.target === document.getElementById('grid-dialog')) hideDialog('grid-dialog'); });
+
+  // ── Remove folio dialog ───────────────────────────────────────────
+  document.getElementById('btn-cancel-remove-folio')?.addEventListener('click', () => UI.hideRemoveFolioDialog());
+  document.getElementById('btn-confirm-remove-folio')?.addEventListener('click', async () => {
+    const pageIds = UI.confirmRemoveFolio();
+    if (!pageIds) return;
+    UI.hideRemoveFolioDialog();
+    await PageManager.removeFolio(pageIds);
+  });
+  document.getElementById('remove-folio-dialog')?.addEventListener('click', e => {
+    if (e.target === document.getElementById('remove-folio-dialog')) UI.hideRemoveFolioDialog();
+  });
 
   // ── Toolbar & panel buttons ───────────────────────────────────────
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn =>

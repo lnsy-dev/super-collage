@@ -13,6 +13,7 @@ import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { pushUndoState } from './undo.js';
 import { PageManager } from './page-manager.js';
+import { computeViewUnits } from './spread-manager.js';
 
 export const LayerManager = {
   async addText(defaultText, x, y, w, h) {
@@ -510,6 +511,86 @@ export const LayerManager = {
     State.layers.splice(insertIdx, 0, ...group);
 
     PageManager.saveActivePage();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
+  async moveToPage(layerId, targetPageId) {
+    const layer = State.layers.find(l => l.id === layerId);
+    if (!layer || layer.pageId === targetPageId) return;
+
+    // Resolve to the base layer of this mask group so image-mask relationships
+    // stay intact. Both the base and all of its masks move together.
+    const baseId = layer.isMaskFor || layer.id;
+    const base = State.layers.find(l => l.id === baseId);
+    const groupIds = new Set([baseId, ...((base?.imageMaskIds) || [])]);
+
+    const groupLayers = [];
+    for (const id of groupIds) {
+      const l = State.layers.find(x => x.id === id);
+      if (l) groupLayers.push(l);
+    }
+
+    // Detect same-spread moves so we can keep the layer in the active view.
+    let sameSpreadRightPageId = null;
+    if (State.spreadView && State.unitId && State.project?.pageOrder) {
+      const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
+      const unit = units.find(u => u.id === State.unitId);
+      if (unit?.type === 'spread') sameSpreadRightPageId = unit.rightPageId;
+    }
+    const sameSpread = State.spreadView &&
+      (targetPageId === State.pageId || targetPageId === sameSpreadRightPageId);
+
+    // Normalize coordinates from spread-view memory back to stored page-relative
+    // coordinates before changing pageId. In spread view, right-page layers have
+    // their x shifted by the left page's width.
+    for (const l of groupLayers) {
+      if (State.spreadView && l.pageId !== State.pageId) {
+        l.x -= State.spreadSplitX;
+      }
+      l.pageId = targetPageId;
+    }
+
+    const movedIds = new Set(groupLayers.map(l => l.id));
+
+    if (sameSpread) {
+      // Moving within the current spread: shift x so the layer appears on the
+      // correct side of the canvas and let saveActivePage persist both pages.
+      for (const l of groupLayers) {
+        if (targetPageId === sameSpreadRightPageId) {
+          l.x += State.spreadSplitX;
+        }
+        await DB.saveLayer(l);
+      }
+      await PageManager.saveActivePage();
+    } else {
+      // Moving to a different unit: remove from the active layer stack and
+      // update both source and target page records independently.
+      for (const l of groupLayers) {
+        await DB.saveLayer(l);
+      }
+      State.layers = State.layers.filter(l => !movedIds.has(l.id));
+
+      // Rewrite the source page's layerOrder from the remaining layers.
+      await PageManager.saveActivePage();
+
+      // Append the moved layers to the target page's layerOrder.
+      const targetPage = await DB.get('pages', targetPageId);
+      if (targetPage) {
+        targetPage.layerOrder = targetPage.layerOrder || [];
+        for (const l of groupLayers) {
+          if (!targetPage.layerOrder.includes(l.id)) targetPage.layerOrder.push(l.id);
+        }
+        targetPage.updatedAt = Date.now();
+        await DB.put('pages', targetPage);
+      }
+
+      State.selectedIds = State.selectedIds.filter(id => !movedIds.has(id));
+      State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
+      if (!State.layers.length) document.getElementById('no-layer-msg').style.display = '';
+    }
+
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();

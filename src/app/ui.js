@@ -386,6 +386,98 @@ export const UI = {
       });
       list.appendChild(row);
     }
+
+    const isBooklet = State.project?.booklet?.binding === 'saddle-stitch';
+    const addFolioBtn = document.querySelector('[data-action="add-folio"]');
+    const removeFolioBtn = document.querySelector('[data-action="remove-folio"]');
+    if (addFolioBtn) addFolioBtn.style.display = isBooklet ? '' : 'none';
+    if (removeFolioBtn) {
+      removeFolioBtn.style.display = isBooklet ? '' : 'none';
+      removeFolioBtn.disabled = !isBooklet || (State.project?.pageOrder?.length || 0) < 4;
+    }
+  },
+
+  _folioThumbUrls: [],
+  _selectedFolioPageIds: null,
+
+  async showRemoveFolioDialog() {
+    const dialog = document.getElementById('remove-folio-dialog');
+    if (!dialog) return;
+    this._selectedFolioPageIds = null;
+    document.getElementById('btn-confirm-remove-folio').disabled = true;
+    await this._refreshFolioChooser();
+    dialog.classList.remove('hidden');
+  },
+
+  hideRemoveFolioDialog() {
+    const dialog = document.getElementById('remove-folio-dialog');
+    if (dialog) dialog.classList.add('hidden');
+    for (const url of this._folioThumbUrls) URL.revokeObjectURL(url);
+    this._folioThumbUrls = [];
+    this._selectedFolioPageIds = null;
+  },
+
+  async _refreshFolioChooser() {
+    const list = document.getElementById('folio-list');
+    if (!list) return;
+    list.innerHTML = '';
+    for (const url of this._folioThumbUrls) URL.revokeObjectURL(url);
+    this._folioThumbUrls = [];
+
+    const order = State.project?.pageOrder || [];
+    if (order.length < 4) {
+      list.innerHTML = '<div style="padding:8px;font-size:8px;color:var(--dark-gray);text-align:center;">Not enough pages to remove a folio.</div>';
+      return;
+    }
+
+    const pageById = new Map(State.pages.map(p => [p.id, p]));
+    const groups = [];
+    for (let i = 0; i < order.length; i += 4) {
+      groups.push(order.slice(i, i + 4));
+    }
+
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi];
+      const row = document.createElement('div');
+      row.className = 'folio-row';
+      row.dataset.pageIds = group.join(',');
+
+      const label = document.createElement('div');
+      label.className = 'folio-label';
+      label.textContent = `Folio ${gi + 1}`;
+      row.appendChild(label);
+
+      const thumbs = document.createElement('div');
+      thumbs.className = 'folio-thumbs';
+
+      for (const pageId of group) {
+        const page = pageById.get(pageId);
+        const thumb = document.createElement('img');
+        thumb.className = 'folio-thumb';
+        thumb.alt = page?.name || pageId;
+        thumb.src = await window.PageManager.renderPageThumbnail(pageId, 48, 64);
+        this._folioThumbUrls.push(thumb.src);
+        thumbs.appendChild(thumb);
+      }
+
+      const names = document.createElement('div');
+      names.className = 'folio-names';
+      names.textContent = group.map(id => pageById.get(id)?.name || id).join(', ');
+
+      row.appendChild(thumbs);
+      row.appendChild(names);
+      row.addEventListener('click', () => {
+        list.querySelectorAll('.folio-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        this._selectedFolioPageIds = group;
+        document.getElementById('btn-confirm-remove-folio').disabled = false;
+      });
+      list.appendChild(row);
+    }
+  },
+
+  confirmRemoveFolio() {
+    return this._selectedFolioPageIds;
   },
 
   refreshProperties() {

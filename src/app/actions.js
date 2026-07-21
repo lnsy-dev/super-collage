@@ -320,6 +320,8 @@ export async function handleAction(action, value = null) {
       if (prev) { await PageManager.loadUnit(prev.id); UI.refreshPageList(); }
       break;
     }
+    case 'add-folio': await PageManager.addFolio(); break;
+    case 'remove-folio': UI.showRemoveFolioDialog?.(); break;
     case 'move-page-up':
     case 'move-page-down': {
       // Touch-friendly page reordering (native drag-and-drop does not fire on
