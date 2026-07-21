@@ -566,13 +566,63 @@ export const UI = {
     document.getElementById('status-zoom').textContent = pct;
   },
 
+  updateBrushCursorSize() {
+    // Brush size is in screen pixels; cursor is the same size regardless of zoom.
+    const px = State.brushSize;
+    const cursor = document.getElementById('brush-cursor');
+    if (cursor) {
+      cursor.style.width = px + 'px';
+      cursor.style.height = px + 'px';
+    }
+  },
+
+  updateBrushPopout() {
+    const label = document.getElementById('brush-popout-label');
+    const input = document.getElementById('brush-popout-input');
+    const range = document.getElementById('brush-popout-range');
+    const preview = document.getElementById('brush-popout-preview');
+    const scaleEl = document.getElementById('brush-popout-scale');
+    if (label) label.textContent = State.brushSize;
+    if (input) input.value = State.brushSize;
+    if (range) range.value = State.brushSize;
+    if (preview) {
+      const wrap = document.getElementById('brush-popout-preview-wrap');
+      const maxD = wrap ? Math.min(wrap.clientWidth, wrap.clientHeight) - 8 : 296;
+      const trueSize = State.brushSize;
+      if (trueSize <= maxD) {
+        preview.style.width = trueSize + 'px';
+        preview.style.height = trueSize + 'px';
+        preview.style.transform = 'none';
+        if (scaleEl) scaleEl.textContent = '';
+      } else {
+        preview.style.width = maxD + 'px';
+        preview.style.height = maxD + 'px';
+        preview.style.transform = 'none';
+        if (scaleEl) scaleEl.textContent = `1:${Math.ceil(trueSize / maxD)}`;
+      }
+    }
+  },
+
+  updateShapeStrokePopout() {
+    const label = document.getElementById('shape-stroke-label');
+    const input = document.getElementById('shape-stroke-popout-input');
+    const range = document.getElementById('shape-stroke-popout-range');
+    const preview = document.getElementById('shape-stroke-popout-preview');
+    if (label) label.textContent = State.shapeStrokeWidth;
+    if (input) input.value = State.shapeStrokeWidth;
+    if (range) range.value = State.shapeStrokeWidth;
+    if (preview) {
+      preview.style.height = State.shapeStrokeWidth + 'px';
+    }
+  },
+
   setTool(tool) {
     State.tool = tool;
     document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
       b.classList.toggle('active', b.dataset.tool === tool));
     document.body.className = 'tool-' + tool;
     const names = {
-      select: 'Select', move: 'Move',
+      select: 'Select',
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
     };
@@ -580,6 +630,8 @@ export const UI = {
     const isShape = tool.startsWith('shape-');
     document.getElementById('shape-options').style.display = isShape ? '' : 'none';
     document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
+    const strokeTrigger = document.getElementById('shape-stroke-trigger');
+    if (strokeTrigger) strokeTrigger.style.display = (isShape && State.shapeMode === 'outline') ? '' : 'none';
     const isMask = tool === 'mask-draw' || tool === 'mask-erase';
     if (!isMask) document.getElementById('brush-cursor').style.display = 'none';
   },

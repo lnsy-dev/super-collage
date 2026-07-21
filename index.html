@@ -541,11 +541,30 @@
     <!-- TOOLBAR -->
     <div class="mac-window" id="toolbar-window">
       <div class="window-content" style="padding:5px 4px;gap:4px;align-items:center;">
-        <button class="tool-btn active" data-tool="select" title="Select (V)">&#9654;</button>
-        <button class="tool-btn" data-tool="move" title="Move (M)">&#10021;</button>
+        <button class="tool-btn active" data-tool="select" title="Select (V)">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87a.5.5 0 0 0 .35-.85L6.35 2.85a.5.5 0 0 0-.85.36Z"/>
+          </svg>
+        </button>
         <div class="tool-separator"></div>
-        <button class="tool-btn" data-tool="mask-draw" title="Mask Paint (B)">&#9679;</button>
-        <button class="tool-btn" data-tool="mask-erase" title="Mask Erase (E)">&#9675;</button>
+        <button class="tool-btn" data-tool="mask-draw" title="Mask Paint (B)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/>
+            <path d="M20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+          </svg>
+        </button>
+        <button class="tool-btn" data-tool="mask-erase" title="Mask Erase (E)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+            <path d="M22 21H7"/>
+            <path d="m5 11 9 9"/>
+          </svg>
+        </button>
+        <div style="font-size:8px;text-align:center;line-height:1.8;">Brush</div>
+        <button id="brush-popout-trigger" class="tool-btn" style="flex-direction:column;gap:1px;" title="Brush size">
+          <span style="font-size:12px;line-height:1;">&#9679;</span>
+          <span id="brush-popout-label" style="font-size:8px;line-height:1;">30</span>
+        </button>
         <div class="tool-separator"></div>
         <button class="tool-btn" data-tool="shape-rect"    title="Rectangle (R)">&#9645;</button>
         <button class="tool-btn" data-tool="shape-ellipse" title="Ellipse (O)">&#9711;</button>
@@ -555,12 +574,10 @@
           <div style="font-size:8px;text-align:center;line-height:1.8;">Fill</div>
           <button class="tool-btn active" id="shape-fill-btn"    title="Filled">&#9632;</button>
           <button class="tool-btn"        id="shape-outline-btn" title="Outline">&#9633;</button>
-          <div id="shape-stroke-row" style="display:none;">
-            <div style="font-size:8px;text-align:center;line-height:1.8;">Stroke</div>
-            <input type="range" id="shape-stroke-input" min="1" max="50" value="4"
-              style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;">
-            <div id="shape-stroke-val" style="font-size:8px;">4</div>
-          </div>
+          <button id="shape-stroke-trigger" class="tool-btn" style="flex-direction:column;gap:1px;display:none;" title="Stroke width">
+            <span style="font-size:10px;line-height:1;">&#8212;</span>
+            <span id="shape-stroke-label" style="font-size:8px;line-height:1;">4</span>
+          </button>
           <div id="poly-options" style="display:none;">
             <div class="tool-separator"></div>
             <div style="font-size:8px;text-align:center;">Sides</div>
@@ -576,11 +593,27 @@
             </div>
           </div>
         </div>
-        <div class="tool-separator"></div>
-        <div style="font-size:8px;text-align:center;line-height:1.8;">Brush</div>
-        <input type="range" id="brush-size-input" min="4" max="200" value="30"
-          style="writing-mode:vertical-lr;direction:rtl;width:8px;height:56px;padding:0;">
-        <div id="brush-size-val" style="font-size:8px;">30</div>
+      </div>
+      <div id="brush-popout" class="hidden">
+        <div class="popout-header">
+          <span>Brush Size</span>
+          <input type="number" id="brush-popout-input" min="4" max="300" value="30">
+        </div>
+        <input type="range" id="brush-popout-range" min="4" max="300" value="30">
+        <div id="brush-popout-preview-wrap">
+          <div id="brush-popout-preview"></div>
+          <span id="brush-popout-scale"></span>
+        </div>
+      </div>
+      <div id="shape-stroke-popout" class="hidden">
+        <div class="popout-header">
+          <span>Stroke Width</span>
+          <input type="number" id="shape-stroke-popout-input" min="1" max="50" value="4">
+        </div>
+        <input type="range" id="shape-stroke-popout-range" min="1" max="50" value="4">
+        <div id="shape-stroke-popout-preview-wrap">
+          <div id="shape-stroke-popout-preview"></div>
+        </div>
       </div>
     </div>
 

@@ -72,9 +72,9 @@ export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
 }
 
 export function renderShapeToCanvas(tool, w, h) {
-  const sw = State.shapeStrokeWidth;
-  const isFill = State.shapeMode === 'fill';
-  const pad = isFill ? 0 : Math.ceil(sw / 2);
+  // Stroke width is stored in screen pixels; convert to document pixels for rendering.
+  const docStrokeWidth = State.shapeMode === 'fill' ? 0 : State.shapeStrokeWidth / State.zoom;
+  const pad = State.shapeMode === 'fill' ? 0 : Math.ceil(docStrokeWidth / 2);
   const canvas = new OffscreenCanvas(w, h);
   const ctx = canvas.getContext('2d');
   // White background → colorize() maps white (gray≥128) to transparent,
@@ -86,12 +86,12 @@ export function renderShapeToCanvas(tool, w, h) {
   const dw = w - pad * 2, dh = h - pad * 2;
   ctx.beginPath();
   drawShapePath(ctx, tool, dw, dh, State.shapeSides, State.shapeIsStar, State.shapeStarRatio);
-  if (isFill) {
+  if (State.shapeMode === 'fill') {
     ctx.fillStyle = 'black';
     ctx.fill();
   } else {
     ctx.strokeStyle = 'black';
-    ctx.lineWidth = sw;
+    ctx.lineWidth = docStrokeWidth;
     ctx.stroke();
   }
   ctx.restore();
@@ -109,7 +109,8 @@ export function drawShapePreview(x0, y0, x1, y1) {
   ctx.beginPath();
   drawShapePath(ctx, State.tool, w, h, State.shapeSides, State.shapeIsStar, State.shapeStarRatio);
   ctx.strokeStyle = 'rgba(0,120,255,0.85)';
-  ctx.lineWidth = 1.5;
+  // Preview is drawn in screen pixels, so use the screen-pixel stroke width.
+  ctx.lineWidth = State.shapeMode === 'fill' ? 1.5 : State.shapeStrokeWidth;
   ctx.setLineDash([4, 3]);
   ctx.stroke();
   ctx.restore();
@@ -243,7 +244,9 @@ function onPointerDown(e) {
     const local = Transform.toLocal(x, y, layer, State.zoom);
     const lx = local.x * (layer.naturalWidth / layer.width);
     const ly = local.y * (layer.naturalHeight / layer.height);
-    MaskEngine._paint(layer, lx, ly, State.brushSize / 2, State.tool === 'mask-erase');
+    // Brush size is in screen pixels; convert to natural pixels for painting.
+    const naturalRadius = (State.brushSize / 2) / State.zoom * (layer.naturalWidth / layer.width);
+    MaskEngine._paint(layer, lx, ly, naturalRadius, State.tool === 'mask-erase');
     State.lastMaskPt = { x: lx, y: ly };
     Renderer.schedule();
     return;
@@ -357,11 +360,13 @@ function onPointerMove(e) {
     const local = Transform.toLocal(x, y, layer, State.zoom);
     const lx = local.x * (layer.naturalWidth / layer.width);
     const ly = local.y * (layer.naturalHeight / layer.height);
+    // Brush size is in screen pixels; convert to natural pixels for painting.
+    const naturalRadius = (State.brushSize / 2) / State.zoom * (layer.naturalWidth / layer.width);
     const isErasing = State.tool === 'mask-erase';
     if (State.lastMaskPt) {
-      MaskEngine.paintStroke(layer, State.lastMaskPt.x, State.lastMaskPt.y, lx, ly, State.brushSize / 2, isErasing);
+      MaskEngine.paintStroke(layer, State.lastMaskPt.x, State.lastMaskPt.y, lx, ly, naturalRadius, isErasing);
     } else {
-      MaskEngine._paint(layer, lx, ly, State.brushSize / 2, isErasing);
+      MaskEngine._paint(layer, lx, ly, naturalRadius, isErasing);
     }
     State.lastMaskPt = { x: lx, y: ly };
     Renderer.schedule();
@@ -450,7 +455,7 @@ async function onPointerUp(e) {
       const ch = Math.max(1, Math.round(sh / State.zoom));
       const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch);
       await LayerManager.addShape(shapeCanvas, cx, cy, cw, ch);
-      UI.setTool('move');
+      UI.setTool('select');
     }
     return;
   }
@@ -849,10 +854,67 @@ export function wireControls() {
     updateTextField('textAlign', e.target.value);
   });
 
-  document.getElementById('brush-size-input').addEventListener('input', e => {
-    State.brushSize = parseInt(e.target.value);
-    document.getElementById('brush-size-val').textContent = State.brushSize;
-    updateBrushCursorSize();
+  /* ── Brush pop-out ── */
+  const brushPopout = document.getElementById('brush-popout');
+  const brushPopoutTrigger = document.getElementById('brush-popout-trigger');
+  const brushPopoutRange = document.getElementById('brush-popout-range');
+  const brushPopoutInput = document.getElementById('brush-popout-input');
+
+  function setBrushSize(size) {
+    const n = Math.max(4, Math.min(300, parseInt(size) || 30));
+    State.brushSize = n;
+    if (State.tool !== 'mask-draw' && State.tool !== 'mask-erase') {
+      UI.setTool('mask-draw');
+    }
+    UI.updateBrushPopout();
+    UI.updateBrushCursorSize();
+  }
+
+  function positionPopout(popout, trigger) {
+    const popoutHeight = 340;
+    const toolbar = document.getElementById('toolbar-window');
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const triggerBottom = toolbarRect.top + trigger.offsetTop + trigger.offsetHeight;
+    const spaceBelow = window.innerHeight - triggerBottom;
+    const spaceAbove = toolbarRect.top + trigger.offsetTop;
+    if (spaceBelow >= popoutHeight + 4) {
+      popout.style.top = (trigger.offsetTop + trigger.offsetHeight + 4) + 'px';
+    } else if (spaceAbove >= popoutHeight + 4) {
+      popout.style.top = (trigger.offsetTop - popoutHeight - 4) + 'px';
+    } else {
+      popout.style.top = (trigger.offsetTop + trigger.offsetHeight + 4) + 'px';
+    }
+  }
+
+  if (brushPopoutTrigger) {
+    brushPopoutTrigger.addEventListener('click', e => {
+      e.stopPropagation();
+      if (brushPopout.classList.contains('hidden')) {
+        positionPopout(brushPopout, brushPopoutTrigger);
+        brushPopout.classList.remove('hidden');
+      } else {
+        brushPopout.classList.add('hidden');
+      }
+    });
+  }
+
+  if (brushPopoutRange) {
+    brushPopoutRange.addEventListener('input', e => setBrushSize(e.target.value));
+  }
+
+  if (brushPopoutInput) {
+    brushPopoutInput.addEventListener('change', e => setBrushSize(e.target.value));
+  }
+
+  document.addEventListener('click', e => {
+    if (!brushPopout || brushPopout.classList.contains('hidden')) return;
+    if (!brushPopout.contains(e.target) && e.target !== brushPopoutTrigger) {
+      brushPopout.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') brushPopout?.classList.add('hidden');
   });
 
   /* ── Brush cursor ── */
@@ -860,12 +922,6 @@ export function wireControls() {
 
   function isMaskTool() {
     return State.tool === 'mask-draw' || State.tool === 'mask-erase';
-  }
-
-  function updateBrushCursorSize() {
-    const px = State.brushSize * State.zoom;
-    brushCursor.style.width  = px + 'px';
-    brushCursor.style.height = px + 'px';
   }
 
   overlayCanvas.addEventListener('mousemove', e => {
@@ -877,7 +933,7 @@ export function wireControls() {
 
   overlayCanvas.addEventListener('mouseenter', e => {
     if (!isMaskTool()) return;
-    updateBrushCursorSize();
+    UI.updateBrushCursorSize();
     brushCursor.style.display = 'block';
   });
 
@@ -886,21 +942,60 @@ export function wireControls() {
   });
 
   // Shape tool options
+  const shapeStrokeTrigger = document.getElementById('shape-stroke-trigger');
+  const shapeStrokePopout = document.getElementById('shape-stroke-popout');
+  const shapeStrokePopoutRange = document.getElementById('shape-stroke-popout-range');
+  const shapeStrokePopoutInput = document.getElementById('shape-stroke-popout-input');
+
+  function setShapeStrokeWidth(width) {
+    const n = Math.max(1, Math.min(50, parseInt(width) || 4));
+    State.shapeStrokeWidth = n;
+    UI.updateShapeStrokePopout();
+  }
+
   document.getElementById('shape-fill-btn').addEventListener('click', () => {
     State.shapeMode = 'fill';
     document.getElementById('shape-fill-btn').classList.add('active');
     document.getElementById('shape-outline-btn').classList.remove('active');
-    document.getElementById('shape-stroke-row').style.display = 'none';
+    if (shapeStrokeTrigger) shapeStrokeTrigger.style.display = 'none';
+    if (shapeStrokePopout) shapeStrokePopout.classList.add('hidden');
   });
   document.getElementById('shape-outline-btn').addEventListener('click', () => {
     State.shapeMode = 'outline';
     document.getElementById('shape-outline-btn').classList.add('active');
     document.getElementById('shape-fill-btn').classList.remove('active');
-    document.getElementById('shape-stroke-row').style.display = '';
+    if (shapeStrokeTrigger) shapeStrokeTrigger.style.display = '';
   });
-  document.getElementById('shape-stroke-input').addEventListener('input', e => {
-    State.shapeStrokeWidth = parseInt(e.target.value);
-    document.getElementById('shape-stroke-val').textContent = State.shapeStrokeWidth;
+
+  if (shapeStrokeTrigger) {
+    shapeStrokeTrigger.addEventListener('click', e => {
+      e.stopPropagation();
+      if (shapeStrokePopout.classList.contains('hidden')) {
+        positionPopout(shapeStrokePopout, shapeStrokeTrigger);
+        shapeStrokePopout.classList.remove('hidden');
+      } else {
+        shapeStrokePopout.classList.add('hidden');
+      }
+    });
+  }
+
+  if (shapeStrokePopoutRange) {
+    shapeStrokePopoutRange.addEventListener('input', e => setShapeStrokeWidth(e.target.value));
+  }
+
+  if (shapeStrokePopoutInput) {
+    shapeStrokePopoutInput.addEventListener('change', e => setShapeStrokeWidth(e.target.value));
+  }
+
+  document.addEventListener('click', e => {
+    if (!shapeStrokePopout || shapeStrokePopout.classList.contains('hidden')) return;
+    if (!shapeStrokePopout.contains(e.target) && e.target !== shapeStrokeTrigger) {
+      shapeStrokePopout.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') shapeStrokePopout?.classList.add('hidden');
   });
   document.getElementById('poly-sides-input').addEventListener('input', e => {
     State.shapeSides = Math.max(3, Math.min(20, parseInt(e.target.value) || 6));
@@ -1375,7 +1470,6 @@ export function wireControls() {
     const cmd = e.metaKey || e.ctrlKey;
     if (!cmd) {
       if (e.key === 'v' || e.key === 'V') UI.setTool('select');
-      if (e.key === 'm' || e.key === 'M') UI.setTool('move');
       if (e.key === 'b' || e.key === 'B') UI.setTool('mask-draw');
       if (e.key === 'e' || e.key === 'E') UI.setTool('mask-erase');
       if (e.key === 'r' || e.key === 'R') UI.setTool('shape-rect');
@@ -1398,13 +1492,13 @@ export function wireControls() {
   document.addEventListener('keydown', e => {
     if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
-      if (State.tool === 'select' || State.tool === 'move') { e.preventDefault(); handleAction('delete-layer'); }
+      if (State.tool === 'select') { e.preventDefault(); handleAction('delete-layer'); }
     }
   });
   document.addEventListener('keydown', e => {
     if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
     if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
-    if (State.tool !== 'select' && State.tool !== 'move') return;
+    if (State.tool !== 'select') return;
     const ids = State.selectedIds.length ? State.selectedIds : (State.selectedId ? [State.selectedId] : []);
     if (!ids.length) return;
     e.preventDefault();
@@ -1421,4 +1515,7 @@ export function wireControls() {
     }
     Renderer.schedule();
   });
+
+  UI.updateBrushPopout();
+  UI.updateShapeStrokePopout();
 }

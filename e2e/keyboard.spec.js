@@ -23,18 +23,6 @@ test.describe('Keyboard Shortcuts', () => {
     expect(tool).toBe('select');
   });
 
-  test('M key switches to move tool', async ({ page }) => {
-    await createProject(page, 'Key M Test');
-    await addImage(page, TEST_IMAGE);
-
-    await page.keyboard.press('m');
-    const tool = await page.evaluate(() => {
-      // @ts-ignore
-      return State.tool;
-    });
-    expect(tool).toBe('move');
-  });
-
   test('B key switches to mask draw tool', async ({ page }) => {
     await createProject(page, 'Key B Test');
     await addImage(page, TEST_IMAGE);

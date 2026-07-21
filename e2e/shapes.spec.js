@@ -36,7 +36,7 @@ test.describe('Shapes', () => {
       return State.shapeMode;
     });
     expect(mode).toBe('outline');
-    await expect(page.locator('#shape-stroke-row')).toBeVisible();
+    await expect(page.locator('#shape-stroke-trigger')).toBeVisible();
   });
 
   test('adjust stroke width', async ({ page }) => {
@@ -44,7 +44,8 @@ test.describe('Shapes', () => {
     await selectTool(page, 'shape-rect');
     await page.click('#shape-outline-btn');
 
-    await page.fill('#shape-stroke-input', '10');
+    await page.click('#shape-stroke-trigger');
+    await page.fill('#shape-stroke-popout-input', '10');
     await page.keyboard.press('Tab');
 
     const width = await page.evaluate(() => {
@@ -108,12 +109,12 @@ test.describe('Shapes', () => {
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
     await expect(page.locator('#layer-list .layer-name').first()).toContainText('Rectangle');
 
-    // Tool should switch back to move after drawing a shape
+    // Tool should switch back to select after drawing a shape
     const currentTool = await page.evaluate(() => {
       // @ts-ignore
       return State.tool;
     });
-    expect(currentTool).toBe('move');
+    expect(currentTool).toBe('select');
   });
 
   test('draw an ellipse shape on canvas', async ({ page }) => {

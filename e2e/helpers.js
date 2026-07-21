@@ -93,7 +93,6 @@ export async function selectTool(page, toolName) {
   await page.click(`.tool-btn[data-tool="${toolName}"]`);
   await expect(page.locator(`#status-tool`)).toContainText(
     toolName === 'select' ? 'Select' :
-    toolName === 'move' ? 'Move' :
     toolName === 'mask-draw' ? 'Mask Draw' :
     toolName === 'mask-erase' ? 'Mask Erase' :
     toolName === 'shape-rect' ? 'Rectangle' :

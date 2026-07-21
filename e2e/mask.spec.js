@@ -41,7 +41,8 @@ test.describe('Masking', () => {
     await createProject(page, 'Brush Size Test');
     await addImage(page, TEST_IMAGE);
 
-    await page.fill('#brush-size-input', '60');
+    await page.click('#brush-popout-trigger');
+    await page.fill('#brush-popout-input', '60');
     await page.keyboard.press('Tab');
 
     const size = await page.evaluate(() => {
@@ -49,7 +50,7 @@ test.describe('Masking', () => {
       return State.brushSize;
     });
     expect(size).toBe(60);
-    await expect(page.locator('#brush-size-val')).toHaveText('60');
+    await expect(page.locator('#brush-popout-label')).toHaveText('60');
   });
 
   test('clear mask', async ({ page }) => {
