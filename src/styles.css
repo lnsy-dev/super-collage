@@ -157,6 +157,12 @@ body {
 
 /* ─── TOOLBAR ───────────────────────────────────────────────────── */
 #toolbar-window { width: 52px; min-width: 52px; flex-shrink: 0; position: relative; overflow: visible; }
+#toolbar-window .window-content {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#toolbar-window .window-content::-webkit-scrollbar { display: none; }
 .tool-btn {
   width: 38px; height: 38px;
   border: 2px solid var(--black);
