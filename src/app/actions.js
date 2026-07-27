@@ -12,7 +12,8 @@ import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } 
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
 import { ProjectIO } from './project-io.js';
 import { showScreentoneDialog } from './screentone-manager.js';
-import { CANVAS_W, CANVAS_H, setCanvasSize } from './constants.js';
+import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors } from './constants.js';
+import { rebuildColorSepLut } from './color-lut.js';
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
@@ -60,6 +61,167 @@ export function applyGrid() {
 }
 
 export { updateViewMenuLabels, showMarginsDialog, showGridDialog };
+
+/* ═══════════════════════════════════════════════════════════════════
+   COLOR MANAGER
+   ═══════════════════════════════════════════════════════════════════ */
+
+let _colorManagerOriginal = [];
+
+function normalizeHex(hex) {
+  return (hex || '').toUpperCase();
+}
+
+function replaceColorsInRecord(rec, hexMap) {
+  let changed = false;
+  const replace = hex => {
+    const key = normalizeHex(hex);
+    if (hexMap.has(key)) {
+      changed = true;
+      return hexMap.get(key);
+    }
+    return hex;
+  };
+
+  if (rec.color) rec.color = replace(rec.color);
+  if (rec.gradient?.stops) {
+    for (const stop of rec.gradient.stops) stop.color = replace(stop.color);
+  }
+  if (rec.pattern) {
+    rec.pattern.color1 = replace(rec.pattern.color1);
+    rec.pattern.color2 = replace(rec.pattern.color2);
+  }
+  if (rec.separationColors) {
+    rec.separationColors = rec.separationColors.map(replace);
+  }
+  return changed;
+}
+
+async function updateLayerColorsForPaletteChange(hexMap) {
+  if (!hexMap.size) return;
+
+  // Update in-memory layers on the active page.
+  for (const layer of State.layers) {
+    const changed = replaceColorsInRecord(layer, hexMap);
+    if (changed) {
+      layer._dirty = true;
+      await DB.saveLayer(layer);
+    }
+  }
+
+  // Update all other layer records in the current project.
+  if (State.project?.id) {
+    const records = await DB.getByIndex('layers', 'by-project', State.project.id);
+    for (const rec of records) {
+      if (State.layers.some(l => l.id === rec.id)) continue;
+      const changed = replaceColorsInRecord(rec, hexMap);
+      if (changed) await DB.put('layers', rec);
+    }
+  }
+}
+
+export async function showColorManagerDialog() {
+  const dialog = document.getElementById('color-manager-dialog');
+  const list = document.getElementById('color-manager-list');
+  if (!dialog || !list) return;
+
+  const globalSetting = await DB.getSetting('risoColors');
+  const globalColors = Array.isArray(globalSetting?.value)
+    ? globalSetting.value
+    : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+  const projectColors = State.project?.colors || [];
+  const projectHexes = new Set(projectColors.map(c => normalizeHex(c.hex)));
+
+  _colorManagerOriginal = RISO_COLORS.map(c => ({ ...c }));
+  list.innerHTML = '';
+
+  for (const color of _colorManagerOriginal) {
+    const isProject = projectHexes.has(normalizeHex(color.hex));
+    const row = document.createElement('div');
+    row.className = 'color-manager-row';
+    row.dataset.originalHex = color.hex;
+    row.innerHTML = `
+      <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
+      <input type="color" class="color-manager-color" value="${color.hex}">
+      <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${isProject ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
+      <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
+    `;
+    list.appendChild(row);
+  }
+
+  dialog.classList.remove('hidden');
+}
+
+export function hideColorManagerDialog() {
+  document.getElementById('color-manager-dialog')?.classList.add('hidden');
+}
+
+export async function applyColorManagerChanges() {
+  const list = document.getElementById('color-manager-list');
+  const rows = list.querySelectorAll('.color-manager-row');
+  const newColors = [];
+  const newGlobalColors = [];
+  const newProjectColors = [];
+  const hexMap = new Map();
+
+  for (const row of rows) {
+    const name = row.querySelector('.color-manager-name').value.trim() || 'Untitled';
+    const hex = normalizeHex(row.querySelector('.color-manager-color').value);
+    const isProject = row.querySelector('.color-manager-project').checked;
+    const color = { name, hex, pantone: '' };
+
+    newColors.push(color);
+    if (isProject) newProjectColors.push(color);
+    else newGlobalColors.push(color);
+
+    const orig = normalizeHex(row.dataset.originalHex || '');
+    if (orig && orig !== hex) hexMap.set(orig, hex);
+  }
+
+  const printableCount = newColors.filter(c => c.hex !== '#FFFFFF').length;
+  if (printableCount === 0) {
+    alert('At least one printable color is required.');
+    return false;
+  }
+  if (printableCount > 7) {
+    alert('The color separation engine supports at most 7 printable colors. Please remove or merge colors before saving.');
+    return false;
+  }
+
+  await DB.putSetting('risoColors', newGlobalColors);
+
+  if (State.project) {
+    State.project.colors = newProjectColors;
+    await DB.put('projects', { ...State.project, updatedAt: Date.now() });
+  }
+
+  setRisoColors(newColors);
+  rebuildColorSepLut();
+  await updateLayerColorsForPaletteChange(hexMap);
+
+  UI.refreshColorSwatches();
+  UI.refreshProperties();
+  UI.refreshLayerList();
+  Renderer.schedule();
+  hideColorManagerDialog();
+  return true;
+}
+
+export async function addColorManagerRow() {
+  const list = document.getElementById('color-manager-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'color-manager-row';
+  row.dataset.originalHex = '';
+  row.innerHTML = `
+    <input type="text" class="mac-input color-manager-name" value="New Color" placeholder="Name">
+    <input type="color" class="color-manager-color" value="#000000">
+    <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${State.project ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
+    <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
+  `;
+  list.appendChild(row);
+  row.querySelector('.color-manager-name').focus();
+}
 
 export async function handleAction(action, value = null) {
   const layer = selectedLayer();
@@ -357,6 +519,9 @@ export async function handleAction(action, value = null) {
       break;
     case 'set-grid':
       showGridDialog();
+      break;
+    case 'edit-colors':
+      showColorManagerDialog();
       break;
   }
 }

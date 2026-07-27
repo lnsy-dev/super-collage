@@ -470,6 +470,24 @@
   </div>
 </div>
 
+<!-- ═══ COLOR MANAGER DIALOG ══════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="color-manager-dialog">
+  <div class="mac-dialog" style="min-width:320px;max-width:420px;">
+    <div class="dialog-titlebar">
+      <div class="dialog-title">Edit Colors</div>
+    </div>
+    <div class="dialog-body">
+      <p style="font-size:9px;line-height:1.6;margin-bottom:12px;">Add, remove, rename, and recolor the available palette. Project colors apply only to this project; global colors apply across all projects.</p>
+      <div id="color-manager-list"></div>
+      <button class="mac-btn" id="btn-add-color" style="margin-top:12px;width:100%;">+ Add Color</button>
+    </div>
+    <div class="dialog-footer">
+      <button class="mac-btn" id="btn-color-manager-cancel">Cancel</button>
+      <button class="mac-btn primary" id="btn-color-manager-ok">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MAIN APP ══════════════════════════════════════════════════= -->
 <div id="main-app" style="display:none;flex:1;flex-direction:column;overflow:hidden;height:100dvh;">
 
@@ -531,6 +549,11 @@
         <div class="menu-entry" data-action="flip-v">Flip Vertical</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="reset-transform">Reset Transform</div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="colors">Colors
+      <div class="menu-dropdown">
+        <div class="menu-entry" data-action="edit-colors">Edit Colors…</div>
       </div>
     </div>
   </div>
@@ -811,15 +834,7 @@
                   <button class="color-mode-btn" id="btn-mode-gradient">Gradient</button>
                   <button class="color-mode-btn" id="btn-mode-pattern">Pattern</button>
                 </div>
-                <div class="color-swatches" id="color-swatches">
-                  <div class="color-swatch selected" data-color="#010101" style="background:#010101;" title="Black"></div>
-                  <div class="color-swatch" data-color="#f65058" style="background:#f65058;" title="Red"></div>
-                  <div class="color-swatch" data-color="#ff7477" style="background:#ff7477;" title="Neon Orange"></div>
-                  <div class="color-swatch" data-color="#ffe800" style="background:#ffe800;" title="Yellow"></div>
-                  <div class="color-swatch" data-color="#ff48b0" style="background:#ff48b0;" title="Neon Pink"></div>
-                  <div class="color-swatch" data-color="#5ec8e5" style="background:#5ec8e5;" title="Aqua"></div>
-                  <div class="color-swatch" data-color="#0078bf" style="background:#0078bf;" title="Blue"></div>
-                </div>
+                <div class="color-swatches" id="color-swatches"></div>
                 <!-- Gradient editor -->
                 <div id="gradient-editor" class="hidden">
                   <div class="gradient-type-row">

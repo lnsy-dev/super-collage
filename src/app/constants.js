@@ -21,7 +21,7 @@ export const PAGE_SIZE_DIMS = {
   'business-card':{ w: 2100, h: 1200 },
 };
 
-export const RISO_COLORS = [
+export const DEFAULT_RISO_COLORS = [
   { name: 'Black',       hex: '#010101', pantone: 'BLACK U' },
   { name: 'Red',         hex: '#f65058', pantone: 'RED 032 U'},
   { name: 'Neon Orange', hex: '#ff7477', pantone: '805 U' },
@@ -31,6 +31,13 @@ export const RISO_COLORS = [
   { name: 'Blue',        hex: '#0078bf', pantone: '3005 U' },
   { name: 'White',       hex: '#FFFFFF', pantone: '' },
 ];
+
+export const RISO_COLORS = DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+
+export function setRisoColors(colors) {
+  RISO_COLORS.length = 0;
+  RISO_COLORS.push(...colors.map(c => ({ ...c })));
+}
 
 // 8×8 Bayer matrix (values 0-255)
 export const BAYER8 = new Uint8Array([

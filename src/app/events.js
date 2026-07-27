@@ -9,7 +9,7 @@ import { MaskEngine } from './mask-engine.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -794,17 +794,17 @@ export function wireControls() {
     });
   });
 
-  document.querySelectorAll('.color-swatch').forEach(sw => {
-    sw.addEventListener('click', () => {
-      const l = selectedLayer(); if (!l) return;
-      pushUndo(snapshotLayer(l));
-      l.color = sw.dataset.color;
-      l._dirty = true;
-      document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s === sw));
-      DB.saveLayer(l);
-      UI.refreshLayerList();
-      Renderer.schedule();
-    });
+  document.getElementById('color-swatches')?.addEventListener('click', e => {
+    const sw = e.target.closest('.color-swatch');
+    if (!sw) return;
+    const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
+    l.color = sw.dataset.color;
+    l._dirty = true;
+    UI.refreshColorSwatches();
+    DB.saveLayer(l);
+    UI.refreshLayerList();
+    Renderer.schedule();
   });
 
   // Text layer property controls
@@ -1317,6 +1317,10 @@ export function wireControls() {
       UI.hideRemoveFolioDialog();
       return;
     }
+    if (!document.getElementById('color-manager-dialog').classList.contains('hidden')) {
+      hideColorManagerDialog();
+      return;
+    }
     if (document.getElementById('project-dialog').classList.contains('hidden')) return;
     hideProjectDialog();
   });
@@ -1398,6 +1402,20 @@ export function wireControls() {
   });
   document.getElementById('remove-folio-dialog')?.addEventListener('click', e => {
     if (e.target === document.getElementById('remove-folio-dialog')) UI.hideRemoveFolioDialog();
+  });
+
+  // ── Color manager dialog ──────────────────────────────────────────
+  document.getElementById('btn-color-manager-ok')?.addEventListener('click', () => applyColorManagerChanges());
+  document.getElementById('btn-color-manager-cancel')?.addEventListener('click', () => hideColorManagerDialog());
+  document.getElementById('btn-add-color')?.addEventListener('click', () => addColorManagerRow());
+  document.getElementById('color-manager-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('.color-manager-remove');
+    if (!btn) return;
+    const row = btn.closest('.color-manager-row');
+    if (row) row.remove();
+  });
+  document.getElementById('color-manager-dialog')?.addEventListener('click', e => {
+    if (e.target === document.getElementById('color-manager-dialog')) hideColorManagerDialog();
   });
 
   // ── Toolbar & panel buttons ───────────────────────────────────────

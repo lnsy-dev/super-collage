@@ -10,7 +10,7 @@ export const DB = {
 
   open() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open('superCollage', 3);
+      const req = indexedDB.open('superCollage', 4);
       req.onupgradeneeded = async e => {
         const db = e.target.result;
         const tx = e.target.transaction;
@@ -41,6 +41,10 @@ export const DB = {
         if (!db.objectStoreNames.contains('pages')) {
           const pagesStore = db.createObjectStore('pages', { keyPath: 'id' });
           pagesStore.createIndex('by-project', 'projectId');
+        }
+
+        if (!db.objectStoreNames.contains('settings')) {
+          db.createObjectStore('settings', { keyPath: 'key' });
         }
 
         // Migrate v2 projects: wrap each project's layers into a single default page.
@@ -166,6 +170,14 @@ export const DB = {
     req.onsuccess = () => res();
     req.onerror = e => rej(e.target.error);
   }),
+
+  getSetting(key) {
+    return DB.get('settings', key);
+  },
+
+  putSetting(key, value) {
+    return DB.put('settings', { key, value });
+  },
 
   async deleteProject(projectId) {
     const pages = await DB.getByIndex('pages', 'by-project', projectId);

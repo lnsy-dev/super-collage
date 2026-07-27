@@ -203,6 +203,22 @@ export function refreshPatternEditor(layer) {
 }
 
 export const UI = {
+  refreshColorSwatches() {
+    const container = document.getElementById('color-swatches');
+    if (!container) return;
+    container.innerHTML = '';
+    const selectedHex = selectedLayer()?.color || null;
+    for (const rc of RISO_COLORS) {
+      if (rc.hex === '#FFFFFF') continue;
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (rc.hex === selectedHex ? ' selected' : '');
+      sw.dataset.color = rc.hex;
+      sw.style.background = rc.hex;
+      sw.title = rc.name;
+      container.appendChild(sw);
+    }
+  },
+
   refreshLayerList() {
     const list = document.getElementById('layer-list');
     list.innerHTML = '';
@@ -484,6 +500,7 @@ export const UI = {
     const layer = selectedLayer();
     document.getElementById('no-selection-msg').style.display = layer ? 'none' : '';
     document.getElementById('layer-props').style.display = layer ? '' : 'none';
+    this.refreshColorSwatches();
     if (!layer) { document.getElementById('status-layer').textContent = '—'; return; }
 
     document.getElementById('prop-x').value   = Math.round(layer.x);
@@ -527,8 +544,6 @@ export const UI = {
 
     document.querySelectorAll('.halftone-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.halftone === layer.halftoneType));
-    document.querySelectorAll('.color-swatch').forEach(s =>
-      s.classList.toggle('selected', s.dataset.color === layer.color));
 
     refreshGradientEditor(layer);
     refreshPatternEditor(layer);

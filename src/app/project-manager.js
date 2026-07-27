@@ -7,12 +7,24 @@ import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
-import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS } from './constants.js';
+import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors } from './constants.js';
 import { PageManager } from './page-manager.js';
 import { calculateLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
 
 export let _selProjectId = null;
+
+export async function loadEffectivePalette(project = null) {
+  const globalSetting = await DB.getSetting('risoColors');
+  const globalColors = Array.isArray(globalSetting?.value) ? globalSetting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+  const projectColors = project?.colors || [];
+  const projectHexes = new Set(projectColors.map(c => c.hex.toUpperCase()));
+  const merged = [
+    ...globalColors.filter(c => !projectHexes.has(c.hex.toUpperCase())),
+    ...projectColors,
+  ];
+  setRisoColors(merged);
+}
 
 export function showProjectDialog() {
   document.getElementById('project-dialog').classList.remove('hidden');
@@ -91,6 +103,7 @@ export async function openProject(projectId) {
   State.project = project;
   State.booklet = project.booklet || { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 };
   PageManager.loadViewSettings(project);
+  await loadEffectivePalette(project);
   State.layers = [];
   State.selectedId = null;
   State.selectedIds = [];
