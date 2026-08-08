@@ -138,4 +138,36 @@ test.describe('Color Modes', () => {
     expect(colors.c1).toBe('#ff48b0');
     expect(colors.c2).toBe('#5ec8e5');
   });
+
+  test('pattern density is independent of output resolution', async ({ page }) => {
+    await createProject(page, 'Pattern Scale Test');
+    await addImage(page, TEST_IMAGE);
+
+    const consistent = await page.evaluate(async () => {
+      const mod = await import('/src/app/image-processor.js');
+      const pattern = { type: 'stripes', color1: '#000000', color2: '#ffffff', size: 10, angle: 0 };
+      const c1 = mod.generatePatternCanvas(100, 100, pattern, 0.5);
+      const c2 = mod.generatePatternCanvas(200, 200, pattern, 1.0);
+      const d1 = c1.getContext('2d').getImageData(0, 0, 100, 100).data;
+      const d2 = c2.getContext('2d').getImageData(0, 0, 200, 200).data;
+
+      function countTransitions(data, w) {
+        let count = 0;
+        const y = 10;
+        for (let x = 1; x < w; x++) {
+          const i1 = (y * w + x - 1) * 4;
+          const i2 = (y * w + x) * 4;
+          const g1 = data[i1] + data[i1 + 1] + data[i1 + 2];
+          const g2 = data[i2] + data[i2 + 1] + data[i2 + 2];
+          if ((g1 < 384) !== (g2 < 384)) count++;
+        }
+        return count;
+      }
+
+      const t1 = countTransitions(d1, 100);
+      const t2 = countTransitions(d2, 200);
+      return Math.abs(t1 - t2) <= 1;
+    });
+    expect(consistent).toBe(true);
+  });
 });

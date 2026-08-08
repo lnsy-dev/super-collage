@@ -88,11 +88,11 @@ export function generateGradientCanvas(width, height, gradient) {
 }
 
 /* ─── PATTERN CANVAS GENERATOR ──────────────────────────────────── */
-export function generatePatternCanvas(width, height, pattern) {
+export function generatePatternCanvas(width, height, pattern, scale = 1) {
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const { type, color1, color2, size, angle } = pattern;
-  const tileSize = Math.max(4, Math.round(size)) * 2;
+  const tileSize = Math.max(4, Math.round(size * scale)) * 2;
   const tile = new OffscreenCanvas(tileSize, tileSize);
   const tCtx = tile.getContext('2d');
   tCtx.fillStyle = color1;
@@ -225,7 +225,8 @@ export const ImageProcessor = {
           d[i+3] = Math.round(255 - gray);
         }
       } else if (layer.colorMode === 'pattern' && layer.pattern) {
-        const patCanvas = generatePatternCanvas(targetW, targetH, layer.pattern);
+        const patScale = targetW / nw;
+        const patCanvas = generatePatternCanvas(targetW, targetH, layer.pattern, patScale);
         const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, targetW, targetH).data;
         for (let i = 0; i < d.length; i += 4) {
           const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
@@ -252,7 +253,8 @@ export const ImageProcessor = {
             d[i] = d[i+1] = d[i+2] = Math.max(d[i], deepened);
           }
         } else if (layer.colorMode === 'pattern' && layer.pattern) {
-          const patCanvas = generatePatternCanvas(targetW, targetH, layer.pattern);
+          const patScale = targetW / nw;
+          const patCanvas = generatePatternCanvas(targetW, targetH, layer.pattern, patScale);
           const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, targetW, targetH).data;
           const d = px.data;
           for (let i = 0; i < d.length; i += 4) {
@@ -497,7 +499,8 @@ export const ImageProcessor = {
     }
     if (layer && layer.colorMode === 'pattern' && layer.pattern) {
       const nw = px.width, nh = px.height;
-      const patCanvas = generatePatternCanvas(nw, nh, layer.pattern);
+      const patScale = nw / layer.naturalWidth;
+      const patCanvas = generatePatternCanvas(nw, nh, layer.pattern, patScale);
       const patData = patCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
       for (let i = 0; i < d.length; i += 4) {
         const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
