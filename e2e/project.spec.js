@@ -75,13 +75,13 @@ test.describe('Project Management', () => {
 
   test('create project with each paper size', async ({ page }) => {
     const sizes = [
-      { value: 'letter', label: '8.5" × 11"' },
-      { value: 'legal', label: '8.5" × 14"' },
-      { value: 'half-letter', label: '5.5" × 8.5"' },
-      { value: '4x6', label: '4" × 6"' },
-      { value: '4.25x7', label: '4.25" × 7"' },
-      { value: 'manga', label: '5.04" × 7.17"' },
-      { value: 'business-card', label: '3.5" × 2"' },
+      { value: 'letter', label: 'Letter (8.5" × 11")' },
+      { value: 'legal', label: 'Legal (8.5" × 14")' },
+      { value: 'half-letter', label: 'Half Letter (5.5" × 8.5")' },
+      { value: '4x6', label: '4 × 6 (4" × 6")' },
+      { value: '4.25x7', label: '4.25 × 7 (4.25" × 7")' },
+      { value: 'manga', label: 'Manga (5.04" × 7.17")' },
+      { value: 'business-card', label: 'Business Card (3.5" × 2")' },
     ];
 
     for (const size of sizes) {
@@ -96,6 +96,18 @@ test.describe('Project Management', () => {
     }
   });
 
+  test('create project with metric paper size', async ({ page }) => {
+    await clearIndexedDB(page);
+    await gotoApp(page);
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Metric Project');
+    await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
+    await page.locator('label:has(input[name="create-page-size"][value="a4"])').click();
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    await expect(page.locator('#canvas-title')).toContainText('A4 (21 × 29.7 cm)');
+  });
+
   test('create project with custom size', async ({ page }) => {
     await gotoApp(page);
     await ensureCreateDialog(page);
@@ -106,7 +118,7 @@ test.describe('Project Management', () => {
     await page.fill('#create-custom-height', '7');
     await page.click('#btn-create-project');
     await expect(page.locator('#main-app')).toBeVisible();
-    await expect(page.locator('#canvas-title')).toContainText('5" × 7"');
+    await expect(page.locator('#canvas-title')).toContainText('Custom (5" × 7")');
   });
 
   test('create project persists target sheet size', async ({ page }) => {
@@ -119,6 +131,19 @@ test.describe('Project Management', () => {
     const booklet = await page.evaluate(() => window.State.project.booklet);
     expect(booklet.binding).toBe('saddle-stitch');
     expect(booklet.targetSheetSize).toBe('tabloid');
+  });
+
+  test('create project with metric target sheet size', async ({ page }) => {
+    await clearIndexedDB(page);
+    await gotoApp(page);
+    await ensureCreateDialog(page);
+    await page.fill('#create-project-name', 'Metric Target Project');
+    await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
+    await page.locator('label:has(input[name="create-target-size"][value="a4"])').click();
+    await page.click('#btn-create-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    const booklet = await page.evaluate(() => window.State.project.booklet);
+    expect(booklet.targetSheetSize).toBe('a4');
   });
 
   test('switch orientation between portrait and landscape', async ({ page }) => {

@@ -7,7 +7,7 @@ import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
-import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors } from './constants.js';
+import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, formatPageSizeLabel, formatPxDimensions } from './constants.js';
 import { PageManager } from './page-manager.js';
 import { calculateLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
@@ -40,11 +40,20 @@ export function hideProjectDialog() {
   document.getElementById('project-dialog').classList.add('hidden');
 }
 
-export function showCreateDialog() {
+export async function showCreateDialog() {
   document.getElementById('project-dialog').classList.add('hidden');
   document.getElementById('create-project-dialog').classList.remove('hidden');
   document.getElementById('btn-create-project-close').style.display = State.project ? '' : 'none';
   document.getElementById('btn-create-back').style.display = State.project ? '' : 'none';
+
+  // Restore the user's preferred page-size unit and refresh the size list.
+  const savedUnit = (await DB.getSetting('pageSizeUnit'))?.value || 'imperial';
+  const unitRadio = document.querySelector(`input[name="create-size-unit"][value="${savedUnit}"]`);
+  if (unitRadio) {
+    unitRadio.checked = true;
+    unitRadio.dispatchEvent(new Event('change'));
+  }
+
   const input = document.getElementById('create-project-name');
   input.value = '';
   input.focus();
@@ -146,15 +155,14 @@ export async function openProject(projectId) {
 }
 
 function _resolveProjectDims(project) {
-  const pageSizeLabels = { 'letter': '8.5" × 11"', 'legal': '8.5" × 14"', 'half-letter': '5.5" × 8.5"', '4x6': '4" × 6"', '4.25x7': '4.25" × 7"', 'manga': '5.04" × 7.17"', 'business-card': '3.5" × 2"' };
-  let sizeLabel = pageSizeLabels[project.pageSize];
+  const unit = project.pageSizeUnit || 'imperial';
+  let sizeLabel = formatPageSizeLabel(project.pageSize, unit);
   let dims = PAGE_SIZE_DIMS[project.pageSize];
   if (project.pageSize === 'custom' && project.customW && project.customH) {
     dims = { w: project.customW, h: project.customH };
-    const fmt = px => { const v = px / 600; return (Math.round(v * 100) / 100).toString(); };
-    sizeLabel = `${fmt(project.customW)}" × ${fmt(project.customH)}"`;
+    sizeLabel = `Custom (${formatPxDimensions(project.customW, project.customH, unit)})`;
   }
-  if (!sizeLabel) sizeLabel = '8.5" × 11"';
+  if (!sizeLabel) sizeLabel = formatPageSizeLabel('letter', unit);
   if (!dims) dims = PAGE_SIZE_DIMS['letter'];
   let { w, h } = dims;
   if (project.orientation === 'landscape' && h > w) [w, h] = [h, w];

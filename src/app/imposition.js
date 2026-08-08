@@ -9,6 +9,8 @@ export const SHEET_SIZE_DIMS = {
   'letter':  { w: 5100, h: 6600 },
   'legal':   { w: 5100, h: 8400 },
   'tabloid': { w: 6600, h: 10200 },
+  'a4':      { w: 4961, h: 7016 },
+  'a3':      { w: 7016, h: 9921 },
 };
 
 /**

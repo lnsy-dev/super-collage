@@ -9,7 +9,7 @@ import { ImageProcessor } from './image-processor.js';
 import { MaskEngine } from './mask-engine.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
-import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS } from './constants.js';
+import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, getProjectSizeLabel } from './constants.js';
 import { hexToRgb } from '../utils/color.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 
@@ -580,14 +580,13 @@ export const PageManager = {
   },
 
   _refreshAfterPageSwitch(page, rightPage = null) {
+    const sizeLabel = getProjectSizeLabel(State.project);
     if (rightPage) {
-      const totalW = page.width + rightPage.width;
-      const maxH = Math.max(page.height, rightPage.height);
       document.getElementById('canvas-title').textContent =
-        `${State.project.name} — ${page.name} + ${rightPage.name} — ${this._fmtPx(totalW)}" × ${this._fmtPx(maxH)}" @ 600dpi`;
+        `${State.project.name} — ${page.name} + ${rightPage.name} — ${sizeLabel} @ 600dpi`;
     } else {
       document.getElementById('canvas-title').textContent =
-        `${State.project.name} — ${page.name} — ${this._fmtPx(page.width)}" × ${this._fmtPx(page.height)}" @ 600dpi`;
+        `${State.project.name} — ${page.name} — ${sizeLabel} @ 600dpi`;
     }
     document.getElementById('no-layer-msg').style.display = State.layers.length ? 'none' : '';
     UI.fitZoom();
@@ -598,8 +597,4 @@ export const PageManager = {
     Renderer.schedule();
   },
 
-  _fmtPx(px) {
-    const v = px / 600;
-    return (Math.round(v * 100) / 100).toString();
-  },
 };

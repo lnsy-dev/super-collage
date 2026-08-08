@@ -10,7 +10,7 @@ import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
 import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow } from './actions.js';
-import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS } from './constants.js';
+import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
@@ -1207,13 +1207,119 @@ export function wireControls() {
     l._dirty = true; Renderer.schedule(); DB.saveLayer(l);
   });
 
-  // ── Custom size toggles ───────────────────────────────────────────
-  document.querySelectorAll('input[name="create-page-size"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      const isCustom = document.querySelector('input[name="create-page-size"]:checked')?.value === 'custom';
-      document.getElementById('create-custom-size-row').style.display = isCustom ? 'flex' : 'none';
+  // ── Page size unit / options helpers ──────────────────────────────
+  function populateCreatePageSizeOptions(unit = 'imperial', selectedValue = null) {
+    const container = document.getElementById('create-page-size-options');
+    if (!container) return;
+    container.innerHTML = '';
+    let hasSelection = false;
+    for (const [key, dims] of Object.entries(PAGE_SIZE_DIMS)) {
+      if (dims.unit !== unit) continue;
+      const label = document.createElement('label');
+      const checked = key === selectedValue ? 'checked' : '';
+      label.innerHTML = `<input type="radio" name="create-page-size" value="${key}" ${checked}> ${formatPageSizeLabel(key, unit)}`;
+      container.appendChild(label);
+      if (key === selectedValue) hasSelection = true;
+    }
+    const customLabel = document.createElement('label');
+    const customChecked = selectedValue === 'custom' || !hasSelection ? 'checked' : '';
+    customLabel.innerHTML = `<input type="radio" name="create-page-size" value="custom" ${customChecked}> Custom`;
+    container.appendChild(customLabel);
+
+    if (!hasSelection && selectedValue !== 'custom') {
+      const first = container.querySelector('input[name="create-page-size"]');
+      if (first) first.checked = true;
+    }
+  }
+
+  function updateCreateCustomUnit(unit) {
+    const unitSpan = document.getElementById('create-custom-unit');
+    const wInput = document.getElementById('create-custom-width');
+    const hInput = document.getElementById('create-custom-height');
+    if (!unitSpan || !wInput || !hInput) return;
+    const oldUnit = unitSpan.dataset.unit || 'imperial';
+    if (oldUnit === unit) return;
+
+    const w = parseFloat(wInput.value) || 0;
+    const h = parseFloat(hInput.value) || 0;
+    if (unit === 'metric') {
+      wInput.value = w ? (w * 2.54).toFixed(1) : '8.9';
+      hInput.value = h ? (h * 2.54).toFixed(1) : '5.1';
+      wInput.min = '1'; wInput.max = '270'; wInput.step = '0.1';
+      hInput.min = '1'; hInput.max = '270'; hInput.step = '0.1';
+      unitSpan.textContent = 'cm @ 600dpi';
+    } else {
+      wInput.value = w ? (w / 2.54).toFixed(2) : '3.5';
+      hInput.value = h ? (h / 2.54).toFixed(2) : '2';
+      wInput.min = '1'; wInput.max = '100'; wInput.step = '0.25';
+      hInput.min = '1'; hInput.max = '100'; hInput.step = '0.25';
+      unitSpan.textContent = 'inches @ 600dpi';
+    }
+    unitSpan.dataset.unit = unit;
+  }
+
+  function updateCreateCustomVisibility() {
+    const isCustom = document.querySelector('input[name="create-page-size"]:checked')?.value === 'custom';
+    document.getElementById('create-custom-size-row').style.display = isCustom ? 'flex' : 'none';
+  }
+
+  function getCreateSizeUnit() {
+    return document.querySelector('input[name="create-size-unit"]:checked')?.value || 'imperial';
+  }
+
+  const CREATE_TARGET_SIZE_KEYS = {
+    imperial: ['letter', 'legal', 'tabloid'],
+    metric: ['a4', 'a3'],
+  };
+
+  function populateCreateTargetSizeOptions(unit = 'imperial', selectedValue = null) {
+    const container = document.getElementById('create-target-size-options');
+    if (!container) return;
+    container.innerHTML = '';
+    const keys = CREATE_TARGET_SIZE_KEYS[unit] || CREATE_TARGET_SIZE_KEYS.imperial;
+    let hasSelection = false;
+    for (const key of keys) {
+      const dims = PAGE_SIZE_DIMS[key];
+      if (!dims) continue;
+      const label = document.createElement('label');
+      const checked = key === selectedValue ? 'checked' : '';
+      label.innerHTML = `<input type="radio" name="create-target-size" value="${key}" ${checked}> ${formatPageSizeLabel(key, unit)}`;
+      container.appendChild(label);
+      if (key === selectedValue) hasSelection = true;
+    }
+    if (!hasSelection) {
+      const first = container.querySelector('input[name="create-target-size"]');
+      if (first) first.checked = true;
+    }
+  }
+
+  // Initialize options with the default unit.
+  populateCreatePageSizeOptions('imperial', 'letter');
+  populateCreateTargetSizeOptions('imperial', 'letter');
+
+  document.querySelectorAll('input[name="create-size-unit"]').forEach(radio => {
+    radio.addEventListener('change', async () => {
+      const unit = getCreateSizeUnit();
+
+      const currentPageSize = document.querySelector('input[name="create-page-size"]:checked')?.value;
+      const pageFallback = unit === 'metric' ? 'a4' : 'letter';
+      const pageDims = PAGE_SIZE_DIMS[currentPageSize];
+      const nextPageSize = pageDims?.unit === unit ? currentPageSize : pageFallback;
+      populateCreatePageSizeOptions(unit, nextPageSize);
+      updateCreateCustomUnit(unit);
+      updateCreateCustomVisibility();
+
+      const currentTarget = document.querySelector('input[name="create-target-size"]:checked')?.value;
+      const targetFallback = unit === 'metric' ? 'a4' : 'letter';
+      const targetKeys = CREATE_TARGET_SIZE_KEYS[unit] || CREATE_TARGET_SIZE_KEYS.imperial;
+      const nextTarget = targetKeys.includes(currentTarget) ? currentTarget : targetFallback;
+      populateCreateTargetSizeOptions(unit, nextTarget);
+
+      await DB.putSetting('pageSizeUnit', unit);
     });
   });
+
+  document.getElementById('create-page-size-options')?.addEventListener('change', updateCreateCustomVisibility);
 
   // ── Create project dialog buttons ─────────────────────────────────
   document.getElementById('btn-create-new').addEventListener('click', () => {
@@ -1241,10 +1347,12 @@ export function wireControls() {
       const pageSize = document.querySelector('input[name="create-page-size"]:checked')?.value || 'letter';
       const pageCount = parseInt(document.querySelector('input[name="create-page-count"]:checked')?.value || '1', 10);
       const targetSheetSize = document.querySelector('input[name="create-target-size"]:checked')?.value || 'letter';
+      const unit = getCreateSizeUnit();
       const project = {
         id: crypto.randomUUID(),
         name,
         pageSize,
+        pageSizeUnit: unit,
         pageOrder: [],
         booklet: { binding: 'saddle-stitch', targetSheetSize, pagesPerSheet: 1 },
         createdAt: Date.now(),
@@ -1252,12 +1360,16 @@ export function wireControls() {
       };
       let dims = PAGE_SIZE_DIMS[pageSize];
       if (pageSize === 'custom') {
-        const wIn = parseFloat(document.getElementById('create-custom-width').value);
-        const hIn = parseFloat(document.getElementById('create-custom-height').value);
-        if (!wIn || !hIn || wIn < 1 || hIn < 1 || wIn > 100 || hIn > 100) {
-          alert('Please enter valid dimensions between 1 and 100 inches.');
+        const wVal = parseFloat(document.getElementById('create-custom-width').value);
+        const hVal = parseFloat(document.getElementById('create-custom-height').value);
+        const max = unit === 'metric' ? 270 : 100;
+        const min = 1;
+        if (!wVal || !hVal || wVal < min || hVal < min || wVal > max || hVal > max) {
+          alert(`Please enter valid dimensions between ${min} and ${max} ${unit === 'metric' ? 'cm' : 'inches'}.`);
           return;
         }
+        const wIn = unit === 'metric' ? wVal / 2.54 : wVal;
+        const hIn = unit === 'metric' ? hVal / 2.54 : hVal;
         project.customW = Math.round(wIn * 600);
         project.customH = Math.round(hIn * 600);
         dims = { w: project.customW, h: project.customH };
@@ -1265,6 +1377,7 @@ export function wireControls() {
       if (!dims) dims = PAGE_SIZE_DIMS['letter'];
 
       await DB.put('projects', project);
+      await DB.putSetting('pageSizeUnit', unit);
 
       // Create requested number of blank pages.
       const pages = await PageManager.createPages(project.id, pageCount, dims.w, dims.h);
