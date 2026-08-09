@@ -604,4 +604,172 @@ export const LayerManager = {
     UI.refreshProperties();
     Renderer.schedule();
   },
+
+  async flatten(layerId) {
+    pushUndoState();
+    const layer = State.layers.find(l => l.id === layerId);
+    if (!layer) return;
+
+    // Resolve to the base layer of a mask group; can't flatten a mask layer alone.
+    let baseLayer = layer;
+    if (baseLayer.isMaskFor) {
+      baseLayer = State.layers.find(l => l.id === baseLayer.isMaskFor);
+      if (!baseLayer) return;
+    }
+
+    // Only raster image/shape layers can be flattened.
+    if (baseLayer.isText || baseLayer.isSvg || baseLayer.isColorSeparation || !baseLayer._originalCanvas) return;
+
+    const nw = baseLayer.naturalWidth;
+    const nh = baseLayer.naturalHeight;
+    if (!nw || !nh) return;
+
+    // Build visibility map (0 = hidden, 255 = visible) in base natural space.
+    const visibility = new Uint8Array(nw * nh).fill(255);
+
+    // Manual mask
+    if (baseLayer._maskCanvas) {
+      const maskData = baseLayer._maskCanvas.getContext('2d').getImageData(0, 0, nw, nh).data;
+      for (let i = 0; i < visibility.length; i++) {
+        visibility[i] = maskData[i * 4 + 3];
+      }
+    }
+
+    // Image masks
+    if (baseLayer.imageMaskIds?.length) {
+      const maskLayers = baseLayer.imageMaskIds
+        .map(id => State.layers.find(l => l.id === id))
+        .filter(ml => ml);
+
+      for (const maskLayer of maskLayers) {
+        await ImageProcessor.processLayer(maskLayer, { forExport: true });
+        if (!maskLayer._processedCanvas) continue;
+
+        const maskMap = new OffscreenCanvas(nw, nh);
+        const mCtx = maskMap.getContext('2d');
+        mCtx.save();
+        mCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+        // Map page coordinates into the base layer's natural coordinate space.
+        const cx = baseLayer.x + baseLayer.width / 2;
+        const cy = baseLayer.y + baseLayer.height / 2;
+        mCtx.translate(-cx, -cy);
+        mCtx.rotate(-baseLayer.rotation * Math.PI / 180);
+        mCtx.scale(baseLayer.flipH ? -1 : 1, baseLayer.flipV ? -1 : 1);
+        mCtx.translate(baseLayer.width / 2, baseLayer.height / 2);
+        mCtx.scale(nw / baseLayer.width, nh / baseLayer.height);
+
+        // Draw the mask layer at its page position and size.
+        mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
+        mCtx.rotate(maskLayer.rotation * Math.PI / 180);
+        mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
+        mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
+        mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width, maskLayer.height);
+        mCtx.restore();
+
+        const maskData = mCtx.getImageData(0, 0, nw, nh).data;
+        for (let i = 0; i < visibility.length; i++) {
+          if (maskData[i * 4 + 3] > 128) visibility[i] = 0;
+        }
+      }
+    }
+
+    // Apply visibility map to the original canvas: hidden pixels become white.
+    const orig = new OffscreenCanvas(nw, nh);
+    const oCtx = orig.getContext('2d');
+    oCtx.drawImage(baseLayer._originalCanvas, 0, 0);
+    const origData = oCtx.getImageData(0, 0, nw, nh);
+    for (let i = 0; i < visibility.length; i++) {
+      if (visibility[i] < 128) {
+        const idx = i * 4;
+        origData.data[idx] = origData.data[idx + 1] = origData.data[idx + 2] = 255;
+      }
+    }
+    oCtx.putImageData(origData, 0, 0);
+
+    // Compute bounding box of visible (non-white) pixels.
+    const bbox = this._computeBoundingBox(origData.data, nw, nh, 128);
+    if (!bbox) return; // Fully transparent after flattening; leave unchanged for safety.
+
+    // Crop the original canvas to the visible bounding box.
+    const cropped = new OffscreenCanvas(bbox.w, bbox.h);
+    cropped.getContext('2d').drawImage(orig, -bbox.x, -bbox.y);
+
+    // Update layer geometry so the cropped content stays in the same place on the page.
+    const oldCx = baseLayer.x + baseLayer.width / 2;
+    const oldCy = baseLayer.y + baseLayer.height / 2;
+    const cu = bbox.x + bbox.w / 2;
+    const cv = bbox.y + bbox.h / 2;
+    const ddx = (cu - nw / 2) * (baseLayer.width / nw);
+    const ddy = (cv - nh / 2) * (baseLayer.height / nh);
+    const rad = baseLayer.rotation * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const fh = baseLayer.flipH ? -1 : 1;
+    const fv = baseLayer.flipV ? -1 : 1;
+    const newPageCx = oldCx + cos * fh * ddx - sin * fv * ddy;
+    const newPageCy = oldCy + sin * fh * ddx + cos * fv * ddy;
+
+    baseLayer.naturalWidth = bbox.w;
+    baseLayer.naturalHeight = bbox.h;
+    baseLayer.width = bbox.w * (baseLayer.width / nw);
+    baseLayer.height = bbox.h * (baseLayer.height / nh);
+    baseLayer.x = newPageCx - baseLayer.width / 2;
+    baseLayer.y = newPageCy - baseLayer.height / 2;
+
+    baseLayer._originalCanvas = cropped;
+    baseLayer._processedCanvas = null;
+    baseLayer._maskCanvas = null;
+    baseLayer._dirty = true;
+
+    // Delete the now-baked image mask layers and clear the relationships.
+    const maskIds = [...(baseLayer.imageMaskIds || [])];
+    baseLayer.imageMaskIds = [];
+    const deletedIds = new Set();
+    for (const maskId of maskIds) {
+      const idx = State.layers.findIndex(l => l.id === maskId);
+      if (idx !== -1) {
+        State.layers[idx].isMaskFor = null;
+        State.layers.splice(idx, 1);
+        deletedIds.add(maskId);
+        await DB.del('layers', maskId);
+        await DB.del('imageBlobs', maskId);
+        await DB.del('maskBlobs', maskId);
+      }
+    }
+
+    if (deletedIds.size) {
+      State.selectedIds = State.selectedIds.filter(id => !deletedIds.has(id));
+      State.selectedId = State.selectedIds[State.selectedIds.length - 1] || baseLayer.id;
+      State.selectedIds = State.selectedIds.length ? State.selectedIds : [baseLayer.id];
+    } else {
+      State.selectedId = baseLayer.id;
+      State.selectedIds = [baseLayer.id];
+    }
+
+    await DB.put('imageBlobs', { layerId: baseLayer.id, blob: await cropped.convertToBlob({ type: 'image/png' }) });
+    await DB.del('maskBlobs', baseLayer.id);
+    await DB.saveLayer(baseLayer);
+    await PageManager.saveActivePage();
+
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
+  _computeBoundingBox(data, w, h, threshold = 128) {
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (data[i] < threshold) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null;
+    return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  },
 };

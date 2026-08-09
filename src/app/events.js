@@ -422,7 +422,7 @@ async function onPointerUp(e) {
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     State.lastMaskPt = null;
     const layer = selectedLayer();
-    if (layer && (e.type !== 'pointerleave' || e.buttons === 0)) DB.saveMask(layer);
+    if (layer && layer._maskCanvas && (e.type !== 'pointerleave' || e.buttons === 0)) DB.saveMask(layer);
     return;
   }
   if (State.drag) {

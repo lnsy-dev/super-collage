@@ -198,6 +198,7 @@ export const DB = {
   },
 
   async saveMask(layer) {
+    if (!layer._maskCanvas) return;
     const blob = await layer._maskCanvas.convertToBlob({ type: 'image/png' });
     await DB.put('maskBlobs', { layerId: layer.id, blob });
   },

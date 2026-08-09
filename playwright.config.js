@@ -12,7 +12,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: [['html', { outputFolder: 'e2e-report' }], ['list']],
   use: {
-    baseURL: 'http://localhost:8765',
+    baseURL: 'http://localhost:3421',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -32,8 +32,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npx browser-sync start --server . --port 8765 --no-notify --no-open',
-    url: 'http://localhost:8765',
+    command: 'npx browser-sync start --server . --port 3421 --no-notify --no-open',
+    url: 'http://localhost:3421',
     reuseExistingServer: !process.env.CI,
     timeout: 10000,
   },
