@@ -25,36 +25,6 @@ test.describe('Shapes', () => {
     await expect(page.locator('#poly-options')).toBeVisible();
   });
 
-  test('switch shape mode to outline', async ({ page }) => {
-    await createProject(page, 'Outline Mode Test');
-    await selectTool(page, 'shape-rect');
-
-    await page.click('#shape-outline-btn');
-
-    const mode = await page.evaluate(() => {
-      // @ts-ignore
-      return State.shapeMode;
-    });
-    expect(mode).toBe('outline');
-    await expect(page.locator('#shape-stroke-trigger')).toBeVisible();
-  });
-
-  test('adjust stroke width', async ({ page }) => {
-    await createProject(page, 'Stroke Width Test');
-    await selectTool(page, 'shape-rect');
-    await page.click('#shape-outline-btn');
-
-    await page.click('#shape-stroke-trigger');
-    await page.fill('#shape-stroke-popout-input', '10');
-    await page.keyboard.press('Tab');
-
-    const width = await page.evaluate(() => {
-      // @ts-ignore
-      return State.shapeStrokeWidth;
-    });
-    expect(width).toBe(10);
-  });
-
   test('adjust polygon sides', async ({ page }) => {
     await createProject(page, 'Poly Sides Test');
     await selectTool(page, 'shape-poly');
@@ -137,5 +107,74 @@ test.describe('Shapes', () => {
 
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
     await expect(page.locator('#layer-list .layer-name').first()).toContainText('Polygon');
+  });
+
+  test('shape attributes panel appears for selected shape', async ({ page }) => {
+    await createProject(page, 'Shape Attributes Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    await expect(page.locator('#shape-attributes')).toBeVisible();
+    await expect(page.locator('#prop-shape-fill')).toBeVisible();
+    await expect(page.locator('#prop-shape-border')).toBeVisible();
+  });
+
+  test('toggle shape border on and off', async ({ page }) => {
+    await createProject(page, 'Toggle Border Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    await page.check('#prop-shape-border');
+    let hasStroke = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      return l?.shapeHasStroke;
+    });
+    expect(hasStroke).toBe(true);
+
+    await page.uncheck('#prop-shape-border');
+    hasStroke = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      return l?.shapeHasStroke;
+    });
+    expect(hasStroke).toBe(false);
+  });
+
+  test('adjust shape border width', async ({ page }) => {
+    await createProject(page, 'Border Width Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    await page.check('#prop-shape-border');
+    await page.fill('#prop-shape-stroke-width-num', '12');
+    await page.keyboard.press('Tab');
+
+    const width = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      return l?.shapeStrokeWidth;
+    });
+    expect(width).toBe(12);
+  });
+
+  test('change shape border color', async ({ page }) => {
+    await createProject(page, 'Border Color Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    await page.check('#prop-shape-border');
+    await page.locator('#shape-stroke-swatches .color-swatch[data-color="#f65058"]').click();
+
+    const color = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      return l?.color;
+    });
+    expect(color).toBe('#f65058');
   });
 });

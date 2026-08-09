@@ -589,13 +589,6 @@
         <button class="tool-btn" data-tool="shape-poly"    title="Polygon / Star (P)">&#11040;</button>
         <div id="shape-options" style="display:none;">
           <div class="tool-separator"></div>
-          <div style="font-size:8px;text-align:center;line-height:1.8;">Fill</div>
-          <button class="tool-btn active" id="shape-fill-btn"    title="Filled">&#9632;</button>
-          <button class="tool-btn"        id="shape-outline-btn" title="Outline">&#9633;</button>
-          <button id="shape-stroke-trigger" class="tool-btn" style="flex-direction:column;gap:1px;display:none;" title="Stroke width">
-            <span style="font-size:10px;line-height:1;">&#8212;</span>
-            <span id="shape-stroke-label" style="font-size:8px;line-height:1;">4</span>
-          </button>
           <div id="poly-options" style="display:none;">
             <div class="tool-separator"></div>
             <div style="font-size:8px;text-align:center;">Sides</div>
@@ -621,16 +614,6 @@
         <div id="brush-popout-preview-wrap">
           <div id="brush-popout-preview"></div>
           <span id="brush-popout-scale"></span>
-        </div>
-      </div>
-      <div id="shape-stroke-popout" class="hidden">
-        <div class="popout-header">
-          <span>Stroke Width</span>
-          <input type="number" id="shape-stroke-popout-input" min="1" max="50" value="4">
-        </div>
-        <input type="range" id="shape-stroke-popout-range" min="1" max="50" value="4">
-        <div id="shape-stroke-popout-preview-wrap">
-          <div id="shape-stroke-popout-preview"></div>
         </div>
       </div>
     </div>
@@ -747,6 +730,28 @@
                   <button class="mac-btn sm" id="btn-invert-image" data-action="invert-image">Invert</button>
                 </div>
 
+              </div>
+
+              <!-- SHAPE ATTRIBUTES -->
+              <div class="prop-section" id="shape-attributes" style="display:none;">
+                <div class="prop-section-title">Shape Attributes</div>
+                <div class="prop-row">
+                  <label class="prop-label" style="flex:1; display:flex; align-items:center; gap:3px;">
+                    <input type="checkbox" id="prop-shape-fill"> Fill
+                  </label>
+                  <label class="prop-label" style="flex:1; display:flex; align-items:center; gap:3px;">
+                    <input type="checkbox" id="prop-shape-border"> Border
+                  </label>
+                </div>
+                <div class="prop-row" id="shape-stroke-width-row" style="display:none;">
+                  <span class="prop-label">Width</span>
+                  <input type="range" id="prop-shape-stroke-width" min="1" max="50" value="4" style="flex:1;">
+                  <input type="number" id="prop-shape-stroke-width-num" min="1" max="50" value="4" style="width:40px; font-size:8px; padding:1px;">
+                </div>
+                <div class="prop-row">
+                  <span class="prop-label">Color</span>
+                  <div class="color-swatches" id="shape-stroke-swatches"></div>
+                </div>
               </div>
 
               <!-- TEXT -->
@@ -984,7 +989,8 @@ window.showScreentoneDialog = showScreentoneDialog;
 window.hideScreentoneDialog = hideScreentoneDialog;
 window.addSelectedScreentone = addSelectedScreentone;
 
-import { drawShapePath, renderShapeToCanvas, drawShapePreview, getCanvasXY, getExtraSnaps, wireControls } from './src/app/events.js';
+import { drawShapePath, renderShapeToCanvas } from './src/app/shape-utils.js';
+import { drawShapePreview, getCanvasXY, getExtraSnaps, wireControls } from './src/app/events.js';
 window.drawShapePath = drawShapePath;
 window.renderShapeToCanvas = renderShapeToCanvas;
 window.drawShapePreview = drawShapePreview;

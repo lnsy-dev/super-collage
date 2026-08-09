@@ -63,6 +63,15 @@ export class Layer {
     this.textAlign = data.textAlign || 'left';
     this.separationColors = data.separationColors || [];
     this.separationPlates = new Map();
+    this.isShape = data.isShape || false;
+    this.shapeType = data.shapeType || 'shape-rect';
+    this.shapeHasFill = data.shapeHasFill !== false;
+    this.shapeHasStroke = data.shapeHasStroke || false;
+    this.shapeStrokeWidth = data.shapeStrokeWidth ?? 4;
+    this.shapeStrokeColor = data.shapeStrokeColor || '#010101';
+    this.shapeSides = data.shapeSides ?? 6;
+    this.shapeIsStar = data.shapeIsStar || false;
+    this.shapeStarRatio = data.shapeStarRatio ?? 0.4;
     this._originalCanvas = null;
     this._processedCanvas = null;
     this._maskCanvas = null;
@@ -116,6 +125,15 @@ export class Layer {
       textLineHeight: this.textLineHeight,
       textAlign: this.textAlign,
       separationColors: this.separationColors,
+      isShape: this.isShape,
+      shapeType: this.shapeType,
+      shapeHasFill: this.shapeHasFill,
+      shapeHasStroke: this.shapeHasStroke,
+      shapeStrokeWidth: this.shapeStrokeWidth,
+      shapeStrokeColor: this.shapeStrokeColor,
+      shapeSides: this.shapeSides,
+      shapeIsStar: this.shapeIsStar,
+      shapeStarRatio: this.shapeStarRatio,
     };
   }
 

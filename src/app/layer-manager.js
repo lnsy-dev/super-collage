@@ -51,6 +51,15 @@ export const LayerManager = {
       name: toolNames[State.tool] || 'Shape',
       x, y, width: w, height: h,
       naturalWidth: w, naturalHeight: h,
+      isShape: true,
+      shapeType: State.tool,
+      shapeHasFill: State.shapeMode !== 'outline',
+      shapeHasStroke: State.shapeMode === 'outline',
+      shapeStrokeWidth: State.shapeStrokeWidth,
+      shapeStrokeColor: '#010101',
+      shapeSides: State.shapeSides,
+      shapeIsStar: State.shapeIsStar,
+      shapeStarRatio: State.shapeStarRatio,
     });
     layer._originalCanvas = shapeCanvas;
     MaskEngine.initMask(layer);

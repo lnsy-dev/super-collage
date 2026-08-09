@@ -7,6 +7,7 @@ import { DB } from './db.js';
 import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
 import { PageManager } from './page-manager.js';
+import { rerenderShapeLayer } from './shape-utils.js';
 
 
 export function snapshotLayer(layer) { return layer.toRecord(); }
@@ -86,6 +87,9 @@ export async function applySnapshot(layer, snap) {
   if (layer.isText) {
     layer._originalCanvas = null;
     layer._exportOriginalCanvas = null;
+  }
+  if (layer.isShape) {
+    await rerenderShapeLayer(layer);
   }
   layer._dirty = true;
   UI.refreshProperties();

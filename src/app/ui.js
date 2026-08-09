@@ -555,6 +555,11 @@ export const UI = {
       colorSection.style.display = layer.isColorSeparation ? 'none' : '';
     }
 
+    // Shape Attributes panel
+    if (layer && layer.isShape) this.refreshShapeProperties(layer);
+    const shapeSection = document.getElementById('shape-attributes');
+    if (shapeSection) shapeSection.style.display = (layer && layer.isShape) ? '' : 'none';
+
     // Image mask buttons
     const createMaskBtn = document.getElementById('btn-create-image-mask');
     const createDiffMaskBtn = document.getElementById('btn-create-difference-mask');
@@ -573,6 +578,38 @@ export const UI = {
     createDiffMaskBtn.style.display = canCreate ? '' : 'none';
     releaseMaskBtn.style.display = layer.isMaskFor ? '' : 'none';
     imageMaskRow.style.display = (canCreate || layer.isMaskFor) ? '' : 'none';
+  },
+
+  refreshShapeProperties(layer) {
+    const section = document.getElementById('shape-attributes');
+    if (section) section.style.display = (layer && layer.isShape) ? '' : 'none';
+    if (!layer || !layer.isShape) return;
+
+    const fillCheck = document.getElementById('prop-shape-fill');
+    const borderCheck = document.getElementById('prop-shape-border');
+    const widthRange = document.getElementById('prop-shape-stroke-width');
+    const widthNum = document.getElementById('prop-shape-stroke-width-num');
+    const widthRow = document.getElementById('shape-stroke-width-row');
+
+    if (fillCheck) fillCheck.checked = layer.shapeHasFill;
+    if (borderCheck) borderCheck.checked = layer.shapeHasStroke;
+    if (widthRange) widthRange.value = layer.shapeStrokeWidth;
+    if (widthNum) widthNum.value = layer.shapeStrokeWidth;
+    if (widthRow) widthRow.style.display = layer.shapeHasStroke ? '' : 'none';
+
+    const container = document.getElementById('shape-stroke-swatches');
+    if (!container) return;
+    container.innerHTML = '';
+    const selectedHex = layer.color || layer.shapeStrokeColor || null;
+    for (const rc of RISO_COLORS) {
+      if (rc.hex === '#FFFFFF') continue;
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (rc.hex === selectedHex ? ' selected' : '');
+      sw.dataset.color = rc.hex;
+      sw.style.background = rc.hex;
+      sw.title = rc.name;
+      container.appendChild(sw);
+    }
   },
 
   refreshZoom() {
@@ -618,19 +655,6 @@ export const UI = {
     }
   },
 
-  updateShapeStrokePopout() {
-    const label = document.getElementById('shape-stroke-label');
-    const input = document.getElementById('shape-stroke-popout-input');
-    const range = document.getElementById('shape-stroke-popout-range');
-    const preview = document.getElementById('shape-stroke-popout-preview');
-    if (label) label.textContent = State.shapeStrokeWidth;
-    if (input) input.value = State.shapeStrokeWidth;
-    if (range) range.value = State.shapeStrokeWidth;
-    if (preview) {
-      preview.style.height = State.shapeStrokeWidth + 'px';
-    }
-  },
-
   setTool(tool) {
     State.tool = tool;
     document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
@@ -645,8 +669,6 @@ export const UI = {
     const isShape = tool.startsWith('shape-');
     document.getElementById('shape-options').style.display = isShape ? '' : 'none';
     document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
-    const strokeTrigger = document.getElementById('shape-stroke-trigger');
-    if (strokeTrigger) strokeTrigger.style.display = (isShape && State.shapeMode === 'outline') ? '' : 'none';
     const isMask = tool === 'mask-draw' || tool === 'mask-erase';
     if (!isMask) document.getElementById('brush-cursor').style.display = 'none';
   },

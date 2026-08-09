@@ -6,6 +6,7 @@ import { State, selectedLayer } from './state.js';
 import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateVariantSelect } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
+import { drawShapePath, renderShapeToCanvas, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
@@ -47,55 +48,6 @@ function beginPan() {
     startScrollLeft: scroll.scrollLeft,
     startScrollTop: scroll.scrollTop,
   };
-}
-
-export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
-  if (tool === 'shape-rect') {
-    ctx.rect(0, 0, w, h);
-  } else if (tool === 'shape-ellipse') {
-    ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-  } else if (tool === 'shape-poly') {
-    const cx = w / 2, cy = h / 2;
-    const outerR = Math.min(w, h) / 2;
-    const innerR = outerR * starRatio;
-    const n = Math.max(3, Math.round(sides));
-    const points = isStar ? n * 2 : n;
-    for (let i = 0; i < points; i++) {
-      const angle = (i / points) * Math.PI * 2 - Math.PI / 2;
-      const r = (isStar && i % 2 === 1) ? innerR : outerR;
-      const px = cx + Math.cos(angle) * r;
-      const py = cy + Math.sin(angle) * r;
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-  }
-}
-
-export function renderShapeToCanvas(tool, w, h) {
-  // Stroke width is stored in screen pixels; convert to document pixels for rendering.
-  const docStrokeWidth = State.shapeMode === 'fill' ? 0 : State.shapeStrokeWidth / State.zoom;
-  const pad = State.shapeMode === 'fill' ? 0 : Math.ceil(docStrokeWidth / 2);
-  const canvas = new OffscreenCanvas(w, h);
-  const ctx = canvas.getContext('2d');
-  // White background → colorize() maps white (gray≥128) to transparent,
-  // black shape pixels (gray<128) to the riso ink color.
-  ctx.fillStyle = 'white';
-  ctx.fillRect(0, 0, w, h);
-  ctx.save();
-  ctx.translate(pad, pad);
-  const dw = w - pad * 2, dh = h - pad * 2;
-  ctx.beginPath();
-  drawShapePath(ctx, tool, dw, dh, State.shapeSides, State.shapeIsStar, State.shapeStarRatio);
-  if (State.shapeMode === 'fill') {
-    ctx.fillStyle = 'black';
-    ctx.fill();
-  } else {
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = docStrokeWidth;
-    ctx.stroke();
-  }
-  ctx.restore();
-  return canvas;
 }
 
 export function drawShapePreview(x0, y0, x1, y1) {
@@ -453,7 +405,15 @@ async function onPointerUp(e) {
       const cy = Math.round(Math.min(startY, y) / State.zoom - CANVAS_PAD);
       const cw = Math.max(1, Math.round(sw / State.zoom));
       const ch = Math.max(1, Math.round(sh / State.zoom));
-      const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch);
+      const shapeProps = {
+        shapeHasFill: State.shapeMode !== 'outline',
+        shapeHasStroke: State.shapeMode === 'outline',
+        shapeStrokeWidth: State.shapeStrokeWidth,
+        shapeSides: State.shapeSides,
+        shapeIsStar: State.shapeIsStar,
+        shapeStarRatio: State.shapeStarRatio,
+      };
+      const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch, shapeProps);
       await LayerManager.addShape(shapeCanvas, cx, cy, cw, ch);
       UI.setTool('select');
     }
@@ -941,62 +901,80 @@ export function wireControls() {
     brushCursor.style.display = 'none';
   });
 
-  // Shape tool options
-  const shapeStrokeTrigger = document.getElementById('shape-stroke-trigger');
-  const shapeStrokePopout = document.getElementById('shape-stroke-popout');
-  const shapeStrokePopoutRange = document.getElementById('shape-stroke-popout-range');
-  const shapeStrokePopoutInput = document.getElementById('shape-stroke-popout-input');
+  // Shape properties (right-panel Border section)
+  const shapeFillCheck = document.getElementById('prop-shape-fill');
+  const shapeBorderCheck = document.getElementById('prop-shape-border');
+  const shapeStrokeWidthRange = document.getElementById('prop-shape-stroke-width');
+  const shapeStrokeWidthNum = document.getElementById('prop-shape-stroke-width-num');
+  const shapeStrokeWidthRow = document.getElementById('shape-stroke-width-row');
+  const shapeStrokeSwatches = document.getElementById('shape-stroke-swatches');
 
-  function setShapeStrokeWidth(width) {
-    const n = Math.max(1, Math.min(50, parseInt(width) || 4));
-    State.shapeStrokeWidth = n;
-    UI.updateShapeStrokePopout();
+  async function applyShapeChange(layer, mutator) {
+    pushUndo(snapshotLayer(layer));
+    mutator(layer);
+    UI.refreshShapeProperties(layer);
+    await rerenderShapeLayer(layer);
+    DB.saveLayer(layer);
   }
 
-  document.getElementById('shape-fill-btn').addEventListener('click', () => {
-    State.shapeMode = 'fill';
-    document.getElementById('shape-fill-btn').classList.add('active');
-    document.getElementById('shape-outline-btn').classList.remove('active');
-    if (shapeStrokeTrigger) shapeStrokeTrigger.style.display = 'none';
-    if (shapeStrokePopout) shapeStrokePopout.classList.add('hidden');
-  });
-  document.getElementById('shape-outline-btn').addEventListener('click', () => {
-    State.shapeMode = 'outline';
-    document.getElementById('shape-outline-btn').classList.add('active');
-    document.getElementById('shape-fill-btn').classList.remove('active');
-    if (shapeStrokeTrigger) shapeStrokeTrigger.style.display = '';
-  });
-
-  if (shapeStrokeTrigger) {
-    shapeStrokeTrigger.addEventListener('click', e => {
-      e.stopPropagation();
-      if (shapeStrokePopout.classList.contains('hidden')) {
-        positionPopout(shapeStrokePopout, shapeStrokeTrigger);
-        shapeStrokePopout.classList.remove('hidden');
-      } else {
-        shapeStrokePopout.classList.add('hidden');
-      }
+  if (shapeFillCheck) {
+    shapeFillCheck.addEventListener('change', () => {
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      applyShapeChange(l, layer => { layer.shapeHasFill = shapeFillCheck.checked; });
     });
   }
 
-  if (shapeStrokePopoutRange) {
-    shapeStrokePopoutRange.addEventListener('input', e => setShapeStrokeWidth(e.target.value));
+  if (shapeBorderCheck) {
+    shapeBorderCheck.addEventListener('change', () => {
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      applyShapeChange(l, layer => { layer.shapeHasStroke = shapeBorderCheck.checked; });
+    });
   }
 
-  if (shapeStrokePopoutInput) {
-    shapeStrokePopoutInput.addEventListener('change', e => setShapeStrokeWidth(e.target.value));
+  function setShapeStrokeWidthForLayer(width) {
+    const n = Math.max(1, Math.min(50, parseInt(width) || 4));
+    const l = selectedLayer();
+    if (!l || !l.isShape) return;
+    l.shapeStrokeWidth = n;
+    if (shapeStrokeWidthRange) shapeStrokeWidthRange.value = n;
+    if (shapeStrokeWidthNum) shapeStrokeWidthNum.value = n;
   }
 
-  document.addEventListener('click', e => {
-    if (!shapeStrokePopout || shapeStrokePopout.classList.contains('hidden')) return;
-    if (!shapeStrokePopout.contains(e.target) && e.target !== shapeStrokeTrigger) {
-      shapeStrokePopout.classList.add('hidden');
-    }
-  });
+  let strokeWidthPushed = false;
+  if (shapeStrokeWidthRange) {
+    shapeStrokeWidthRange.addEventListener('input', () => {
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      if (!strokeWidthPushed) { pushUndo(snapshotLayer(l)); strokeWidthPushed = true; }
+      setShapeStrokeWidthForLayer(shapeStrokeWidthRange.value);
+      rerenderShapeLayer(l);
+    });
+    shapeStrokeWidthRange.addEventListener('change', () => {
+      strokeWidthPushed = false;
+      const l = selectedLayer(); if (l && l.isShape) DB.saveLayer(l);
+    });
+  }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') shapeStrokePopout?.classList.add('hidden');
-  });
+  if (shapeStrokeWidthNum) {
+    shapeStrokeWidthNum.addEventListener('change', () => {
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      applyShapeChange(l, () => setShapeStrokeWidthForLayer(shapeStrokeWidthNum.value));
+    });
+  }
+
+  if (shapeStrokeSwatches) {
+    shapeStrokeSwatches.addEventListener('click', e => {
+      const sw = e.target.closest('.color-swatch');
+      if (!sw) return;
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      applyShapeChange(l, layer => {
+        layer.color = sw.dataset.color;
+        layer.shapeStrokeColor = sw.dataset.color;
+      });
+      UI.refreshColorSwatches();
+      UI.refreshLayerList();
+    });
+  }
+
   document.getElementById('poly-sides-input').addEventListener('input', e => {
     State.shapeSides = Math.max(3, Math.min(20, parseInt(e.target.value) || 6));
   });
@@ -1648,5 +1626,4 @@ export function wireControls() {
   });
 
   UI.updateBrushPopout();
-  UI.updateShapeStrokePopout();
 }
