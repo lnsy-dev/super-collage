@@ -1271,6 +1271,21 @@ export function wireControls() {
     }
   }
 
+  // ── Wizard navigation helpers ─────────────────────────────────────
+  const WIZARD_STEPS = ['units', 'page-size', 'pages', 'target-sheet'];
+
+  function getActiveWizardStepIndex() {
+    return Array.from(document.querySelectorAll('.wizard-step')).findIndex(s => s.classList.contains('active'));
+  }
+
+  function showWizardStep(index) {
+    const steps = Array.from(document.querySelectorAll('.wizard-step'));
+    if (index < 0 || index >= steps.length) return;
+    steps.forEach((s, i) => s.classList.toggle('active', i === index));
+    const nextBtn = document.getElementById('btn-create-next');
+    if (nextBtn) nextBtn.textContent = index === steps.length - 1 ? 'Create' : 'Next';
+  }
+
   // Initialize options with the default unit.
   populateCreatePageSizeOptions('imperial', 'letter');
   populateCreateTargetSizeOptions('imperial', 'letter');
@@ -1305,7 +1320,12 @@ export function wireControls() {
   });
 
   document.getElementById('btn-create-back').addEventListener('click', () => {
-    hideCreateDialog();
+    const current = getActiveWizardStepIndex();
+    if (current <= 0) {
+      hideCreateDialog();
+    } else {
+      showWizardStep(current - 1);
+    }
   });
 
   document.getElementById('btn-create-project-close').addEventListener('click', () => {
@@ -1316,8 +1336,7 @@ export function wireControls() {
     if (e.target === document.getElementById('create-project-dialog')) hideCreateDialog();
   });
 
-  document.getElementById('btn-create-project').addEventListener('click', async e => {
-    const btn = e.currentTarget;
+  async function createProjectFromWizard(btn) {
     const name = document.getElementById('create-project-name').value.trim();
     if (!name) { document.getElementById('create-project-name').focus(); return; }
     btn.disabled = true;
@@ -1369,10 +1388,29 @@ export function wireControls() {
     } finally {
       btn.disabled = false;
     }
+  }
+
+  document.getElementById('btn-create-next').addEventListener('click', async e => {
+    const steps = Array.from(document.querySelectorAll('.wizard-step'));
+    const current = getActiveWizardStepIndex();
+    if (current < steps.length - 1) {
+      showWizardStep(current + 1);
+    } else {
+      await createProjectFromWizard(e.currentTarget);
+    }
   });
 
   document.getElementById('create-project-name').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-create-project').click(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const steps = Array.from(document.querySelectorAll('.wizard-step'));
+      const current = getActiveWizardStepIndex();
+      if (current < steps.length - 1) {
+        showWizardStep(current + 1);
+      } else {
+        document.getElementById('btn-create-next').click();
+      }
+    }
   });
 
   // ── Project dialog buttons ────────────────────────────────────────

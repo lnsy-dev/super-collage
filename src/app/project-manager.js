@@ -46,6 +46,11 @@ export async function showCreateDialog() {
   document.getElementById('btn-create-project-close').style.display = State.project ? '' : 'none';
   document.getElementById('btn-create-back').style.display = State.project ? '' : 'none';
 
+  // Reset wizard to the first step.
+  document.querySelectorAll('.wizard-step').forEach((s, i) => s.classList.toggle('active', i === 0));
+  const nextBtn = document.getElementById('btn-create-next');
+  if (nextBtn) nextBtn.textContent = 'Next';
+
   // Restore the user's preferred page-size unit and refresh the size list.
   const savedUnit = (await DB.getSetting('pageSizeUnit'))?.value || 'imperial';
   const unitRadio = document.querySelector(`input[name="create-size-unit"][value="${savedUnit}"]`);

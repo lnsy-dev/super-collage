@@ -15,7 +15,10 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
 
     // Wait for main app
     await expect(page.locator('#main-app')).toBeVisible();
@@ -78,7 +81,10 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Add text via File menu
@@ -132,7 +138,10 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Resize Test');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Add text via File menu
@@ -223,7 +232,10 @@ test.describe('Text layer integration', () => {
   test('export processLayer returns 1x canvas sized to layer dimensions', async ({ page }) => {
     await page.goto('/');
     await page.fill('#create-project-name', 'Text Export Size Test');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
     await expect(page.locator('#main-app')).toBeVisible();
 
     page.on('dialog', async dialog => {
@@ -265,7 +277,10 @@ test.describe('Text layer integration', () => {
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
     await page.goto('/');
     await page.fill('#create-project-name', 'Text Variant Test');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
+    await page.click('#btn-create-next');
     await expect(page.locator('#main-app')).toBeVisible();
 
     page.on('dialog', async dialog => {

@@ -13,6 +13,13 @@ test.describe('Project Management', () => {
     await expect(page.locator('#create-project-dialog')).toBeVisible();
   }
 
+  async function completeDefaultCreateWizard(page) {
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
+    await page.click('#btn-create-next'); // Create
+  }
+
   test('project dialog is visible on load when projects exist', async ({ page }) => {
     // Seed an existing project so the manager (not create) opens.
     await page.goto('/');
@@ -67,7 +74,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Test Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('Test Project');
     await expect(page.locator('#status-project')).toContainText('Test Project');
@@ -89,8 +96,11 @@ test.describe('Project Management', () => {
       await gotoApp(page);
       await ensureCreateDialog(page);
       await page.fill('#create-project-name', `Project ${size.value}`);
+      await page.click('#btn-create-next'); // Units -> Page Size
       await page.locator(`label:has(input[name="create-page-size"][value="${size.value}"])`).click();
-      await page.click('#btn-create-project');
+      await page.click('#btn-create-next'); // Page Size -> Pages
+      await page.click('#btn-create-next'); // Pages -> Target Sheet
+      await page.click('#btn-create-next'); // Create
       await expect(page.locator('#main-app')).toBeVisible();
       await expect(page.locator('#canvas-title')).toContainText(size.label);
     }
@@ -102,8 +112,11 @@ test.describe('Project Management', () => {
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Metric Project');
     await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
+    await page.click('#btn-create-next'); // Units -> Page Size
     await page.locator('label:has(input[name="create-page-size"][value="a4"])').click();
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
+    await page.click('#btn-create-next'); // Create
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('A4 (21 × 29.7 cm)');
   });
@@ -112,11 +125,14 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Custom Size Project');
+    await page.click('#btn-create-next'); // Units -> Page Size
     await page.locator('label:has(input[name="create-page-size"][value="custom"])').click();
     await expect(page.locator('#create-custom-size-row')).toBeVisible();
     await page.fill('#create-custom-width', '5');
     await page.fill('#create-custom-height', '7');
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
+    await page.click('#btn-create-next'); // Create
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('Custom (5" × 7")');
   });
@@ -125,8 +141,11 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Target Sheet Project');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
     await page.locator('label:has(input[name="create-target-size"][value="tabloid"])').click();
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next'); // Create
     await expect(page.locator('#main-app')).toBeVisible();
     const booklet = await page.evaluate(() => window.State.project.booklet);
     expect(booklet.binding).toBe('saddle-stitch');
@@ -139,8 +158,11 @@ test.describe('Project Management', () => {
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Metric Target Project');
     await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
     await page.locator('label:has(input[name="create-target-size"][value="a4"])').click();
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next'); // Create
     await expect(page.locator('#main-app')).toBeVisible();
     const booklet = await page.evaluate(() => window.State.project.booklet);
     expect(booklet.targetSheetSize).toBe('a4');
@@ -150,7 +172,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Orientation Test');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Default half-letter is portrait (3300x5100)
@@ -169,7 +191,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Persistent Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Reload page
@@ -184,7 +206,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Openable Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Go back to dialog via File menu
@@ -203,7 +225,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Deletable Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Go back to dialog
@@ -232,7 +254,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Cancelable Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     // Reopen the dialog over the open project via the File menu.
@@ -250,7 +272,7 @@ test.describe('Project Management', () => {
     await gotoApp(page);
     await ensureCreateDialog(page);
     await page.fill('#create-project-name', 'Escapable Project');
-    await page.click('#btn-create-project');
+    await completeDefaultCreateWizard(page);
     await expect(page.locator('#main-app')).toBeVisible();
 
     await page.locator('.menu-item[data-menu="file"]').click();

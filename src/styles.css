@@ -650,6 +650,26 @@ input[type="number"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.wizard-steps {
+  position: relative;
+}
+.wizard-step {
+  display: none;
+}
+.wizard-step.active {
+  display: block;
+}
+.wizard-step h2 {
+  font-size: 12px;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+.wizard-explanation {
+  font-size: 9px;
+  color: var(--dark-gray);
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
 .mac-input {
   flex: 1;
   font-family: var(--font);

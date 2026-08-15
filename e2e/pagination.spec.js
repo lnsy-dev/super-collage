@@ -14,8 +14,11 @@ test.describe('Pagination', () => {
   test('create project with 4-page preset', async ({ page }) => {
     await gotoApp(page);
     await page.fill('#create-project-name', 'Four Page Zine');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
     await page.locator('label:has(input[name="create-page-count"][value="4"])').click();
-    await page.click('#btn-create-project');
+    await page.click('#btn-create-next'); // Pages -> Target Sheet
+    await page.click('#btn-create-next'); // Create
     await expect(page.locator('#main-app')).toBeVisible();
     // Default saddle-stitch binding shows only the cover and centre spreads.
     await expect(page.locator('#page-list .page-row')).toHaveCount(2);

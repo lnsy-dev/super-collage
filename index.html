@@ -232,40 +232,54 @@
         <label for="create-project-name">Title:</label>
         <input type="text" class="mac-input" id="create-project-name" placeholder="Project name…" maxlength="40">
       </div>
-      <div class="size-row">
-        <div class="size-row-label">Units:</div>
-        <div class="size-options">
-          <label><input type="radio" name="create-size-unit" value="imperial" checked> Imperial (in)</label>
-          <label><input type="radio" name="create-size-unit" value="metric"> Metric (cm)</label>
+      <div class="wizard-steps">
+        <div class="wizard-step active" data-step="units">
+          <h2>Units</h2>
+          <p class="wizard-explanation">Choose the measurement system you want to use for this project.</p>
+          <div class="size-row">
+            <div class="size-options">
+              <label><input type="radio" name="create-size-unit" value="imperial" checked> Imperial (in)</label>
+              <label><input type="radio" name="create-size-unit" value="metric"> Metric (cm)</label>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="size-row">
-        <div class="size-row-label">Page size:</div>
-        <div class="size-options" id="create-page-size-options"></div>
-        <div id="create-custom-size-row" style="display:none;margin-top:8px;gap:8px;align-items:center;">
-          <label style="font-size:9px;">W <input type="number" id="create-custom-width" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="3.5"></label>
-          <label style="font-size:9px;">H <input type="number" id="create-custom-height" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="2"></label>
-          <span style="font-size:9px;" id="create-custom-unit">inches @ 600dpi</span>
+        <div class="wizard-step" data-step="page-size">
+          <h2>Page Size</h2>
+          <p class="wizard-explanation">Select the trim size of each page in your project, or enter a custom size.</p>
+          <div class="size-row">
+            <div class="size-options" id="create-page-size-options"></div>
+            <div id="create-custom-size-row" style="display:none;margin-top:8px;gap:8px;align-items:center;">
+              <label style="font-size:9px;">W <input type="number" id="create-custom-width" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="3.5"></label>
+              <label style="font-size:9px;">H <input type="number" id="create-custom-height" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="2"></label>
+              <span style="font-size:9px;" id="create-custom-unit">inches @ 600dpi</span>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="size-row">
-        <div class="size-row-label">Pages for project:</div>
-        <div class="size-options">
-          <label><input type="radio" name="create-page-count" value="1" checked> 1</label>
-          <label><input type="radio" name="create-page-count" value="4"> 4</label>
-          <label><input type="radio" name="create-page-count" value="8"> 8</label>
-          <label><input type="radio" name="create-page-count" value="12"> 12</label>
-          <label><input type="radio" name="create-page-count" value="16"> 16</label>
+        <div class="wizard-step" data-step="pages">
+          <h2>Pages for Project</h2>
+          <p class="wizard-explanation">How many pages will your project have? Use multiples of 4 for saddle-stitch booklets.</p>
+          <div class="size-row">
+            <div class="size-options">
+              <label><input type="radio" name="create-page-count" value="1" checked> 1</label>
+              <label><input type="radio" name="create-page-count" value="4"> 4</label>
+              <label><input type="radio" name="create-page-count" value="8"> 8</label>
+              <label><input type="radio" name="create-page-count" value="12"> 12</label>
+              <label><input type="radio" name="create-page-count" value="16"> 16</label>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="size-row">
-        <div class="size-row-label">Target sheet:</div>
-        <div class="size-options" id="create-target-size-options"></div>
+        <div class="wizard-step" data-step="target-sheet">
+          <h2>Target Sheet</h2>
+          <p class="wizard-explanation">Choose the paper size that will feed the printer for imposition.</p>
+          <div class="size-row">
+            <div class="size-options" id="create-target-size-options"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="dialog-footer">
       <button class="mac-btn" id="btn-create-back">Back</button>
-      <button class="mac-btn primary" id="btn-create-project">Create</button>
+      <button class="mac-btn primary" id="btn-create-next">Next</button>
     </div>
   </div>
 </div>

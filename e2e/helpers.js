@@ -44,14 +44,21 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
     await expect(page.locator('#create-project-dialog')).toBeVisible();
   }
   await page.fill('#create-project-name', name);
+  // Step 1: Units (default imperial) -> Next
+  await page.click('#btn-create-next');
+  // Step 2: Page Size
   await page.locator(`label:has(input[name="create-page-size"][value="${pageSize}"])`).click();
+  await page.click('#btn-create-next');
+  // Step 3: Pages for Project
   if (pageCount !== 1) {
     await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
   }
+  await page.click('#btn-create-next');
+  // Step 4: Target Sheet
   if (targetSheet !== 'letter') {
     await page.locator(`label:has(input[name="create-target-size"][value="${targetSheet}"])`).click();
   }
-  await page.click('#btn-create-project');
+  await page.click('#btn-create-next'); // Create
   // Wait for main app to be visible
   await expect(page.locator('#main-app')).toBeVisible();
   if (orientation === 'landscape') {
