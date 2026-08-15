@@ -48,6 +48,12 @@ export const ExportEngine = {
       mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
       mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
       mCtx.drawImage(maskCanvas, 0, 0, maskLayer.width, maskLayer.height);
+      // If the mask layer has its own painted mask (e.g. a linked difference
+      // layer), restrict the mask effect to the painted-visible area.
+      if (maskLayer._maskCanvas) {
+        mCtx.globalCompositeOperation = 'destination-in';
+        mCtx.drawImage(maskLayer._maskCanvas, 0, 0, maskLayer.width, maskLayer.height);
+      }
       mCtx.restore();
       const maskImgData = mCtx.getImageData(0, 0, width, height);
       const md = maskImgData.data;

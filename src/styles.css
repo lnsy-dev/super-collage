@@ -251,6 +251,7 @@ body {
 .layer-row.selected { background: var(--black); color: var(--white); }
 .layer-row--mask { padding-left: 16px; }
 .layer-row--masked { border-left: 2px solid var(--black); }
+.layer-row--linked { border-right: 2px solid var(--black); }
 .layer-vis { cursor: pointer; font-size: 10px; flex-shrink: 0; }
 .layer-lock { cursor: pointer; font-size: 10px; flex-shrink: 0; opacity: 0.5; }
 .layer-lock:hover { opacity: 1; }

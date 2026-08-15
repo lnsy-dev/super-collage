@@ -212,6 +212,12 @@ export const Renderer = {
       mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
       mCtx.translate(-maskLayer.width / 2 * z, -maskLayer.height / 2 * z);
       mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width * z, maskLayer.height * z);
+      // If the mask layer has its own painted mask (e.g. a linked difference
+      // layer), restrict the mask effect to the painted-visible area.
+      if (maskLayer._maskCanvas) {
+        mCtx.globalCompositeOperation = 'destination-in';
+        mCtx.drawImage(maskLayer._maskCanvas, 0, 0, maskLayer.width * z, maskLayer.height * z);
+      }
       mCtx.restore();
 
       // Invert alpha: ink pixels (alpha=255) become transparent (cuts away base),

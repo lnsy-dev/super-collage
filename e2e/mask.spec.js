@@ -271,4 +271,99 @@ test.describe('Masking', () => {
 
     expect(centerPixel.a).toBe(255);
   });
+
+  test('difference mask layer stays in sync with diff layer mask', async ({ page }) => {
+    await createProject(page, 'Difference Mask Sync Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    // Multi-select both layers and create a difference mask
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-row.selected')).toHaveCount(2);
+    await expect(page.locator('#btn-create-difference-mask')).toBeVisible();
+    await page.click('#btn-create-difference-mask');
+
+    // The mask and diff layers should be linked together
+    const linkState = await page.evaluate(() => {
+      // @ts-ignore
+      const layers = State.layers;
+      const diff = layers.find(l => l.name.includes('(diff)'));
+      const mask = layers.find(l => l.isMaskFor);
+      const base = layers.find(l => l.imageMaskIds?.includes(mask?.id));
+      return {
+        baseId: base?.id,
+        maskId: mask?.id,
+        diffId: diff?.id,
+        diffLinkedToMask: diff?.linkedIds?.includes(mask?.id),
+        maskLinkedToDiff: mask?.linkedIds?.includes(diff?.id),
+      };
+    });
+    expect(linkState.diffLinkedToMask).toBe(true);
+    expect(linkState.maskLinkedToDiff).toBe(true);
+
+    // Select the diff layer (top row after creation) and fill its mask
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('#properties-content [data-action="fill-mask"]').click();
+
+    // Both the diff layer and the mask layer should now have transparent masks
+    const filledState = await page.evaluate(() => {
+      // @ts-ignore
+      const layers = State.layers;
+      const diff = layers.find(l => l.name.includes('(diff)'));
+      const mask = layers.find(l => l.isMaskFor);
+      const getCenterAlpha = (layer) => {
+        const ctx = layer._maskCanvas?.getContext('2d');
+        if (!ctx) return null;
+        const d = ctx.getImageData(Math.floor(layer.naturalWidth / 2), Math.floor(layer.naturalHeight / 2), 1, 1).data;
+        return d[3];
+      };
+      return { diffAlpha: getCenterAlpha(diff), maskAlpha: getCenterAlpha(mask) };
+    });
+    expect(filledState.diffAlpha).toBe(0);
+    expect(filledState.maskAlpha).toBe(0);
+
+    // Select the mask layer and clear its mask
+    await page.locator('.layer-row--mask').click();
+    await page.locator('#properties-content [data-action="clear-mask"]').click();
+
+    // Both masks should now be white again
+    const clearedState = await page.evaluate(() => {
+      // @ts-ignore
+      const layers = State.layers;
+      const diff = layers.find(l => l.name.includes('(diff)'));
+      const mask = layers.find(l => l.isMaskFor);
+      const getCenterAlpha = (layer) => {
+        const ctx = layer._maskCanvas?.getContext('2d');
+        if (!ctx) return null;
+        const d = ctx.getImageData(Math.floor(layer.naturalWidth / 2), Math.floor(layer.naturalHeight / 2), 1, 1).data;
+        return d[3];
+      };
+      return { diffAlpha: getCenterAlpha(diff), maskAlpha: getCenterAlpha(mask) };
+    });
+    expect(clearedState.diffAlpha).toBe(255);
+    expect(clearedState.maskAlpha).toBe(255);
+  });
+
+  test('difference mask does not duplicate when re-selected', async ({ page }) => {
+    await createProject(page, 'Difference Mask Duplicate Prevention Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    // Create a difference mask
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
+    await page.click('#btn-create-difference-mask');
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    // Select the base layer and the diff layer; Create Difference Mask should be hidden
+    await page.locator('.layer-row').nth(2).click();
+    await page.locator('.layer-row').nth(0).click({ modifiers: ['Shift'] });
+    await expect(page.locator('#btn-create-difference-mask')).toBeHidden();
+
+    // Layer count should remain 3 (no new layers created)
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+  });
 });

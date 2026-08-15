@@ -58,6 +58,7 @@ export async function applySnapshot(layer, snap) {
     naturalWidth: snap.naturalWidth,
     naturalHeight: snap.naturalHeight,
     imageMaskIds: snap.imageMaskIds ? [...snap.imageMaskIds] : [],
+    linkedIds: snap.linkedIds ? [...snap.linkedIds] : [],
     isMaskFor: snap.isMaskFor,
     isSvg: snap.isSvg,
     isColorSeparation: snap.isColorSeparation,
@@ -93,6 +94,7 @@ export async function applySnapshot(layer, snap) {
   }
   layer._dirty = true;
   UI.refreshProperties();
+  UI.refreshLayerList();
   Renderer.schedule();
   DB.saveLayer(layer);
 }

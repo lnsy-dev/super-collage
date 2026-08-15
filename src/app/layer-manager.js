@@ -293,6 +293,13 @@ export const LayerManager = {
       }
     }
     State.layers.splice(idx, 1);
+    // Remove this layer from any remaining layers' link lists.
+    for (const l of State.layers) {
+      if ((l.linkedIds || []).includes(layerId)) {
+        l.linkedIds = l.linkedIds.filter(id => id !== layerId);
+        await DB.saveLayer(l);
+      }
+    }
     if (State.selectedId === layerId) {
       State.selectedId = State.layers[Math.min(idx, State.layers.length - 1)]?.id || null;
       State.selectedIds = State.selectedId ? [State.selectedId] : [];
@@ -314,7 +321,7 @@ export const LayerManager = {
     const src = State.layers.find(l => l.id === layerId);
     if (!src) return;
 
-    const layer = new Layer({ ...src.toRecord(), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20 });
+    const layer = new Layer({ ...src.toRecord(), id: undefined, name: src.name + ' copy', x: src.x + 20, y: src.y + 20, linkedIds: [] });
 
     if (src.isText) {
       // Text layers have no image blob — just mark dirty so the renderer re-renders text
@@ -415,6 +422,7 @@ export const LayerManager = {
         halftoneSize: rec.halftoneSize,
         halftoneAngle: (rec.halftoneAngle + (ImageProcessor._separationAngles[colorHex] || 0)) % 180,
         separationColors: [],
+        linkedIds: [],
       });
       newLayer.naturalWidth = plate.width;
       newLayer.naturalHeight = plate.height;
@@ -665,6 +673,12 @@ export const LayerManager = {
         mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
         mCtx.translate(-maskLayer.width / 2, -maskLayer.height / 2);
         mCtx.drawImage(maskLayer._processedCanvas, 0, 0, maskLayer.width, maskLayer.height);
+        // If the mask layer has its own painted mask (e.g. a linked difference
+        // layer), restrict the mask effect to the painted-visible area.
+        if (maskLayer._maskCanvas) {
+          mCtx.globalCompositeOperation = 'destination-in';
+          mCtx.drawImage(maskLayer._maskCanvas, 0, 0, maskLayer.width, maskLayer.height);
+        }
         mCtx.restore();
 
         const maskData = mCtx.getImageData(0, 0, nw, nh).data;
@@ -735,6 +749,13 @@ export const LayerManager = {
         await DB.del('imageBlobs', maskId);
         await DB.del('maskBlobs', maskId);
       }
+    }
+
+    // Remove deleted mask layers from any link lists.
+    for (const l of State.layers) {
+      const before = l.linkedIds?.length || 0;
+      l.linkedIds = (l.linkedIds || []).filter(id => !deletedIds.has(id));
+      if ((l.linkedIds?.length || 0) !== before) await DB.saveLayer(l);
     }
 
     if (deletedIds.size) {

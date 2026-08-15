@@ -9,6 +9,7 @@ import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 import { computeViewUnits } from './spread-manager.js';
 import { hasItalic } from 'type-set';
+import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 
 const FONT_WEIGHTS = {
   'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
@@ -232,6 +233,7 @@ export const UI = {
       if (State.selectedIds.includes(l.id)) rowClass += ' selected';
       if (l.isMaskFor)          rowClass += ' layer-row--mask';
       if (l.imageMaskIds?.length) rowClass += ' layer-row--masked';
+      if (l.linkedIds?.length)    rowClass += ' layer-row--linked';
       if (l.locked)      rowClass += ' locked-row';
       const row = document.createElement('div');
       row.className = rowClass;
@@ -271,7 +273,7 @@ export const UI = {
 
       const name = document.createElement('div');
       name.className = 'layer-name';
-      const prefix = l.isText ? 'T ' : l.isMaskFor ? '⬦ ' : '';
+      const prefix = l.isText ? 'T ' : l.isMaskFor ? '⬦ ' : l.linkedIds?.length ? '⧉ ' : '';
       name.textContent = prefix + l.name;
       name.addEventListener('dblclick', e => {
         e.stopPropagation();
@@ -325,6 +327,13 @@ export const UI = {
     if (splitBtn) {
       const sel = selectedLayer();
       splitBtn.style.display = (sel && sel.isColorSeparation) ? '' : 'none';
+    }
+
+    const linkBtn = document.getElementById('btn-link-layers');
+    if (linkBtn) {
+      const canLink = State.selectedIds.length > 1;
+      linkBtn.style.display = canLink ? '' : 'none';
+      linkBtn.textContent = (canLink && allSelectedAreLinked(State.selectedIds)) ? 'Unlink' : 'Link';
     }
   },
 
@@ -573,7 +582,8 @@ export const UI = {
     const canCreate = State.selectedIds.length === 2 &&
       selA && selB &&
       !selA.isMaskFor && !selB.isMaskFor &&
-      !alreadyLinked;
+      !alreadyLinked &&
+      !areDifferenceMaskPair(selA, selB);
     createMaskBtn.style.display = canCreate ? '' : 'none';
     createDiffMaskBtn.style.display = canCreate ? '' : 'none';
     releaseMaskBtn.style.display = layer.isMaskFor ? '' : 'none';

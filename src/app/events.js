@@ -17,6 +17,7 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
+import { getLinkedLayers, getLinkGroup } from './layer-link-utils.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -39,6 +40,7 @@ function beginPan() {
   State.drag = null;
   State.shapeDrag = null;
   State.lastMaskPt = null;
+  State.lastMaskPagePt = null;
   suppressUntilLift = true;
   Renderer.drawOverlay();
   const scroll = document.getElementById('canvas-scroll');
@@ -82,6 +84,15 @@ export function getExtraSnaps(primaryId) {
       return l ? { id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation } : null;
     })
     .filter(Boolean);
+}
+
+// Returns snapshots of layers linked to the primary layer (excluding selected layers).
+function getLinkedSnaps(primaryId) {
+  const primary = State.layers.find(l => l.id === primaryId);
+  if (!primary) return [];
+  return getLinkedLayers(primary)
+    .filter(l => !State.selectedIds.includes(l.id))
+    .map(l => ({ id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation }));
 }
 
 /* ─── RESIZE HANDLE MATH ───────────────────────────────────────────
@@ -192,14 +203,18 @@ function onPointerDown(e) {
 
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     if (!layer) return;
-    pushUndoWithMask(layer);
-    const local = Transform.toLocal(x, y, layer, State.zoom);
-    const lx = local.x * (layer.naturalWidth / layer.width);
-    const ly = local.y * (layer.naturalHeight / layer.height);
-    // Brush size is in screen pixels; convert to natural pixels for painting.
-    const naturalRadius = (State.brushSize / 2) / State.zoom * (layer.naturalWidth / layer.width);
-    MaskEngine._paint(layer, lx, ly, naturalRadius, State.tool === 'mask-erase');
-    State.lastMaskPt = { x: lx, y: ly };
+    const isErasing = State.tool === 'mask-erase';
+    const group = getLinkGroup(layer);
+    for (const l of group) pushUndoWithMask(l);
+    for (const l of group) {
+      const local = Transform.toLocal(x, y, l, State.zoom);
+      const lx = local.x * (l.naturalWidth / l.width);
+      const ly = local.y * (l.naturalHeight / l.height);
+      // Brush size is in screen pixels; convert to natural pixels for painting.
+      const naturalRadius = (State.brushSize / 2) / State.zoom * (l.naturalWidth / l.width);
+      MaskEngine._paint(l, lx, ly, naturalRadius, isErasing);
+    }
+    State.lastMaskPagePt = overlayToPage(x, y, State.zoom);
     Renderer.schedule();
     return;
   }
@@ -254,7 +269,7 @@ function onPointerDown(e) {
     // Only start a drag if the hit layer is still selected after toggle/select.
     if (State.selectedIds.includes(hit.id)) {
       pushUndo(snapshotLayer(hit));
-      const extraSnaps = getExtraSnaps(hit.id);
+      const extraSnaps = [...getExtraSnaps(hit.id), ...getLinkedSnaps(hit.id)];
       extraSnaps.forEach(es => {
         const el = State.layers.find(l => l.id === es.id);
         if (el) pushUndo(snapshotLayer(el));
@@ -309,18 +324,26 @@ function onPointerMove(e) {
   if ((State.tool === 'mask-draw' || State.tool === 'mask-erase') && (e.buttons & 1)) {
     const layer = selectedLayer();
     if (!layer) return;
-    const local = Transform.toLocal(x, y, layer, State.zoom);
-    const lx = local.x * (layer.naturalWidth / layer.width);
-    const ly = local.y * (layer.naturalHeight / layer.height);
-    // Brush size is in screen pixels; convert to natural pixels for painting.
-    const naturalRadius = (State.brushSize / 2) / State.zoom * (layer.naturalWidth / layer.width);
     const isErasing = State.tool === 'mask-erase';
-    if (State.lastMaskPt) {
-      MaskEngine.paintStroke(layer, State.lastMaskPt.x, State.lastMaskPt.y, lx, ly, naturalRadius, isErasing);
-    } else {
-      MaskEngine._paint(layer, lx, ly, naturalRadius, isErasing);
+    const group = getLinkGroup(layer);
+    for (const l of group) {
+      const local = Transform.toLocal(x, y, l, State.zoom);
+      const lx = local.x * (l.naturalWidth / l.width);
+      const ly = local.y * (l.naturalHeight / l.height);
+      // Brush size is in screen pixels; convert to natural pixels for painting.
+      const naturalRadius = (State.brushSize / 2) / State.zoom * (l.naturalWidth / l.width);
+      if (State.lastMaskPagePt) {
+        const prevX = (State.lastMaskPagePt.x + CANVAS_PAD) * State.zoom;
+        const prevY = (State.lastMaskPagePt.y + CANVAS_PAD) * State.zoom;
+        const prevLocal = Transform.toLocal(prevX, prevY, l, State.zoom);
+        const plx = prevLocal.x * (l.naturalWidth / l.width);
+        const ply = prevLocal.y * (l.naturalHeight / l.height);
+        MaskEngine.paintStroke(l, plx, ply, lx, ly, naturalRadius, isErasing);
+      } else {
+        MaskEngine._paint(l, lx, ly, naturalRadius, isErasing);
+      }
     }
-    State.lastMaskPt = { x: lx, y: ly };
+    State.lastMaskPagePt = overlayToPage(x, y, State.zoom);
     Renderer.schedule();
     return;
   }
@@ -421,8 +444,14 @@ async function onPointerUp(e) {
   }
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     State.lastMaskPt = null;
+    State.lastMaskPagePt = null;
     const layer = selectedLayer();
-    if (layer && layer._maskCanvas && (e.type !== 'pointerleave' || e.buttons === 0)) DB.saveMask(layer);
+    if (layer) {
+      const group = getLinkGroup(layer);
+      for (const l of group) {
+        if (l._maskCanvas && (e.type !== 'pointerleave' || e.buttons === 0)) DB.saveMask(l);
+      }
+    }
     return;
   }
   if (State.drag) {
@@ -1646,8 +1675,12 @@ export function wireControls() {
     if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
     if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
     if (State.tool !== 'select') return;
-    const ids = State.selectedIds.length ? State.selectedIds : (State.selectedId ? [State.selectedId] : []);
-    if (!ids.length) return;
+    const ids = new Set(State.selectedIds.length ? State.selectedIds : (State.selectedId ? [State.selectedId] : []));
+    for (const id of ids) {
+      const layer = State.layers.find(l => l.id === id);
+      if (layer) getLinkedLayers(layer).forEach(l => ids.add(l.id));
+    }
+    if (!ids.size) return;
     e.preventDefault();
     const dist = e.shiftKey ? 10 : 1;
     const dx = e.key === 'ArrowLeft' ? -dist : e.key === 'ArrowRight' ? dist : 0;

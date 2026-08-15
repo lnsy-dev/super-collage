@@ -181,6 +181,7 @@ export const ProjectIO = {
       rec.projectId = newProjectId;
       rec.pageId = rec.pageId ? (pageIdMap.get(rec.pageId) || null) : null;
       rec.imageMaskIds = (rec.imageMaskIds || []).map(id => layerIdMap.get(id)).filter(Boolean);
+      rec.linkedIds = (rec.linkedIds || []).map(id => layerIdMap.get(id)).filter(Boolean);
       rec.isMaskFor = rec.isMaskFor ? (layerIdMap.get(rec.isMaskFor) || null) : null;
       await DB.put('layers', rec);
 

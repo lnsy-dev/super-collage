@@ -50,6 +50,7 @@ export class Layer {
     };
     this.imageMaskIds = data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []);
     this.isMaskFor = data.isMaskFor || null;
+    this.linkedIds = data.linkedIds || [];
     this.isSvg = data.isSvg || false;
     this.isColorSeparation = data.isColorSeparation || false;
     this.isText = data.isText || false;
@@ -113,6 +114,7 @@ export class Layer {
       pattern: JSON.parse(JSON.stringify(this.pattern)),
       imageMaskIds: this.imageMaskIds,
       isMaskFor: this.isMaskFor,
+      linkedIds: this.linkedIds,
       isSvg: this.isSvg,
       isColorSeparation: this.isColorSeparation,
       isText: this.isText,

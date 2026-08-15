@@ -17,6 +17,7 @@ import { rebuildColorSepLut } from './color-lut.js';
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
+import { getLinkGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 
 function updateViewMenuLabels() {
   document.getElementById('menu-toggle-margins').textContent = State.showMargins ? 'Hide Margins' : 'View Margins';
@@ -241,6 +242,26 @@ export async function handleAction(action, value = null) {
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
+    case 'link-layers': {
+      if (State.selectedIds.length < 2) break;
+      const layers = State.selectedIds
+        .map(id => State.layers.find(l => l.id === id))
+        .filter(Boolean);
+      if (layers.length < 2) break;
+      const unlink = allSelectedAreLinked(State.selectedIds);
+      for (const l of layers) pushUndo(snapshotLayer(l));
+      for (let i = 0; i < layers.length; i++) {
+        for (let j = i + 1; j < layers.length; j++) {
+          if (unlink) unlinkLayers(layers[i], layers[j]);
+          else linkLayers(layers[i], layers[j]);
+        }
+      }
+      for (const l of layers) await DB.saveLayer(l);
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+      break;
+    }
     case 'flatten-layer': if (layer) await LayerManager.flatten(layer.id); break;
     case 'split-color-separation': if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id); break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
@@ -264,9 +285,36 @@ export async function handleAction(action, value = null) {
         Renderer.schedule();
       }
       break;
-    case 'clear-mask':  if (layer) { pushUndoWithMask(layer); MaskEngine.clearMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
-    case 'fill-mask':   if (layer) { pushUndoWithMask(layer); MaskEngine.fillMask(layer);  DB.saveMask(layer); Renderer.schedule(); } break;
-    case 'invert-mask': if (layer) { pushUndoWithMask(layer); MaskEngine.invertMask(layer); DB.saveMask(layer); Renderer.schedule(); } break;
+    case 'clear-mask': {
+      if (!layer) break;
+      for (const l of getLinkGroup(layer)) {
+        pushUndoWithMask(l);
+        MaskEngine.clearMask(l);
+        DB.saveMask(l);
+      }
+      Renderer.schedule();
+      break;
+    }
+    case 'fill-mask': {
+      if (!layer) break;
+      for (const l of getLinkGroup(layer)) {
+        pushUndoWithMask(l);
+        MaskEngine.fillMask(l);
+        DB.saveMask(l);
+      }
+      Renderer.schedule();
+      break;
+    }
+    case 'invert-mask': {
+      if (!layer) break;
+      for (const l of getLinkGroup(layer)) {
+        pushUndoWithMask(l);
+        MaskEngine.invertMask(l);
+        DB.saveMask(l);
+      }
+      Renderer.schedule();
+      break;
+    }
     case 'create-image-mask': {
       if (State.selectedIds.length !== 2) break;
       pushUndoState();
@@ -313,6 +361,9 @@ export async function handleAction(action, value = null) {
       const baseLayer = State.layers[baseIdx];
       const maskLayerObj = State.layers[maskIdx];
 
+      // Don't recreate a difference mask if these layers are already paired.
+      if (areDifferenceMaskPair(baseLayer, maskLayerObj)) break;
+
       // Set up image mask relationship (same as create-image-mask)
       if (!baseLayer.imageMaskIds) baseLayer.imageMaskIds = [];
       baseLayer.imageMaskIds.push(maskLayerObj.id);
@@ -355,6 +406,9 @@ export async function handleAction(action, value = null) {
 
       // Insert duplicate right after the mask group
       State.layers.splice(insertPos + 1, 0, dup);
+
+      // Keep the mask and its colored diff copy in sync so painted masks match.
+      linkLayers(dup, maskLayerObj);
 
       // Persist duplicate
       await DB.put('layers', dup.toRecord());
