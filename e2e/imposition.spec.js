@@ -117,7 +117,8 @@ test.describe('Imposition', () => {
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
 
-    // Booklets show booklet layout + target paper, and hide the 1-up layout row.
+    // Booklets show the imposition section and hide the 1-up layout row.
+    await expect(page.locator('#export-imposition-section')).toBeVisible();
     await expect(page.locator('#export-booklet-layout-row')).toBeVisible();
     await expect(page.locator('#export-target-size-row')).toBeVisible();
     await expect(page.locator('#export-layout-row')).toBeHidden();
@@ -126,5 +127,15 @@ test.describe('Imposition', () => {
 
     await page.locator('input[name="export-booklet-layout"][value="quarto"]').click();
     await expect(page.locator('#export-layout-info')).toContainText('quarto');
+  });
+
+  test('export dialog hides imposition section for single-page projects', async ({ page }) => {
+    await createProject(page, 'Single Page UI Test', { pageCount: 1 });
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('[data-action="export"]');
+    await expect(page.locator('#export-dialog')).toBeVisible();
+
+    await expect(page.locator('#export-imposition-section')).toBeHidden();
+    await expect(page.locator('#export-layout-row')).toBeVisible();
   });
 });

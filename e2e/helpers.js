@@ -36,7 +36,7 @@ export async function gotoApp(page) {
 /**
  * Create a new project from the create-new modal.
  */
-export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1, targetSheet = 'letter' } = {}) {
+export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1 } = {}) {
   await gotoApp(page);
   // Empty libraries open directly into the create modal; otherwise open it manually.
   if (await page.locator('#project-dialog').isVisible()) {
@@ -52,11 +52,6 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   // Step 3: Pages for Project
   if (pageCount !== 1) {
     await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
-  }
-  await page.click('#btn-create-next');
-  // Step 4: Target Sheet
-  if (targetSheet !== 'letter') {
-    await page.locator(`label:has(input[name="create-target-size"][value="${targetSheet}"])`).click();
   }
   await page.click('#btn-create-next'); // Create
   // Wait for main app to be visible

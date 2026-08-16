@@ -186,15 +186,13 @@ export function updateExportLayoutInfo() {
     customRow.style.display = targetSize === 'custom' ? '' : 'none';
   }
 
-  // Single page: only the Layout row matters. Booklet: only booklet layout and
-  // target paper. Binding is always saddle-stitch, so its row is never shown.
+  // Page imposition only matters when there is more than one page. Binding is
+  // always saddle-stitch, so its row is never shown.
   const isBooklet = State.pages.length > 1;
+  const section = document.getElementById('export-imposition-section');
+  if (section) section.style.display = isBooklet ? '' : 'none';
   const bindingRow = document.getElementById('export-binding-row');
   if (bindingRow) bindingRow.style.display = 'none';
-  const bookletRow = document.getElementById('export-booklet-layout-row');
-  if (bookletRow) bookletRow.style.display = isBooklet ? '' : 'none';
-  const targetRow = document.getElementById('export-target-size-row');
-  if (targetRow) targetRow.style.display = isBooklet ? '' : 'none';
   const layoutRow = document.getElementById('export-layout-row');
   if (layoutRow) layoutRow.style.display = isBooklet ? 'none' : '';
 
@@ -250,6 +248,14 @@ export async function showExportDialog() {
     ? `Exports the active spread as separate left/right pages at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`
     : `Exports one PNG per risograph color at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`;
   document.getElementById('export-dims-text').textContent = dimsText;
+
+  // Default the imposition target paper to the project's saved choice.
+  const targetSelect = document.getElementById('export-target-size');
+  const savedTarget = State.project?.booklet?.targetSheetSize;
+  if (targetSelect && savedTarget && [...targetSelect.options].some(o => o.value === savedTarget)) {
+    targetSelect.value = savedTarget;
+  }
+
   updateExportLayoutInfo();
 
   // Collect all plates across the project so the dialog preview is accurate

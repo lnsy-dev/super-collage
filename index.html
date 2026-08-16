@@ -268,13 +268,6 @@
             </div>
           </div>
         </div>
-        <div class="wizard-step" data-step="target-sheet">
-          <h2>Target Sheet</h2>
-          <p class="wizard-explanation">Choose the paper size that will feed the printer for imposition.</p>
-          <div class="size-row">
-            <div class="size-options" id="create-target-size-options"></div>
-          </div>
-        </div>
       </div>
     </div>
     <div class="dialog-footer">
@@ -295,32 +288,35 @@
         Exports one PNG per risograph color at 600 dpi. Each plate: black ink on white.
       </p>
       <div id="export-color-list" style="font-size:9px;line-height:2.5;"></div>
-      <div style="margin-top:8px;font-size:9px;" id="export-binding-row">
-        <strong>Binding:</strong>
-        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-binding" value="saddle-stitch" checked> Saddle-stitch</label>
-      </div>
-      <div style="margin-top:8px;font-size:9px;" id="export-booklet-layout-row">
-        <strong>Booklet layout:</strong>
-        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="folio" checked> Folio (2-up)</label>
-        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="quarto"> Quarto (4-up)</label>
-        <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="octavo"> Octavo (8-up)</label>
-      </div>
-      <div style="margin-top:8px;font-size:9px;" id="export-target-size-row">
-        <strong>Target paper:</strong>
-        <select id="export-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
-          <option value="letter">Letter (8.5" × 11")</option>
-          <option value="legal">Legal (8.5" × 14")</option>
-          <option value="tabloid">Tabloid (11" × 17")</option>
-          <option value="a4">A4 (21 × 29.7 cm)</option>
-          <option value="a3">A3 (29.7 × 42 cm)</option>
-          <option value="custom">Custom</option>
-        </select>
-        <span id="export-custom-size-row" style="display:none;margin-left:8px;">
-          W <input type="number" id="export-custom-width" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="8.5">
-          H <input type="number" id="export-custom-height" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="11">
-          in
-        </span>
-        <span id="export-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
+      <div id="export-imposition-section">
+        <p style="font-size:10px;font-weight:bold;margin:12px 0 4px;">Page imposition</p>
+        <div style="margin-top:8px;font-size:9px;" id="export-binding-row">
+          <strong>Binding:</strong>
+          <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-binding" value="saddle-stitch" checked> Saddle-stitch</label>
+        </div>
+        <div style="margin-top:8px;font-size:9px;" id="export-booklet-layout-row">
+          <strong>Booklet layout:</strong>
+          <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="folio" checked> Folio (2-up)</label>
+          <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="quarto"> Quarto (4-up)</label>
+          <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="octavo"> Octavo (8-up)</label>
+        </div>
+        <div style="margin-top:8px;font-size:9px;" id="export-target-size-row">
+          <strong>Target paper:</strong>
+          <select id="export-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
+            <option value="letter">Letter (8.5" × 11")</option>
+            <option value="legal">Legal (8.5" × 14")</option>
+            <option value="tabloid">Tabloid (11" × 17")</option>
+            <option value="a4">A4 (21 × 29.7 cm)</option>
+            <option value="a3">A3 (29.7 × 42 cm)</option>
+            <option value="custom">Custom</option>
+          </select>
+          <span id="export-custom-size-row" style="display:none;margin-left:8px;">
+            W <input type="number" id="export-custom-width" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="8.5">
+            H <input type="number" id="export-custom-height" class="mac-input" style="width:50px;" min="1" max="100" step="0.25" value="11">
+            in
+          </span>
+          <span id="export-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
+        </div>
       </div>
       <div style="margin-top:8px;font-size:9px;" id="export-layout-row">
         <strong>Layout:</strong>

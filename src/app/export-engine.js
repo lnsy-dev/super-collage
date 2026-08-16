@@ -230,6 +230,11 @@ export const ExportEngine = {
       const customW = parseFloat(document.getElementById('export-custom-width')?.value || '0') * 600;
       const customH = parseFloat(document.getElementById('export-custom-height')?.value || '0') * 600;
 
+      if (State.project) {
+        State.project.booklet = { ...(State.project.booklet || {}), targetSheetSize };
+        await DB.put('projects', State.project);
+      }
+
       if (State.pages.length > 1) {
         await this.exportBooklet({
           prog,

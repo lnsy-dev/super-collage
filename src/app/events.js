@@ -1274,34 +1274,8 @@ export function wireControls() {
     return document.querySelector('input[name="create-size-unit"]:checked')?.value || 'imperial';
   }
 
-  const CREATE_TARGET_SIZE_KEYS = {
-    imperial: ['letter', 'legal', 'tabloid'],
-    metric: ['a4', 'a3'],
-  };
-
-  function populateCreateTargetSizeOptions(unit = 'imperial', selectedValue = null) {
-    const container = document.getElementById('create-target-size-options');
-    if (!container) return;
-    container.innerHTML = '';
-    const keys = CREATE_TARGET_SIZE_KEYS[unit] || CREATE_TARGET_SIZE_KEYS.imperial;
-    let hasSelection = false;
-    for (const key of keys) {
-      const dims = PAGE_SIZE_DIMS[key];
-      if (!dims) continue;
-      const label = document.createElement('label');
-      const checked = key === selectedValue ? 'checked' : '';
-      label.innerHTML = `<input type="radio" name="create-target-size" value="${key}" ${checked}> ${formatPageSizeLabel(key, unit)}`;
-      container.appendChild(label);
-      if (key === selectedValue) hasSelection = true;
-    }
-    if (!hasSelection) {
-      const first = container.querySelector('input[name="create-target-size"]');
-      if (first) first.checked = true;
-    }
-  }
-
   // ── Wizard navigation helpers ─────────────────────────────────────
-  const WIZARD_STEPS = ['units', 'page-size', 'pages', 'target-sheet'];
+  const WIZARD_STEPS = ['units', 'page-size', 'pages'];
 
   function getActiveWizardStepIndex() {
     return Array.from(document.querySelectorAll('.wizard-step')).findIndex(s => s.classList.contains('active'));
@@ -1317,7 +1291,6 @@ export function wireControls() {
 
   // Initialize options with the default unit.
   populateCreatePageSizeOptions('imperial', 'letter');
-  populateCreateTargetSizeOptions('imperial', 'letter');
 
   document.querySelectorAll('input[name="create-size-unit"]').forEach(radio => {
     radio.addEventListener('change', async () => {
@@ -1330,12 +1303,6 @@ export function wireControls() {
       populateCreatePageSizeOptions(unit, nextPageSize);
       updateCreateCustomUnit(unit);
       updateCreateCustomVisibility();
-
-      const currentTarget = document.querySelector('input[name="create-target-size"]:checked')?.value;
-      const targetFallback = unit === 'metric' ? 'a4' : 'letter';
-      const targetKeys = CREATE_TARGET_SIZE_KEYS[unit] || CREATE_TARGET_SIZE_KEYS.imperial;
-      const nextTarget = targetKeys.includes(currentTarget) ? currentTarget : targetFallback;
-      populateCreateTargetSizeOptions(unit, nextTarget);
 
       await DB.putSetting('pageSizeUnit', unit);
     });
@@ -1372,7 +1339,6 @@ export function wireControls() {
     try {
       const pageSize = document.querySelector('input[name="create-page-size"]:checked')?.value || 'letter';
       const pageCount = parseInt(document.querySelector('input[name="create-page-count"]:checked')?.value || '1', 10);
-      const targetSheetSize = document.querySelector('input[name="create-target-size"]:checked')?.value || 'letter';
       const unit = getCreateSizeUnit();
       const project = {
         id: crypto.randomUUID(),
@@ -1380,7 +1346,7 @@ export function wireControls() {
         pageSize,
         pageSizeUnit: unit,
         pageOrder: [],
-        booklet: { binding: 'saddle-stitch', targetSheetSize, pagesPerSheet: 1 },
+        booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

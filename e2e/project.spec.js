@@ -16,8 +16,7 @@ test.describe('Project Management', () => {
   async function completeDefaultCreateWizard(page) {
     await page.click('#btn-create-next'); // Units -> Page Size
     await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Target Sheet
-    await page.click('#btn-create-next'); // Create
+    await page.click('#btn-create-next'); // Pages -> Create
   }
 
   test('project dialog is visible on load when projects exist', async ({ page }) => {
@@ -99,8 +98,7 @@ test.describe('Project Management', () => {
       await page.click('#btn-create-next'); // Units -> Page Size
       await page.locator(`label:has(input[name="create-page-size"][value="${size.value}"])`).click();
       await page.click('#btn-create-next'); // Page Size -> Pages
-      await page.click('#btn-create-next'); // Pages -> Target Sheet
-      await page.click('#btn-create-next'); // Create
+      await page.click('#btn-create-next'); // Pages -> Create
       await expect(page.locator('#main-app')).toBeVisible();
       await expect(page.locator('#canvas-title')).toContainText(size.label);
     }
@@ -115,8 +113,7 @@ test.describe('Project Management', () => {
     await page.click('#btn-create-next'); // Units -> Page Size
     await page.locator('label:has(input[name="create-page-size"][value="a4"])').click();
     await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Target Sheet
-    await page.click('#btn-create-next'); // Create
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('A4 (21 × 29.7 cm)');
   });
@@ -131,41 +128,9 @@ test.describe('Project Management', () => {
     await page.fill('#create-custom-width', '5');
     await page.fill('#create-custom-height', '7');
     await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Target Sheet
-    await page.click('#btn-create-next'); // Create
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
     await expect(page.locator('#canvas-title')).toContainText('Custom (5" × 7")');
-  });
-
-  test('create project persists target sheet size', async ({ page }) => {
-    await gotoApp(page);
-    await ensureCreateDialog(page);
-    await page.fill('#create-project-name', 'Target Sheet Project');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Target Sheet
-    await page.locator('label:has(input[name="create-target-size"][value="tabloid"])').click();
-    await page.click('#btn-create-next'); // Create
-    await expect(page.locator('#main-app')).toBeVisible();
-    const booklet = await page.evaluate(() => window.State.project.booklet);
-    expect(booklet.binding).toBe('saddle-stitch');
-    expect(booklet.targetSheetSize).toBe('tabloid');
-  });
-
-  test('create project with metric target sheet size', async ({ page }) => {
-    await clearIndexedDB(page);
-    await gotoApp(page);
-    await ensureCreateDialog(page);
-    await page.fill('#create-project-name', 'Metric Target Project');
-    await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Target Sheet
-    await page.locator('label:has(input[name="create-target-size"][value="a4"])').click();
-    await page.click('#btn-create-next'); // Create
-    await expect(page.locator('#main-app')).toBeVisible();
-    const booklet = await page.evaluate(() => window.State.project.booklet);
-    expect(booklet.targetSheetSize).toBe('a4');
   });
 
   test('switch orientation between portrait and landscape', async ({ page }) => {
