@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, gotoApp } from './helpers.js';
+import { clearIndexedDB, gotoApp, createProject, addImage } from './helpers.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEST_IMAGE = path.join(__dirname, 'fixtures', 'test-image.png');
 
 test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
@@ -150,6 +155,75 @@ test.describe('Project Management', () => {
     // Switch back
     await page.locator('#zoom-controls [data-action="orient-portrait"]').click();
     await expect(page.locator('#btn-portrait')).toHaveClass(/active/);
+  });
+
+  test('page rotation persists across reload and rotates art with it', async ({ page }) => {
+    await createProject(page, 'Rotation Persistence Test');
+    await addImage(page, TEST_IMAGE);
+
+    // Place the layer in the top-left corner with a known size.
+    await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      l.x = 0;
+      l.y = 0;
+      l.width = 100;
+      l.height = 200;
+      l._dirty = true;
+    });
+
+    // Rotate the page 90° clockwise; art should rotate with the page.
+    await page.locator('#zoom-controls [data-action="rotate-page-cw"]').click();
+
+    const afterRotation = await page.evaluate(async () => {
+      // @ts-ignore
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const l = State.layers[0];
+      return {
+        canvasW: CANVAS_W,
+        canvasH: CANVAS_H,
+        layerRotation: l.rotation,
+        layerX: l.x,
+        layerY: l.y,
+        layerW: l.width,
+        layerH: l.height,
+      };
+    });
+
+    // Half-letter portrait (3300x5100) becomes landscape (5100x3300).
+    expect(afterRotation.canvasW).toBe(5100);
+    expect(afterRotation.canvasH).toBe(3300);
+    expect(afterRotation.layerRotation).toBe(90);
+    // Layer center was (50, 100); rotated 90° CW around page center it lands at
+    // (oldH - 100, 50) = (5000, 50), so x = 5000 - 50, y = 50 - 100.
+    expect(afterRotation.layerX).toBe(4950);
+    expect(afterRotation.layerY).toBe(-50);
+
+    // Reload and reopen the project.
+    await page.reload();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('.project-entry')).toContainText('Rotation Persistence Test');
+    await page.locator('.project-entry', { hasText: 'Rotation Persistence Test' }).dblclick();
+    await expect(page.locator('#main-app')).toBeVisible();
+
+    const afterReload = await page.evaluate(async () => {
+      // @ts-ignore
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const l = State.layers[0];
+      return {
+        canvasW: CANVAS_W,
+        canvasH: CANVAS_H,
+        layerRotation: l.rotation,
+        layerX: l.x,
+        layerY: l.y,
+      };
+    });
+
+    expect(afterReload.canvasW).toBe(5100);
+    expect(afterReload.canvasH).toBe(3300);
+    expect(afterReload.layerRotation).toBe(90);
+    expect(afterReload.layerX).toBe(4950);
+    expect(afterReload.layerY).toBe(-50);
   });
 
   test('project persists across reload', async ({ page }) => {

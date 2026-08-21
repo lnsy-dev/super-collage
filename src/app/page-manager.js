@@ -450,6 +450,10 @@ export const PageManager = {
     const page = await DB.get('pages', State.pageId);
     if (!page) return;
     page.layerOrder = State.layers.map(l => l.id);
+    // Keep page dimensions in sync with the live canvas size so orientation
+    // changes and page rotations survive reloads and page switches.
+    page.width = CANVAS_W;
+    page.height = CANVAS_H;
     page.updatedAt = Date.now();
     await DB.put('pages', page);
     await DB.put('projects', { ...State.project, updatedAt: Date.now() });

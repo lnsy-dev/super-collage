@@ -479,8 +479,9 @@ export async function handleAction(action, value = null) {
         pushUndo(snapshotLayer(layer));
         const cx = layer.x + layer.width / 2;
         const cy = layer.y + layer.height / 2;
-        const newCx = cy;
-        const newCy = oldW - cx;
+        // Rotate the layer's center 90° clockwise around the page center.
+        const newCx = oldH - cy;
+        const newCy = cx;
         layer.x = newCx - layer.width / 2;
         layer.y = newCy - layer.height / 2;
         layer.rotation = ((layer.rotation + 90) % 360 + 360) % 360;
@@ -500,8 +501,9 @@ export async function handleAction(action, value = null) {
         pushUndo(snapshotLayer(layer));
         const cx = layer.x + layer.width / 2;
         const cy = layer.y + layer.height / 2;
-        const newCx = oldH - cy;
-        const newCy = cx;
+        // Rotate the layer's center 90° counter-clockwise around the page center.
+        const newCx = cy;
+        const newCy = oldW - cx;
         layer.x = newCx - layer.width / 2;
         layer.y = newCy - layer.height / 2;
         layer.rotation = ((layer.rotation - 90) % 360 + 360) % 360;
