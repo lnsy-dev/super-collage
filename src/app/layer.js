@@ -73,6 +73,7 @@ export class Layer {
     this.shapeSides = data.shapeSides ?? 6;
     this.shapeIsStar = data.shapeIsStar || false;
     this.shapeStarRatio = data.shapeStarRatio ?? 0.4;
+    this.shapePath = data.shapePath || null;
     this._originalCanvas = null;
     this._processedCanvas = null;
     this._maskCanvas = null;
@@ -136,6 +137,7 @@ export class Layer {
       shapeSides: this.shapeSides,
       shapeIsStar: this.shapeIsStar,
       shapeStarRatio: this.shapeStarRatio,
+      shapePath: this.shapePath,
     };
   }
 

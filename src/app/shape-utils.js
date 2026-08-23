@@ -8,7 +8,14 @@ import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 
-export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio) {
+export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio, layer = null) {
+  if (tool === 'custom-path' && layer?.shapePath) {
+    for (const contour of layer.shapePath) {
+      contour.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+      ctx.closePath();
+    }
+    return;
+  }
   if (tool === 'shape-rect') {
     ctx.rect(0, 0, w, h);
   } else if (tool === 'shape-ellipse') {
@@ -48,10 +55,17 @@ export function renderShapeToCanvas(tool, w, h, layer = null) {
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, w, h);
   ctx.save();
-  ctx.translate(pad, pad);
-  const dw = w - pad * 2, dh = h - pad * 2;
-  ctx.beginPath();
-  drawShapePath(ctx, tool, dw, dh, sides, isStar, starRatio);
+  if (tool === 'custom-path') {
+    // Traced outlines are stored in full-canvas coordinates; don't inset them
+    // (a small stroke overshoot at the edges is preferable to misalignment).
+    ctx.beginPath();
+    drawShapePath(ctx, tool, w, h, sides, isStar, starRatio, layer);
+  } else {
+    ctx.translate(pad, pad);
+    const dw = w - pad * 2, dh = h - pad * 2;
+    ctx.beginPath();
+    drawShapePath(ctx, tool, dw, dh, sides, isStar, starRatio, layer);
+  }
   if (hasFill) {
     ctx.fillStyle = 'black';
     ctx.fill();

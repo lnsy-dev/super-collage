@@ -18,6 +18,7 @@ import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { getLinkGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
+import { generateOutline } from './outline.js';
 
 function updateViewMenuLabels() {
   document.getElementById('menu-toggle-margins').textContent = State.showMargins ? 'Hide Margins' : 'View Margins';
@@ -292,6 +293,9 @@ export async function handleAction(action, value = null) {
     }
     case 'merge-layers':
       if (State.selectedIds.length >= 2) await LayerManager.merge(State.selectedIds);
+      break;
+    case 'generate-outline':
+      if (layer) await generateOutline(layer.id);
       break;
     case 'flatten-layer': if (layer) await LayerManager.flatten(layer.id); break;
     case 'split-color-separation': if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id); break;
