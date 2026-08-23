@@ -157,6 +157,56 @@ test.describe('Project Management', () => {
     await expect(page.locator('#btn-portrait')).toHaveClass(/active/);
   });
 
+  test('orientation switch rotates art with the canvas', async ({ page }) => {
+    await createProject(page, 'Orientation Art Test');
+    await addImage(page, TEST_IMAGE);
+
+    // Place the layer in the top-left corner with a known size.
+    await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      l.x = 0;
+      l.y = 0;
+      l.width = 100;
+      l.height = 200;
+      l._dirty = true;
+    });
+
+    // Switch to landscape: art should rotate with the canvas.
+    await page.locator('#zoom-controls [data-action="orient-landscape"]').click();
+    await expect(page.locator('#btn-landscape')).toHaveClass(/active/);
+
+    const afterLandscape = await page.evaluate(async () => {
+      // @ts-ignore
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const l = State.layers[0];
+      return { canvasW: CANVAS_W, canvasH: CANVAS_H, rotation: l.rotation, x: l.x, y: l.y };
+    });
+    expect(afterLandscape.canvasW).toBe(5100);
+    expect(afterLandscape.canvasH).toBe(3300);
+    expect(afterLandscape.rotation).toBe(90);
+    // Layer center was (50, 100); rotated 90° CW around page center it lands at
+    // (oldH - 100, 50) = (5000, 50), so x = 5000 - 50, y = 50 - 100.
+    expect(afterLandscape.x).toBe(4950);
+    expect(afterLandscape.y).toBe(-50);
+
+    // Switching back to portrait rotates the art CCW, restoring its pose.
+    await page.locator('#zoom-controls [data-action="orient-portrait"]').click();
+    await expect(page.locator('#btn-portrait')).toHaveClass(/active/);
+
+    const afterPortrait = await page.evaluate(async () => {
+      // @ts-ignore
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const l = State.layers[0];
+      return { canvasW: CANVAS_W, canvasH: CANVAS_H, rotation: l.rotation, x: l.x, y: l.y };
+    });
+    expect(afterPortrait.canvasW).toBe(3300);
+    expect(afterPortrait.canvasH).toBe(5100);
+    expect(afterPortrait.rotation).toBe(0);
+    expect(afterPortrait.x).toBe(0);
+    expect(afterPortrait.y).toBe(0);
+  });
+
   test('page rotation persists across reload and rotates art with it', async ({ page }) => {
     await createProject(page, 'Rotation Persistence Test');
     await addImage(page, TEST_IMAGE);

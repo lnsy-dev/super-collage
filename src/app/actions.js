@@ -224,6 +224,34 @@ export async function addColorManagerRow() {
   row.querySelector('.color-manager-name').focus();
 }
 
+// Rotate the whole page (canvas + all art) by delta degrees (-90 or 90).
+// The canvas dimensions are swapped and every layer's center is rotated
+// around the page center so the art stays pinned to the page.
+function rotatePageArt(delta) {
+  const oldW = CANVAS_W, oldH = CANVAS_H;
+  setCanvasSize(oldH, oldW);
+  for (const layer of State.layers) {
+    pushUndo(snapshotLayer(layer));
+    const cx = layer.x + layer.width / 2;
+    const cy = layer.y + layer.height / 2;
+    let newCx, newCy;
+    if (delta > 0) {
+      // 90° clockwise around the page center.
+      newCx = oldH - cy;
+      newCy = cx;
+    } else {
+      // 90° counter-clockwise around the page center.
+      newCx = cy;
+      newCy = oldW - cx;
+    }
+    layer.x = newCx - layer.width / 2;
+    layer.y = newCy - layer.height / 2;
+    layer.rotation = ((layer.rotation + delta) % 360 + 360) % 360;
+    layer._dirty = true;
+    DB.saveLayer(layer);
+  }
+}
+
 export async function handleAction(action, value = null) {
   const layer = selectedLayer();
   switch (action) {
@@ -457,37 +485,29 @@ export async function handleAction(action, value = null) {
     case 'zoom-100': State.zoom = 1; Renderer.resize(); UI.refreshZoom(); break;
     case 'orient-portrait':
       if (State.spreadView) break;
-      if (CANVAS_W > CANVAS_H) { setCanvasSize(CANVAS_H, CANVAS_W); }
-      if (State.project) {
-        State.project.orientation = 'portrait';
-        PageManager.saveActivePage();
+      // Rotating CCW from landscape undoes a prior CW turn, so toggling
+      // portrait ↔ landscape preserves the art's appearance.
+      if (CANVAS_W > CANVAS_H) {
+        rotatePageArt(-90);
+        if (State.project) {
+          State.project.orientation = 'portrait';
+          PageManager.saveActivePage();
+        }
       }
-      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule(); break;
     case 'orient-landscape':
       if (State.spreadView) break;
-      if (CANVAS_H > CANVAS_W) { setCanvasSize(CANVAS_H, CANVAS_W); }
-      if (State.project) {
-        State.project.orientation = 'landscape';
-        PageManager.saveActivePage();
+      if (CANVAS_H > CANVAS_W) {
+        rotatePageArt(90);
+        if (State.project) {
+          State.project.orientation = 'landscape';
+          PageManager.saveActivePage();
+        }
       }
-      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); break;
+      Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule(); break;
     case 'rotate-page-cw': {
       if (!State.project || State.spreadView) break;
-      const oldW = CANVAS_W, oldH = CANVAS_H;
-      setCanvasSize(oldH, oldW);
-      for (const layer of State.layers) {
-        pushUndo(snapshotLayer(layer));
-        const cx = layer.x + layer.width / 2;
-        const cy = layer.y + layer.height / 2;
-        // Rotate the layer's center 90° clockwise around the page center.
-        const newCx = oldH - cy;
-        const newCy = cx;
-        layer.x = newCx - layer.width / 2;
-        layer.y = newCy - layer.height / 2;
-        layer.rotation = ((layer.rotation + 90) % 360 + 360) % 360;
-        layer._dirty = true;
-        DB.saveLayer(layer);
-      }
+      rotatePageArt(90);
       State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
       PageManager.saveActivePage();
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
@@ -495,21 +515,7 @@ export async function handleAction(action, value = null) {
     }
     case 'rotate-page-ccw': {
       if (!State.project || State.spreadView) break;
-      const oldW = CANVAS_W, oldH = CANVAS_H;
-      setCanvasSize(oldH, oldW);
-      for (const layer of State.layers) {
-        pushUndo(snapshotLayer(layer));
-        const cx = layer.x + layer.width / 2;
-        const cy = layer.y + layer.height / 2;
-        // Rotate the layer's center 90° counter-clockwise around the page center.
-        const newCx = cy;
-        const newCy = oldW - cx;
-        layer.x = newCx - layer.width / 2;
-        layer.y = newCy - layer.height / 2;
-        layer.rotation = ((layer.rotation - 90) % 360 + 360) % 360;
-        layer._dirty = true;
-        DB.saveLayer(layer);
-      }
+      rotatePageArt(-90);
       State.project.orientation = CANVAS_H >= CANVAS_W ? 'portrait' : 'landscape';
       PageManager.saveActivePage();
       Renderer.resize(); UI.fitZoom(); UI.refreshOrientation(); Renderer.schedule();
