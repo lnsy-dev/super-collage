@@ -6,6 +6,7 @@ import { State } from './state.js';
 import { hexToRgb } from '../utils/color.js';
 import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
+import { isTwoToneShape } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
@@ -210,6 +211,22 @@ export const ImageProcessor = {
       ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
     }
     let px = ctx.getImageData(0, 0, targetW, targetH);
+    if (isTwoToneShape(layer)) {
+      // Two-tone shapes carry their real RGB colors (body + border); keep the
+      // artwork as-is and just make the near-white background transparent.
+      const d = px.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i + 3] = (d[i] >= 250 && d[i + 1] >= 250 && d[i + 2] >= 250) ? 0 : 255;
+      }
+      ctx.putImageData(px, 0, 0);
+      if (forExport) {
+        return work;
+      }
+      layer._processedCanvas = work;
+      layer._processedAtZoom = State.zoom;
+      layer._dirty = false;
+      return work;
+    }
     px = this.toGrayscale(px);
     px = this.applyBrightness(px, layer.brightness);
     px = this.applyContrast(px, layer.contrast);

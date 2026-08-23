@@ -37,6 +37,17 @@ export function drawShapePath(ctx, tool, w, h, sides, isStar, starRatio, layer =
   }
 }
 
+/**
+ * A shape is "two-tone" when both fill and border are enabled with distinct
+ * colors. Such shapes are rendered in full RGB and bypass the single-ink
+ * colorize step, so body and border can differ.
+ */
+export function isTwoToneShape(layer) {
+  return !!(layer && layer.isShape && layer.shapeHasFill && layer.shapeHasStroke &&
+    layer.shapeFillColor && layer.shapeStrokeColor &&
+    layer.shapeFillColor.toLowerCase() !== layer.shapeStrokeColor.toLowerCase());
+}
+
 export function renderShapeToCanvas(tool, w, h, layer = null) {
   // Resolve shape properties from the provided layer or fall back to the active tool state.
   const hasFill = layer ? layer.shapeHasFill : (State.shapeMode !== 'outline');
@@ -54,6 +65,11 @@ export function renderShapeToCanvas(tool, w, h, layer = null) {
   // black shape pixels (gray<128) to the riso ink color.
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, w, h);
+  // Two-tone shapes render their real colors; single-color shapes render
+  // black artwork and rely on colorize() to apply layer.color as the ink.
+  const twoTone = isTwoToneShape(layer);
+  const fillCol = twoTone ? layer.shapeFillColor : 'black';
+  const strokeCol = twoTone ? layer.shapeStrokeColor : 'black';
   ctx.save();
   if (tool === 'custom-path') {
     // Traced outlines are stored in full-canvas coordinates; don't inset them
@@ -67,11 +83,11 @@ export function renderShapeToCanvas(tool, w, h, layer = null) {
     drawShapePath(ctx, tool, dw, dh, sides, isStar, starRatio, layer);
   }
   if (hasFill) {
-    ctx.fillStyle = 'black';
+    ctx.fillStyle = fillCol;
     ctx.fill();
   }
   if (hasStroke) {
-    ctx.strokeStyle = 'black';
+    ctx.strokeStyle = strokeCol;
     ctx.lineWidth = docStrokeWidth;
     ctx.stroke();
   }
@@ -79,11 +95,27 @@ export function renderShapeToCanvas(tool, w, h, layer = null) {
   return canvas;
 }
 
+/**
+ * The single ink color used when a shape is NOT rendered two-tone:
+ * the body color if filled, otherwise the border color.
+ */
+export function effectiveShapeColor(layer) {
+  if (!layer) return '#010101';
+  return (layer.shapeHasFill && layer.shapeFillColor) ? layer.shapeFillColor
+    : (layer.shapeStrokeColor || layer.color || '#010101');
+}
+
 export async function rerenderShapeLayer(layer) {
   if (!layer || !layer.isShape) return;
   const w = layer.naturalWidth;
   const h = layer.naturalHeight;
   if (!w || !h) return;
+  // Keep the layer's main ink color in sync for the single-color pipeline.
+  if (!isTwoToneShape(layer)) {
+    layer.color = effectiveShapeColor(layer);
+  } else {
+    layer.color = layer.shapeFillColor || layer.color;
+  }
   layer._originalCanvas = renderShapeToCanvas(layer.shapeType, w, h, layer);
   if (!layer._maskCanvas) {
     MaskEngine.initMask(layer);

@@ -199,6 +199,7 @@ export async function generateOutline(layerId) {
     shapeHasStroke: true,
     shapeStrokeWidth: 4,
     shapeStrokeColor: '#010101',
+    shapeFillColor: '#010101',
     color: src.color || '#010101',
   });
 

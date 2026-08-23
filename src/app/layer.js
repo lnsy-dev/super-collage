@@ -70,6 +70,7 @@ export class Layer {
     this.shapeHasStroke = data.shapeHasStroke || false;
     this.shapeStrokeWidth = data.shapeStrokeWidth ?? 4;
     this.shapeStrokeColor = data.shapeStrokeColor || '#010101';
+    this.shapeFillColor = data.shapeFillColor || '#010101';
     this.shapeSides = data.shapeSides ?? 6;
     this.shapeIsStar = data.shapeIsStar || false;
     this.shapeStarRatio = data.shapeStarRatio ?? 0.4;
@@ -134,6 +135,7 @@ export class Layer {
       shapeHasStroke: this.shapeHasStroke,
       shapeStrokeWidth: this.shapeStrokeWidth,
       shapeStrokeColor: this.shapeStrokeColor,
+      shapeFillColor: this.shapeFillColor,
       shapeSides: this.shapeSides,
       shapeIsStar: this.shapeIsStar,
       shapeStarRatio: this.shapeStarRatio,

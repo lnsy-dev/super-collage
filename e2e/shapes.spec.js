@@ -173,8 +173,56 @@ test.describe('Shapes', () => {
     const color = await page.evaluate(() => {
       // @ts-ignore
       const l = State.layers.find(l => l.id === State.selectedId);
-      return l?.color;
+      return { stroke: l?.shapeStrokeColor, ink: l?.color };
     });
-    expect(color).toBe('#f65058');
+    expect(color.stroke).toBe('#f65058');
+  });
+
+  test('shape can have distinct body and border colors', async ({ page }) => {
+    await createProject(page, 'Two Tone Shape Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    // Fill on (default), enable border, then pick distinct colors.
+    await page.check('#prop-shape-border');
+    await page.locator('#shape-fill-swatches .color-swatch[data-color="#0078bf"]').click();
+    await page.locator('#shape-stroke-swatches .color-swatch[data-color="#f65058"]').click();
+
+    const info = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      return { fill: l.shapeFillColor, stroke: l.shapeStrokeColor };
+    });
+    expect(info.fill).toBe('#0078bf');
+    expect(info.stroke).toBe('#f65058');
+
+    // The rendered shape shows both colors.
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const { ImageProcessor } = await import('/src/app/image-processor.js');
+      const l = State.layers.find(l => l.id === State.selectedId);
+      await ImageProcessor.processLayer(l, {});
+      await Renderer.draw();
+    });
+    const samples = await page.evaluate(() => {
+      const canvasEl = document.getElementById('display-canvas');
+      const ctx = canvasEl.getContext('2d');
+      const z = State.zoom;
+      // @ts-ignore
+      const l = State.layers.find(l => l.id === State.selectedId);
+      const cx = (l.x + l.width / 2) * z;
+      const cy = (l.y + l.height / 2) * z;
+      const px = (x, y) => Array.from(ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data);
+      return {
+        center: px(cx, cy),                      // body
+        edge: px((l.x + 3 / z) * z, cy),         // inside left border
+      };
+    });
+    // Blue-ish body center
+    expect(samples.center[2]).toBeGreaterThan(samples.center[0]);
+    // Pink-ish border (red channel dominant)
+    expect(samples.edge[0]).toBeGreaterThan(150);
+    expect(samples.edge[2]).toBeLessThan(150);
   });
 });

@@ -956,6 +956,7 @@ export function wireControls() {
   const shapeStrokeWidthNum = document.getElementById('prop-shape-stroke-width-num');
   const shapeStrokeWidthRow = document.getElementById('shape-stroke-width-row');
   const shapeStrokeSwatches = document.getElementById('shape-stroke-swatches');
+  const shapeFillSwatches = document.getElementById('shape-fill-swatches');
 
   async function applyShapeChange(layer, mutator) {
     pushUndo(snapshotLayer(layer));
@@ -1015,8 +1016,21 @@ export function wireControls() {
       if (!sw) return;
       const l = selectedLayer(); if (!l || !l.isShape) return;
       applyShapeChange(l, layer => {
-        layer.color = sw.dataset.color;
         layer.shapeStrokeColor = sw.dataset.color;
+      });
+    });
+  }
+
+  if (shapeFillSwatches) {
+    shapeFillSwatches.addEventListener('click', e => {
+      const sw = e.target.closest('.color-swatch');
+      if (!sw) return;
+      const l = selectedLayer(); if (!l || !l.isShape) return;
+      applyShapeChange(l, layer => {
+        layer.shapeFillColor = sw.dataset.color;
+        // Keep the layer's main color in sync with the body so other UI
+        // (layer list, gradient/pattern editors) stays consistent.
+        layer.color = sw.dataset.color;
       });
       UI.refreshColorSwatches();
       UI.refreshLayerList();

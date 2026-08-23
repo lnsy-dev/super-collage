@@ -57,6 +57,7 @@ export const LayerManager = {
       shapeHasStroke: State.shapeMode === 'outline',
       shapeStrokeWidth: State.shapeStrokeWidth,
       shapeStrokeColor: '#010101',
+      shapeFillColor: '#010101',
       shapeSides: State.shapeSides,
       shapeIsStar: State.shapeIsStar,
       shapeStarRatio: State.shapeStarRatio,

@@ -612,10 +612,14 @@ export const UI = {
     if (widthNum) widthNum.value = layer.shapeStrokeWidth;
     if (widthRow) widthRow.style.display = layer.shapeHasStroke ? '' : 'none';
 
-    const container = document.getElementById('shape-stroke-swatches');
+    this._refreshSwatchRow('shape-fill-swatches', layer.shapeFillColor || layer.color);
+    this._refreshSwatchRow('shape-stroke-swatches', layer.shapeStrokeColor);
+  },
+
+  _refreshSwatchRow(containerId, selectedHex) {
+    const container = document.getElementById(containerId);
     if (!container) return;
     container.innerHTML = '';
-    const selectedHex = layer.color || layer.shapeStrokeColor || null;
     for (const rc of RISO_COLORS) {
       if (rc.hex === '#FFFFFF') continue;
       const sw = document.createElement('div');
