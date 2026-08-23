@@ -8,6 +8,7 @@ import { Renderer } from './renderer.js';
 import { wireControls } from './events.js';
 import { showProjectDialog, loadEffectivePalette } from './project-manager.js';
 import { setBuildColorLut, rebuildColorSepLut, colorSepLut as exportedColorSepLut } from './color-lut.js';
+import { initGoogleFonts } from './google-fonts.js';
 
 export let blendSubtractive = null;
 export let separateColorsWithLut = null;
@@ -42,6 +43,9 @@ async function _doInit() {
 
   Renderer.init();
   wireControls();
+  // Populate the font selector from the Google Fonts metadata API in the
+  // background — never blocks startup, silently no-ops when offline.
+  initGoogleFonts();
   await showProjectDialog();
   window.__appReady = true;
 }
