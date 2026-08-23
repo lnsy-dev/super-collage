@@ -335,6 +335,11 @@ export const UI = {
       linkBtn.style.display = canLink ? '' : 'none';
       linkBtn.textContent = (canLink && allSelectedAreLinked(State.selectedIds)) ? 'Unlink' : 'Link';
     }
+
+    const mergeBtn = document.getElementById('btn-merge-layers');
+    if (mergeBtn) {
+      mergeBtn.style.display = State.selectedIds.length > 1 ? '' : 'none';
+    }
   },
 
   refreshPageList() {

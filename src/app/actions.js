@@ -290,6 +290,9 @@ export async function handleAction(action, value = null) {
       Renderer.schedule();
       break;
     }
+    case 'merge-layers':
+      if (State.selectedIds.length >= 2) await LayerManager.merge(State.selectedIds);
+      break;
     case 'flatten-layer': if (layer) await LayerManager.flatten(layer.id); break;
     case 'split-color-separation': if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id); break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;

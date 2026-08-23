@@ -777,6 +777,138 @@ export const LayerManager = {
     Renderer.schedule();
   },
 
+  /**
+   * Merge two or more selected layers into a single raster layer.
+   * The layers are composited as they appear on the page, then cropped
+   * to the bounding box of their combined visible content.
+   */
+  async merge(layerIds) {
+    pushUndoState();
+    const idSet = new Set(layerIds);
+    const layers = State.layers.filter(l => idSet.has(l.id) && !l.isMaskFor);
+    if (layers.length < 2) return;
+    // Composite in stacking order (bottom first)
+    layers.sort((a, b) => State.layers.indexOf(a) - State.layers.indexOf(b));
+
+    // Make sure every layer has an up-to-date processed canvas at export quality.
+    // Note: processLayer(forExport) returns the canvas without caching it.
+    for (const l of layers) {
+      const proc = await ImageProcessor.processLayer(l, { forExport: true });
+      if (!proc) return;
+      l._processedCanvas = proc;
+    }
+
+    // Union axis-aligned bounding box of the (possibly rotated) layers, in page units.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const l of layers) {
+      const angle = l.rotation * Math.PI / 180;
+      const cos = Math.abs(Math.cos(angle));
+      const sin = Math.abs(Math.sin(angle));
+      const hw = l.width / 2, hh = l.height / 2;
+      const ex = hw * cos + hh * sin;
+      const ey = hw * sin + hh * cos;
+      const ccx = l.x + l.width / 2, ccy = l.y + l.height / 2;
+      minX = Math.min(minX, ccx - ex);
+      minY = Math.min(minY, ccy - ey);
+      maxX = Math.max(maxX, ccx + ex);
+      maxY = Math.max(maxY, ccy + ey);
+    }
+
+    // Choose a composite resolution that preserves the sharpest source,
+    // capped so the intermediate bitmap stays reasonably sized.
+    let scale = Math.max(...layers.map(l => (l.naturalWidth > 0 ? l.naturalWidth / l.width : 1)));
+    scale = Math.min(scale, Math.sqrt((4096 * 4096) / Math.max(1, (maxX - minX) * (maxY - minY))));
+    scale = Math.max(scale, 0.05);
+
+    const bw = Math.max(1, Math.ceil((maxX - minX) * scale));
+    const bh = Math.max(1, Math.ceil((maxY - minY) * scale));
+    const comp = new OffscreenCanvas(bw, bh);
+    const mctx = comp.getContext('2d');
+    mctx.fillStyle = '#fff';
+    mctx.fillRect(0, 0, bw, bh);
+
+    for (const l of layers) {
+      if (!l.visible) continue;
+      mctx.save();
+      mctx.translate(-minX * scale, -minY * scale);
+      if (l.imageMaskIds?.length) {
+        await Renderer._compositeLayerWithImageMask(mctx, l, scale, layers);
+      } else {
+        Renderer._applyTransform(mctx, l, scale);
+        Renderer._compositeLayer(mctx, l, scale);
+      }
+      mctx.restore();
+    }
+
+    // Crop to the bounding box of non-white content.
+    const imgData = mctx.getImageData(0, 0, bw, bh);
+    const bbox = this._computeBoundingBox(imgData.data, bw, bh);
+    if (!bbox) return; // nothing visible; leave layers unchanged
+    const cropped = new OffscreenCanvas(bbox.w, bbox.h);
+    cropped.getContext('2d').drawImage(comp, -bbox.x, -bbox.y);
+
+    // Build the merged layer, keeping the composited content at its page position.
+    const pw = bbox.w / scale, ph = bbox.h / scale;
+    const centerX = minX + (bbox.x + bbox.w / 2) / scale;
+    const centerY = minY + (bbox.y + bbox.h / 2) / scale;
+    const mergedNames = layers.map(l => l.name).join(' + ');
+    const merged = new Layer({
+      name: mergedNames.length > 60 ? 'Merged (' + layers.length + ')' : mergedNames,
+      x: centerX - pw / 2,
+      y: centerY - ph / 2,
+      width: pw,
+      height: ph,
+      naturalWidth: bbox.w,
+      naturalHeight: bbox.h,
+    });
+    merged._originalCanvas = cropped;
+    MaskEngine.initMask(merged);
+    merged._dirty = true;
+
+    // Insert at the stacking position of the topmost merged layer.
+    const topIdx = Math.max(...layers.map(l => State.layers.indexOf(l)));
+
+    // Remove the merged-away layers, cleaning up mask relationships and links.
+    const removedIds = new Set();
+    for (const l of layers) {
+      const groupIds = [l.id, ...(l.imageMaskIds || [])];
+      for (const gid of groupIds) {
+        const gl = State.layers.find(x => x.id === gid);
+        if (!gl) continue;
+        if (gl.isMaskFor) {
+          const base = State.layers.find(x => x.id === gl.isMaskFor);
+          if (base) base.imageMaskIds = (base.imageMaskIds || []).filter(id => id !== gl.id);
+        }
+        removedIds.add(gid);
+        State.layers.splice(State.layers.indexOf(gl), 1);
+      }
+    }
+    for (const gid of removedIds) {
+      await DB.del('layers', gid);
+      await DB.del('imageBlobs', gid);
+      await DB.del('maskBlobs', gid);
+    }
+    for (const l of State.layers) {
+      const before = l.linkedIds?.length || 0;
+      l.linkedIds = (l.linkedIds || []).filter(id => !removedIds.has(id));
+      if ((l.linkedIds?.length || 0) !== before) await DB.saveLayer(l);
+    }
+
+    const insertIdx = Math.min(topIdx, State.layers.length);
+    State.layers.splice(insertIdx, 0, merged);
+    State.selectedId = merged.id;
+    State.selectedIds = [merged.id];
+
+    await DB.put('layers', merged.toRecord());
+    await DB.put('imageBlobs', { layerId: merged.id, blob: await cropped.convertToBlob({ type: 'image/png' }) });
+    await DB.put('maskBlobs', { layerId: merged.id, blob: await merged._maskCanvas.convertToBlob({ type: 'image/png' }) });
+    await PageManager.saveActivePage();
+
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
   _computeBoundingBox(data, w, h, threshold = 128) {
     let minX = w, minY = h, maxX = -1, maxY = -1;
     for (let y = 0; y < h; y++) {
