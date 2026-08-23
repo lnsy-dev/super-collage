@@ -150,6 +150,26 @@ test.describe('Transform', () => {
     expect(flipped).toBe(true);
   });
 
+  test('flip horizontal on rotated layer flips in screen space', async ({ page }) => {
+    await createProject(page, 'Flip Rotated Test');
+    await addImage(page, TEST_IMAGE);
+
+    // Rotate the layer 90°, then flip horizontally.
+    await page.fill('#prop-rot', '90');
+    await page.keyboard.press('Enter');
+    await page.locator('#properties-content [data-action="flip-h"]').click();
+
+    const state = await page.evaluate(() => {
+      // @ts-ignore
+      const l = State.layers[0];
+      return { rotation: l.rotation, flipH: l.flipH };
+    });
+
+    // Rotation is negated so the mirror axis stays vertical on screen.
+    expect(state.rotation).toBe(-90);
+    expect(state.flipH).toBe(true);
+  });
+
   test('flip vertical', async ({ page }) => {
     await createProject(page, 'Flip V Test');
     await addImage(page, TEST_IMAGE);

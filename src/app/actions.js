@@ -295,10 +295,26 @@ export async function handleAction(action, value = null) {
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
     case 'layer-down': if (layer) LayerManager.move(layer.id, -1); break;
     case 'flip-h':
-      if (layer) { pushUndo(snapshotLayer(layer)); layer.flipH = !layer.flipH; layer._dirty = true; DB.saveLayer(layer); Renderer.schedule(); }
+      // Flip in screen space: mirror across the vertical axis through the
+      // layer's center as seen on screen, regardless of rotation. Since the
+      // renderer composes rotate-then-flip, we negate rotation so the mirror
+      // axis stays upright for a rotated layer.
+      if (layer) {
+        pushUndo(snapshotLayer(layer));
+        layer.rotation = -layer.rotation;
+        layer.flipH = !layer.flipH;
+        layer._dirty = true; DB.saveLayer(layer); UI.refreshProperties(); Renderer.schedule();
+      }
       break;
     case 'flip-v':
-      if (layer) { pushUndo(snapshotLayer(layer)); layer.flipV = !layer.flipV; layer._dirty = true; DB.saveLayer(layer); Renderer.schedule(); }
+      // Flip in screen space: mirror across the horizontal axis through the
+      // layer's center as seen on screen, regardless of rotation.
+      if (layer) {
+        pushUndo(snapshotLayer(layer));
+        layer.rotation = -layer.rotation;
+        layer.flipV = !layer.flipV;
+        layer._dirty = true; DB.saveLayer(layer); UI.refreshProperties(); Renderer.schedule();
+      }
       break;
     case 'reset-transform':
       if (layer) {
