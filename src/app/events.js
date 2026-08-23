@@ -225,7 +225,8 @@ function onPointerDown(e) {
     const handle = Renderer.hitTestHandle(x, y, layer, tol);
     if (handle) {
       pushUndo(snapshotLayer(layer));
-      const extraSnaps = getExtraSnaps(layer.id);
+      // Linked layers transform together with the primary layer.
+      const extraSnaps = [...getExtraSnaps(layer.id), ...getLinkedSnaps(layer.id)];
       extraSnaps.forEach(es => {
         const el = State.layers.find(l => l.id === es.id);
         if (el) pushUndo(snapshotLayer(el));
@@ -724,11 +725,29 @@ export function wireControls() {
     document.getElementById(id).addEventListener('change', e => {
       const l = selectedLayer(); if (!l) return;
       pushUndo(snapshotLayer(l));
+      const prev = l[field];
       l[field] = parseFloat(e.target.value) || 0;
       if (l.isText && (field === 'width' || field === 'height')) {
         l.naturalWidth = l.width;
         l.naturalHeight = l.height;
         l._dirty = true;
+      }
+      // Linked layers resize together: scale them by the same factor,
+      // keeping each linked layer's center fixed.
+      if ((field === 'width' || field === 'height') && prev > 0 && l[field] > 0) {
+        const factor = l[field] / prev;
+        if (Math.abs(factor - 1) > 1e-9) {
+          for (const el of getLinkedLayers(l)) {
+            pushUndo(snapshotLayer(el));
+            const cx = el.x + el.width / 2;
+            const cy = el.y + el.height / 2;
+            if (field === 'width') el.width = Math.max(10, el.width * factor);
+            else el.height = Math.max(10, el.height * factor);
+            el.x = cx - el.width / 2;
+            el.y = cy - el.height / 2;
+            DB.saveLayer(el);
+          }
+        }
       }
       DB.saveLayer(l);
       Renderer.schedule();

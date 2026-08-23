@@ -129,3 +129,95 @@ test.describe('Layer Linking', () => {
     expect(cleared[1]).toBe(255);
   });
 });
+
+test.describe('Linked layer resize', () => {
+  test('resizing via handle drag scales linked siblings', async ({ page }) => {
+    await createProject(page, 'Link Resize Test');
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'a.png' });
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'b.png' });
+
+    // Link the two layers.
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await rows.nth(1).click({ modifiers: ['Shift'] });
+    await clickLink(page);
+
+    // Position layers apart, select layer b alone.
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const [a, b] = window.State.layers;
+      a.x = 100; a.y = 400;
+      b.x = 200; b.y = 200; b.width = 100; b.height = 100;
+      window.State.selectedId = b.id;
+      window.State.selectedIds = [b.id];
+      window.State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+      window.UI.refreshLayerList();
+    });
+    await page.waitForTimeout(100);
+
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+
+    const handles = await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const b = window.State.layers.find(l => window.State.selectedIds.includes(l.id));
+      return Renderer.getHandles(b, window.State.zoom);
+    });
+    const br = handles.find(h => h.id === 'br');
+    if (!br) throw new Error('br handle not found');
+
+    const before = await page.evaluate(() => {
+      const [a, b] = window.State.layers;
+      return { aw: a.width, bw: b.width };
+    });
+
+    const startX = box.x + br.x;
+    const startY = box.y + br.y;
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 42, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: startX, sy: startY, ex: startX + 60, ey: startY + 60 });
+    await page.waitForTimeout(100);
+
+    const after = await page.evaluate(() => {
+      const [a, b] = window.State.layers;
+      return { aw: a.width, bw: b.width };
+    });
+
+    expect(after.bw).toBeGreaterThan(before.bw * 1.1);
+    // Linked sibling scaled by approximately the same factor.
+    const factor = after.bw / before.bw;
+    expect(after.aw / before.aw).toBeCloseTo(factor, 1);
+  });
+
+  test('width property input resizes linked siblings proportionally', async ({ page }) => {
+    await createProject(page, 'Link Resize Prop Test');
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'a.png' });
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'b.png' });
+
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await rows.nth(1).click({ modifiers: ['Shift'] });
+    await clickLink(page);
+
+    // Select layer b alone and change its width.
+    await rows.nth(1).click();
+    await page.fill('#prop-w', '200');
+    await page.keyboard.press('Enter');
+
+    const sizes = await page.evaluate(() => {
+      const [a, b] = window.State.layers;
+      return { aw: a.width, bw: b.width };
+    });
+    expect(sizes.bw).toBe(200);
+    expect(sizes.aw).toBe(200);
+  });
+});
