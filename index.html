@@ -18,7 +18,7 @@
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
 
   <!-- ─── Theme & Mobile ─── -->
-  <meta name="theme-color" content="#212121">
+  <meta name="theme-color" content="#ffffff">
   <meta name="color-scheme" content="light">
   <meta name="apple-mobile-web-app-title" content="Super Collage">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -172,7 +172,9 @@
   </script>
 
   <!-- ─── Styles ─── -->
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/styles.css">
 
   <!-- ─── JSZip (project download/upload) — exposes window.JSZip ─── -->
@@ -182,8 +184,8 @@
   <script type="importmap">
   {
     "imports": {
-      "type-set": "./vendor/type-set/src/index.js",
-      "type-set/": "./vendor/type-set/src/",
+      "type-set": "./node_modules/type-set/src/index.js",
+      "type-set/": "./node_modules/type-set/src/",
       "opentype.js": "./vendor/opentype.js/dist/opentype.mjs",
       "hyphen/": "./vendor/hyphen/"
     }
@@ -205,7 +207,7 @@
       <div class="project-list" id="project-list">
         <div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>
       </div>
-      <div style="font-size:9px;text-align:center;margin-top:12px;">
+      <div style="font-size:1.25rem;text-align:center;margin-top:12px;">
         <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:var(--black);text-decoration:underline;">Support me on Ko-fi</a>
       </div>
     </div>
@@ -249,9 +251,9 @@
           <div class="size-row">
             <div class="size-options" id="create-page-size-options"></div>
             <div id="create-custom-size-row" style="display:none;margin-top:8px;gap:8px;align-items:center;">
-              <label style="font-size:9px;">W <input type="number" id="create-custom-width" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="3.5"></label>
-              <label style="font-size:9px;">H <input type="number" id="create-custom-height" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="2"></label>
-              <span style="font-size:9px;" id="create-custom-unit">inches @ 600dpi</span>
+              <label style="font-size:1.25rem;">W <input type="number" id="create-custom-width" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="3.5"></label>
+              <label style="font-size:1.25rem;">H <input type="number" id="create-custom-height" class="mac-input" style="width:60px;" min="1" max="100" step="0.25" value="2"></label>
+              <span style="font-size:1.25rem;" id="create-custom-unit">inches @ 600dpi</span>
             </div>
           </div>
         </div>
@@ -284,25 +286,25 @@
       <div class="dialog-title">Export Color Plates</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;" id="export-dims-text">
+      <p style="font-size:1.25rem;line-height:2.5;margin-bottom:12px;" id="export-dims-text">
         Exports one PNG per risograph color at 600 dpi. Each plate: black ink on white.
       </p>
-      <div id="export-color-list" style="font-size:9px;line-height:2.5;"></div>
+      <div id="export-color-list" style="font-size:1.25rem;line-height:2.5;"></div>
       <div id="export-imposition-section">
-        <p style="font-size:10px;font-weight:bold;margin:12px 0 4px;">Page imposition</p>
-        <div style="margin-top:8px;font-size:9px;" id="export-binding-row">
+        <p style="font-size:1.4rem;font-weight:bold;margin:12px 0 4px;">Page imposition</p>
+        <div style="margin-top:8px;font-size:1.25rem;" id="export-binding-row">
           <strong>Binding:</strong>
           <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-binding" value="saddle-stitch" checked> Saddle-stitch</label>
         </div>
-        <div style="margin-top:8px;font-size:9px;" id="export-booklet-layout-row">
+        <div style="margin-top:8px;font-size:1.25rem;" id="export-booklet-layout-row">
           <strong>Booklet layout:</strong>
           <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="folio" checked> Folio (2-up)</label>
           <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="quarto"> Quarto (4-up)</label>
           <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-booklet-layout" value="octavo"> Octavo (8-up)</label>
         </div>
-        <div style="margin-top:8px;font-size:9px;" id="export-target-size-row">
+        <div style="margin-top:8px;font-size:1.25rem;" id="export-target-size-row">
           <strong>Target paper:</strong>
-          <select id="export-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
+          <select id="export-target-size" style="font-family:var(--font);font-size:1.25rem;margin-left:8px;">
             <option value="letter">Letter (8.5" × 11")</option>
             <option value="legal">Legal (8.5" × 14")</option>
             <option value="tabloid">Tabloid (11" × 17")</option>
@@ -318,14 +320,14 @@
           <span id="export-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
         </div>
       </div>
-      <div style="margin-top:8px;font-size:9px;" id="export-layout-row">
+      <div style="margin-top:8px;font-size:1.25rem;" id="export-layout-row">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="2up"> 2 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="4up"> 4 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="export-layout" value="8up"> 8 up</label>
       </div>
-      <div id="export-progress" style="font-size:9px;margin-top:10px;text-align:center;"></div>
+      <div id="export-progress" style="font-size:1.25rem;margin-top:10px;text-align:center;"></div>
     </div>
     <div class="dialog-footer">
       <button class="mac-btn" id="btn-export-cancel">Cancel</button>
@@ -341,18 +343,18 @@
       <div class="dialog-title">Export Composite Preview</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;" id="composite-dims-text">
+      <p style="font-size:1.25rem;line-height:2.5;margin-bottom:12px;" id="composite-dims-text">
         Renders all visible layers with subtractive ink mixing (riso simulation).
       </p>
-      <div style="margin-top:8px;font-size:9px;" id="composite-booklet-layout-row">
+      <div style="margin-top:8px;font-size:1.25rem;" id="composite-booklet-layout-row">
         <strong>Booklet layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="folio" checked> Folio (2-up)</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="quarto"> Quarto (4-up)</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-booklet-layout" value="octavo"> Octavo (8-up)</label>
       </div>
-      <div style="margin-top:8px;font-size:9px;">
+      <div style="margin-top:8px;font-size:1.25rem;">
         <strong>Target paper:</strong>
-        <select id="composite-target-size" style="font-family:var(--font);font-size:9px;margin-left:8px;">
+        <select id="composite-target-size" style="font-family:var(--font);font-size:1.25rem;margin-left:8px;">
           <option value="letter">Letter (8.5" × 11")</option>
           <option value="legal">Legal (8.5" × 14")</option>
           <option value="tabloid">Tabloid (11" × 17")</option>
@@ -367,14 +369,14 @@
         </span>
         <span id="composite-layout-info" style="margin-left:12px;color:var(--dark-gray);"></span>
       </div>
-      <div style="margin-top:8px;font-size:9px;">
+      <div style="margin-top:8px;font-size:1.25rem;">
         <strong>Layout:</strong>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="1up" checked> 1 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="2up"> 2 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="4up"> 4 up</label>
         <label style="margin-left:12px;cursor:pointer;"><input type="radio" name="composite-layout" value="8up"> 8 up</label>
       </div>
-      <div id="composite-export-progress" style="font-size:9px;margin-top:10px;text-align:center;"></div>
+      <div id="composite-export-progress" style="font-size:1.25rem;margin-top:10px;text-align:center;"></div>
     </div>
     <div class="dialog-footer">
       <button class="mac-btn" id="btn-composite-cancel">Cancel</button>
@@ -406,8 +408,8 @@
       <div class="dialog-title">Importing Color Separation…</div>
     </div>
     <div class="dialog-body" style="text-align:center;padding:20px;">
-      <img id="color-sep-preview" style="max-width:200px;max-height:150px;border:2px solid #000;margin-bottom:12px;display:none;image-rendering:pixelated;" alt="Preview">
-      <p style="font-size:9px;line-height:2;margin-bottom:8px;" id="color-sep-status">Preparing image…</p>
+      <img id="color-sep-preview" style="max-width:200px;max-height:150px;border:1px solid rgba(0,0,0,0.28);border-radius:3px;margin-bottom:12px;display:none;image-rendering:pixelated;" alt="Preview">
+      <p style="font-size:1.25rem;line-height:2;margin-bottom:8px;" id="color-sep-status">Preparing image…</p>
       <div class="loading-spinner"></div>
     </div>
   </div>
@@ -420,14 +422,14 @@
       <div class="dialog-title">Set Margins</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:2.5;margin-bottom:12px;">Margins are applied to each page in the current unit.</p>
+      <p style="font-size:1.25rem;line-height:2.5;margin-bottom:12px;">Margins are applied to each page in the current unit.</p>
       <div class="margin-grid">
         <label>Top<input type="number" id="margin-top" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
         <label>Right<input type="number" id="margin-right" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
         <label>Bottom<input type="number" id="margin-bottom" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
         <label>Left<input type="number" id="margin-left" class="mac-input" step="0.125" min="0" max="10" value="0.5"></label>
       </div>
-      <div style="font-size:9px;margin-top:8px;color:var(--dark-gray);">inches</div>
+      <div style="font-size:1.25rem;margin-top:8px;color:var(--dark-gray);">inches</div>
     </div>
     <div class="dialog-footer">
       <button class="mac-btn" id="btn-margins-cancel">Cancel</button>
@@ -446,12 +448,12 @@
       <div class="grid-row">
         <label>Size</label>
         <input type="number" id="grid-size" class="mac-input" step="0.125" min="0.0625" max="10" value="0.25">
-        <span style="font-size:9px;">inches</span>
+        <span style="font-size:1.25rem;">inches</span>
       </div>
       <div class="grid-row" style="margin-top:12px;">
         <label>Type</label>
-        <label style="font-size:9px;cursor:pointer;"><input type="radio" name="grid-type" value="standard" checked> Standard</label>
-        <label style="font-size:9px;cursor:pointer;"><input type="radio" name="grid-type" value="isometric"> Isometric</label>
+        <label style="font-size:1.25rem;cursor:pointer;"><input type="radio" name="grid-type" value="standard" checked> Standard</label>
+        <label style="font-size:1.25rem;cursor:pointer;"><input type="radio" name="grid-type" value="isometric"> Isometric</label>
       </div>
     </div>
     <div class="dialog-footer">
@@ -468,7 +470,7 @@
       <div class="dialog-title">Remove Folio</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:1.6;margin-bottom:12px;">Select a folio (4 pages) to remove. Pages are grouped in reader order.</p>
+      <p style="font-size:1.25rem;line-height:1.6;margin-bottom:12px;">Select a folio (4 pages) to remove. Pages are grouped in reader order.</p>
       <div id="folio-list"></div>
     </div>
     <div class="dialog-footer">
@@ -485,7 +487,7 @@
       <div class="dialog-title">Edit Colors</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:9px;line-height:1.6;margin-bottom:12px;">Add, remove, rename, and recolor the available palette. Project colors apply only to this project; global colors apply across all projects.</p>
+      <p style="font-size:1.25rem;line-height:1.6;margin-bottom:12px;">Add, remove, rename, and recolor the available palette. Project colors apply only to this project; global colors apply across all projects.</p>
       <div id="color-manager-list"></div>
       <button class="mac-btn" id="btn-add-color" style="margin-top:12px;width:100%;">+ Add Color</button>
     </div>
@@ -588,10 +590,22 @@
             <path d="M5 12h14"/>
           </svg>
         </button>
-        <div style="font-size:8px;text-align:center;line-height:1.8;">Brush</div>
+        <div style="font-size:1.15rem;text-align:center;line-height:1.8;">Brush</div>
         <button id="brush-popout-trigger" class="tool-btn" style="flex-direction:column;gap:1px;" title="Brush size">
-          <span style="font-size:12px;line-height:1;">&#9679;</span>
-          <span id="brush-popout-label" style="font-size:8px;line-height:1;">30</span>
+          <span style="font-size:1.6rem;line-height:1;">&#9679;</span>
+          <span id="brush-popout-label" style="font-size:1.15rem;line-height:1;">30</span>
+        </button>
+        <div class="tool-separator"></div>
+        <button class="tool-btn" data-tool="text-box"     title="Type — paragraph box (T)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 5h12M12 5v11"/>
+            <rect x="3.5" y="19" width="17" height="0.1" stroke-dasharray="2.4 2.2"/>
+          </svg>
+        </button>
+        <button class="tool-btn" data-tool="text-line"    title="Type on a line (Shift+T)" style="letter-spacing:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M7 5h10M12 5v10"/><path d="M8 19h9" stroke-dasharray="2.4 2.2"/>
+          </svg>
         </button>
         <div class="tool-separator"></div>
         <button class="tool-btn" data-tool="shape-rect"    title="Rectangle (R)">&#9645;</button>
@@ -601,16 +615,16 @@
           <div class="tool-separator"></div>
           <div id="poly-options" style="display:none;">
             <div class="tool-separator"></div>
-            <div style="font-size:8px;text-align:center;">Sides</div>
+            <div style="font-size:1.15rem;text-align:center;">Sides</div>
             <input type="number" id="poly-sides-input" min="3" max="20" value="6"
-              style="width:28px;font-size:8px;text-align:center;padding:1px;">
-            <div style="font-size:8px;text-align:center;">&#9733;</div>
+              style="width:28px;font-size:1.15rem;text-align:center;padding:1px;">
+            <div style="font-size:1.15rem;text-align:center;">&#9733;</div>
             <input type="checkbox" id="poly-star-toggle" style="width:16px;height:16px;">
             <div id="star-ratio-row" style="display:none;">
-              <div style="font-size:8px;text-align:center;">Inner</div>
+              <div style="font-size:1.15rem;text-align:center;">Inner</div>
               <input type="range" id="star-ratio-input" min="10" max="90" value="40"
                 style="writing-mode:vertical-lr;direction:rtl;width:8px;height:40px;padding:0;">
-              <div id="star-ratio-val" style="font-size:8px;">40%</div>
+              <div id="star-ratio-val" style="font-size:1.15rem;">40%</div>
             </div>
           </div>
         </div>
@@ -705,7 +719,7 @@
         </div>
         <div class="window-content">
           <div id="properties-content">
-            <div id="no-selection-msg" style="font-size:8px;color:var(--dark-gray);padding:8px;text-align:center;line-height:2.5;">
+            <div id="no-selection-msg" style="font-size:1.15rem;color:var(--dark-gray);padding:8px;text-align:center;line-height:2.5;">
               Select a layer
             </div>
             <div id="layer-props" style="display:none;">
@@ -751,24 +765,16 @@
                 <div class="prop-section-title">Shape Attributes</div>
                 <div class="prop-row">
                   <label class="prop-label" style="flex:1; display:flex; align-items:center; gap:3px;">
-                    <input type="checkbox" id="prop-shape-fill"> Fill
+                    <input type="radio" name="shape-part" id="prop-shape-fill" value="fill"> Fill
                   </label>
                   <label class="prop-label" style="flex:1; display:flex; align-items:center; gap:3px;">
-                    <input type="checkbox" id="prop-shape-border"> Border
+                    <input type="radio" name="shape-part" id="prop-shape-border" value="border"> Border
                   </label>
                 </div>
                 <div class="prop-row" id="shape-stroke-width-row" style="display:none;">
                   <span class="prop-label">Width</span>
                   <input type="range" id="prop-shape-stroke-width" min="1" max="50" value="4" style="flex:1;">
-                  <input type="number" id="prop-shape-stroke-width-num" min="1" max="50" value="4" style="width:40px; font-size:8px; padding:1px;">
-                </div>
-                <div class="prop-row">
-                  <span class="prop-label">Body</span>
-                  <div class="color-swatches" id="shape-fill-swatches"></div>
-                </div>
-                <div class="prop-row">
-                  <span class="prop-label">Border</span>
-                  <div class="color-swatches" id="shape-stroke-swatches"></div>
+                  <input type="number" id="prop-shape-stroke-width-num" min="1" max="50" value="4" style="width:40px; font-size:1.15rem; padding:1px;">
                 </div>
               </div>
 
@@ -776,11 +782,11 @@
               <div class="prop-section" id="text-props" style="display:none;">
                 <div class="prop-section-title">Text</div>
                 <div class="prop-row">
-                  <textarea id="prop-text" rows="3" style="width:100%;font-family:var(--font);font-size:8px;padding:4px;border:1px solid var(--black);resize:vertical;"></textarea>
+                  <textarea id="prop-text" rows="3" style="width:100%;font-family:var(--font);font-size:1.15rem;padding:4px;border:1px solid var(--black);resize:vertical;"></textarea>
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Font</span>
-                  <select id="prop-text-font" style="flex:1;font-family:var(--font);font-size:8px;">
+                  <select id="prop-text-font" style="flex:1;font-family:var(--font);font-size:1.15rem;">
                     <option>IBM Plex Serif</option>
                     <option>IBM Plex Sans</option>
                     <option>Crimson Text</option>
@@ -800,7 +806,7 @@
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Variant</span>
-                  <select id="prop-text-variant" style="flex:1;font-family:var(--font);font-size:8px;"></select>
+                  <select id="prop-text-variant" style="flex:1;font-family:var(--font);font-size:1.15rem;"></select>
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Space</span>
@@ -812,7 +818,7 @@
                 </div>
                 <div class="prop-row">
                   <span class="prop-label">Align</span>
-                  <select id="prop-text-align" style="flex:1;font-family:var(--font);font-size:8px;">
+                  <select id="prop-text-align" style="flex:1;font-family:var(--font);font-size:1.15rem;">
                     <option value="left">Left</option>
                     <option value="center">Center</option>
                     <option value="right">Right</option>
@@ -1007,10 +1013,9 @@ window.showScreentoneDialog = showScreentoneDialog;
 window.hideScreentoneDialog = hideScreentoneDialog;
 window.addSelectedScreentone = addSelectedScreentone;
 
-import { drawShapePath, renderShapeToCanvas } from './src/app/shape-utils.js';
+import { drawShapePath } from './src/app/shape-utils.js';
 import { drawShapePreview, getCanvasXY, getExtraSnaps, wireControls } from './src/app/events.js';
 window.drawShapePath = drawShapePath;
-window.renderShapeToCanvas = renderShapeToCanvas;
 window.drawShapePreview = drawShapePreview;
 window.getCanvasXY = getCanvasXY;
 window.getExtraSnaps = getExtraSnaps;

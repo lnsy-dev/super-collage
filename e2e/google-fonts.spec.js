@@ -50,11 +50,12 @@ test.describe('Google Fonts in font selector', () => {
     await setupPage(page);
 
     // Add a text layer so properties panel shows font controls.
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') await dialog.accept('Hello');
-    });
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Hello');
+    await page.keyboard.press('Escape');
     await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
 
     await page.selectOption('#prop-text-font', 'Zilla Slab');

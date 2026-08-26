@@ -15,24 +15,20 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Create
 
     // Wait for main app
     await expect(page.locator('#main-app')).toBeVisible();
 
-    // Add text via File menu
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('Hello, type-set!');
-      }
-    });
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
-
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Hello, type-set!');
+    await page.keyboard.press('Escape');
     // Wait for layer to appear
     await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
 
@@ -81,20 +77,17 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
 
-    // Add text via File menu
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('Hello, type-set!');
-      }
-    });
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Hello, type-set!');
+    await page.keyboard.press('Escape');
 
     // Wait for the layer to render
     await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
@@ -138,20 +131,17 @@ test.describe('Text layer integration', () => {
 
     // Create a project
     await page.fill('#create-project-name', 'Text Resize Test');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
 
-    // Add text via File menu
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('Hello, type-set!');
-      }
-    });
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Hello, type-set!');
+    await page.keyboard.press('Escape');
 
     // Wait for the layer to render
     await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
@@ -232,17 +222,17 @@ test.describe('Text layer integration', () => {
   test('export processLayer returns 1x canvas sized to layer dimensions', async ({ page }) => {
     await page.goto('/');
     await page.fill('#create-project-name', 'Text Export Size Test');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
 
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') await dialog.accept('Export size test');
-    });
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Export size test');
+    await page.keyboard.press('Escape');
 
     await page.waitForFunction(() => {
       const layer = window.State.layers.find(l => l.isText);
@@ -277,17 +267,17 @@ test.describe('Text layer integration', () => {
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
     await page.goto('/');
     await page.fill('#create-project-name', 'Text Variant Test');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
-    await page.click('#btn-create-next');
+    await page.click('#btn-create-next'); // Units -> Page Size
+    await page.click('#btn-create-next'); // Page Size -> Pages
+    await page.click('#btn-create-next'); // Pages -> Create
     await expect(page.locator('#main-app')).toBeVisible();
 
-    page.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') await dialog.accept('Hello, variant!');
-    });
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill('Hello, variant!');
+    await page.keyboard.press('Escape');
 
     await page.waitForFunction(() => {
       const layer = window.State.layers.find(l => l.isText);
@@ -329,8 +319,11 @@ test.describe('Text layer integration', () => {
       expect(props).toEqual({ weight: 400, style: 'italic' });
     }).toPass({ timeout: 5000 });
 
-    const italicChecksum = await pixelChecksum();
-    expect(italicChecksum).not.toBe(normalChecksum);
+    // The italic re-render is async — poll until the pixels actually change.
+    await expect(async () => {
+      const italicChecksum = await pixelChecksum();
+      expect(italicChecksum).not.toBe(normalChecksum);
+    }).toPass({ timeout: 10000 });
 
     // Switch to a font without italic; dropdown should only contain normal variants.
     await page.selectOption('#prop-text-font', 'Fira Code');

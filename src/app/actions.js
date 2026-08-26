@@ -19,6 +19,7 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { getLinkGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { generateOutline } from './outline.js';
+import { isTwoToneShape } from './shape-utils.js';
 
 function updateViewMenuLabels() {
   document.getElementById('menu-toggle-margins').textContent = State.showMargins ? 'Hide Margins' : 'View Margins';
@@ -259,13 +260,14 @@ export async function handleAction(action, value = null) {
     case 'add-image':     document.getElementById('file-input').click(); break;
     case 'add-screentone': showScreentoneDialog(); break;
     case 'add-text': {
-      const text = prompt('Enter text:', 'Hello, world!');
-      if (text !== null) {
-        const { CANVAS_W, CANVAS_H } = await import('./constants.js');
-        const w = Math.min(CANVAS_W, 1200);
-        const h = Math.min(CANVAS_H, 400);
-        await LayerManager.addText(text, Math.round((CANVAS_W - w) / 2), Math.round((CANVAS_H - h) / 2), w, h);
-      }
+      // Adobe-style: drop a paragraph box at the page center and edit in place.
+      const { CANVAS_W, CANVAS_H } = await import('./constants.js');
+      const w = Math.min(CANVAS_W, 1200);
+      const h = Math.min(CANVAS_H, 400);
+      const newLayer = await LayerManager.addText('', Math.round((CANVAS_W - w) / 2), Math.round((CANVAS_H - h) / 2), w, h, { textMode: 'box' });
+      const { TextEditor } = await import('./text-editor.js');
+      UI.setTool('select');
+      await TextEditor.beginEdit(newLayer, { isNew: true });
       break;
     }
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
@@ -298,7 +300,10 @@ export async function handleAction(action, value = null) {
       if (layer) await generateOutline(layer.id);
       break;
     case 'flatten-layer': if (layer) await LayerManager.flatten(layer.id); break;
-    case 'split-color-separation': if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id); break;
+    case 'split-color-separation':
+      if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id);
+      else if (isTwoToneShape(layer)) await LayerManager.splitTwoToneShape(layer.id);
+      break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
     case 'layer-down': if (layer) LayerManager.move(layer.id, -1); break;
     case 'flip-h':

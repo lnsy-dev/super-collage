@@ -12,6 +12,7 @@ import { appendKofiNotice } from './ui.js';
 import { buildSheets } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
+import { isTwoToneShape } from './shape-utils.js';
 
 export const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
@@ -103,13 +104,22 @@ export const ExportEngine = {
   _buildPlateMap(visibleLayers) {
     const plateMap = new Map();
     const ensurePlate = hex => {
-      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [] });
+      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [], shapeParts: [] });
       return plateMap.get(hex);
     };
     for (const l of visibleLayers) {
       if (l.isColorSeparation) {
         for (const colorHex of l.separationColors) {
           ensurePlate(colorHex).separationLayers.push({ layer: l, color: colorHex });
+        }
+      } else if (isTwoToneShape(l)) {
+        // Two-tone shapes split across their own color plates: the body prints
+        // with the fill ink, the border ring with the border ink.
+        if (l.shapeHasFill && l.shapeFillColor) {
+          ensurePlate(l.shapeFillColor).shapeParts.push({ layer: l, part: 'fill' });
+        }
+        if (l.shapeHasStroke && l.shapeStrokeColor) {
+          ensurePlate(l.shapeStrokeColor).shapeParts.push({ layer: l, part: 'stroke' });
         }
       } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
         l.gradient.stops.forEach((stop, idx) => {
@@ -135,6 +145,15 @@ export const ExportEngine = {
     for (const layer of plate.solidLayers) {
       if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
+      if (!sourceCanvas) continue;
+      ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
+    }
+
+    // Two-tone shape contributions: each part is processed through the same
+    // render chain as the screen (per-ink colorized canvas), so plates match
+    // exactly what you see. Only alpha matters after _renderLayerToBuffer.
+    for (const { layer, part } of (plate.shapeParts || [])) {
+      const sourceCanvas = ImageProcessor.processShapePart(layer, part, layer.naturalWidth, layer.naturalHeight);
       if (!sourceCanvas) continue;
       ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
     }

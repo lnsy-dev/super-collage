@@ -82,9 +82,13 @@ test.describe('Duplicate – image layer', () => {
 
 test.describe('Duplicate – text layer', () => {
   async function addTextLayer(page, text = 'Hello') {
-    page.once('dialog', d => d.accept(text));
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible();
+    await editor.fill(text);
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
     await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible();
   }
 

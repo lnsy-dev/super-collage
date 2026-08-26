@@ -159,16 +159,22 @@ test.describe('Performance Optimizations', () => {
     });
 
     // Wait for the canvas center to show non-white pixels (filter applied)
-    // The image is centered on the canvas, so sample the middle
+    // The image is centered on the canvas. Sample a small REGION rather than
+    // a single pixel: a Bayer-dithered image can place a pure-white dot at
+    // any given coordinate depending on the processed resolution (which
+    // shifts with fit-zoom), so a 1px sample is inherently flaky.
     await page.waitForFunction(() => {
       const canvas = document.getElementById('display-canvas');
       if (!canvas) return false;
       const ctx = canvas.getContext('2d');
       const cx = Math.floor(canvas.width / 2);
       const cy = Math.floor(canvas.height / 2);
-      const d = ctx.getImageData(cx, cy, 1, 1).data;
+      const d = ctx.getImageData(cx - 6, cy - 6, 13, 13).data;
       // The filtered image should have changed from pure white paper
-      return d[0] !== 255 || d[1] !== 255 || d[2] !== 255;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] !== 255 || d[i + 1] !== 255 || d[i + 2] !== 255) return true;
+      }
+      return false;
     }, { timeout: 8000 });
 
     const elapsed = Date.now() - startTime;

@@ -54,6 +54,7 @@ export class Layer {
     this.isSvg = data.isSvg || false;
     this.isColorSeparation = data.isColorSeparation || false;
     this.isText = data.isText || false;
+    this.textMode = data.textMode || 'box'; // 'box' = paragraph box, 'line' = single line
     this.text = data.text || '';
     this.textFontFamily = data.textFontFamily || 'IBM Plex Serif';
     this.textFontSize = data.textFontSize ?? 96;
@@ -120,6 +121,7 @@ export class Layer {
       isSvg: this.isSvg,
       isColorSeparation: this.isColorSeparation,
       isText: this.isText,
+      textMode: this.textMode,
       text: this.text,
       textFontFamily: this.textFontFamily,
       textFontSize: this.textFontSize,

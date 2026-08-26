@@ -45,6 +45,9 @@ export const Renderer = {
       this.schedule();
     }, 150);
 
+    // On-canvas text editing caret must track zoom — commit the edit.
+    document.dispatchEvent(new CustomEvent('sc-zoom'));
+
     this.schedule();
   },
 
@@ -110,6 +113,9 @@ export const Renderer = {
     for (const layer of layers) {
       if (!layer.visible) continue;
       if (layer.isMaskFor) continue; // rendered as part of the masked layer below it
+      // A text layer being edited on-canvas is represented by its live editor
+      // overlay; skip its (stale) rasterization until the edit commits.
+      if (layer.id === State.textEditingId) continue;
       if (!skipCulling && !this._layerIntersectsViewport(layer, zoom)) continue;
       if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;

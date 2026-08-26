@@ -28,6 +28,8 @@ export const State = {
   shapeIsStar: false,
   shapeStarRatio: 0.4,
   shapeDrag: null,
+  textDrag: null,      // active {startX,startY} while dragging out a new text box
+  textEditingId: null, // id of the text layer currently being edited on-canvas
   showMargins: false,
   showGrid: false,
   margins: { top: 300, right: 300, bottom: 300, left: 300 }, // 0.5 in @ 600 dpi

@@ -97,10 +97,28 @@ export async function selectTool(page, toolName) {
     toolName === 'select' ? 'Select' :
     toolName === 'mask-draw' ? 'Mask Draw' :
     toolName === 'mask-erase' ? 'Mask Erase' :
+    toolName === 'text-box' ? 'Type — Paragraph Box' :
+    toolName === 'text-line' ? 'Type — Single Line' :
     toolName === 'shape-rect' ? 'Rectangle' :
     toolName === 'shape-ellipse' ? 'Ellipse' :
     toolName === 'shape-poly' ? 'Polygon' : toolName
   );
+}
+
+/**
+ * Add a text layer via File → Add Text… and edit it on-canvas.
+ * The new flow opens an in-box editor directly; we type into it and
+ * press Escape to commit.
+ */
+export async function addTextLayer(page, text = 'Hello') {
+  await page.click('[data-menu="file"]');
+  await page.click('[data-action="add-text"]');
+  const editor = page.locator('.text-editor-input');
+  await expect(editor).toBeVisible();
+  if (text) await editor.fill(text);
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible();
 }
 
 /**

@@ -22,7 +22,7 @@ export function showScreentoneDialog() {
     renderGrid(manifest);
   }).catch(err => {
     console.error('Failed to load screentones:', err);
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;font-size:9px;color:var(--dark-gray);">No screentones found.</div>';
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;font-size:1.25rem;color:var(--dark-gray);">No screentones found.</div>';
   });
 }
 

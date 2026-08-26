@@ -12,7 +12,10 @@ test.describe('Generate Outline', () => {
     await addImageFromBuffer(page, createShapePngBuffer('rect', 200, 200), { name: 'square.png' });
 
     await page.locator('#layer-buttons [data-action="generate-outline"]').click();
-    await page.waitForFunction(() => window.State.layers.length === 2);
+    await page.waitForFunction(() => {
+      const ol = window.State.layers[1];
+      return ol && !ol._dirty && ol._processedCanvas;
+    });
 
     const info = await page.evaluate(() => {
       const l = window.State.layers[window.State.layers.length - 1];
@@ -44,7 +47,10 @@ test.describe('Generate Outline', () => {
     await addImageFromBuffer(page, createShapePngBuffer('rect', 200, 200), { name: 'square.png' });
 
     await page.locator('#layer-buttons [data-action="generate-outline"]').click();
-    await page.waitForFunction(() => window.State.layers.length === 2);
+    await page.waitForFunction(() => {
+      const ol = window.State.layers[1];
+      return ol && !ol._dirty && ol._processedCanvas;
+    });
 
     // Hide the source image so only the outline shape is visible.
     await page.evaluate(async () => {
@@ -63,11 +69,25 @@ test.describe('Generate Outline', () => {
       const cx = (l.x + l.width / 2) * z;
       const cy = (l.y + l.height / 2) * z;
       const halfW = (l.width / 4) * z; // black square spans middle half of the image
-      const px = (x, y) => Array.from(ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data);
+      // Darkest red-channel value in a small neighbourhood. The stroke is
+      // only a couple of screen px wide at fit zoom, so a single-pixel probe
+      // can land on anti-aliased fringe.
+      const darkest = (x, y, r = 4) => {
+        let m = 255;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const sx = Math.round(x) + dx, sy = Math.round(y) + dy;
+            if (sx < 0 || sy < 0 || sx >= canvas.width || sy >= canvas.height) continue;
+            const v = ctx.getImageData(sx, sy, 1, 1).data[0];
+            if (v < m) m = v;
+          }
+        }
+        return m;
+      };
       return {
-        edgeTop: px(cx, cy - halfW),
-        center: px(cx, cy),
-        outside: px(l.x * z - 10, l.y * z - 10),
+        edgeTop: darkest(cx, cy - halfW),
+        center: darkest(cx, cy),
+        outside: darkest(l.x * z - 10, l.y * z - 10),
       };
     });
 
@@ -81,7 +101,10 @@ test.describe('Generate Outline', () => {
     await addImageFromBuffer(page, createShapePngBuffer('rect', 200, 200), { name: 'square.png' });
 
     await page.locator('#layer-buttons [data-action="generate-outline"]').click();
-    await page.waitForFunction(() => window.State.layers.length === 2);
+    await page.waitForFunction(() => {
+      const ol = window.State.layers[1];
+      return ol && !ol._dirty && ol._processedCanvas;
+    });
 
     const numInput = page.locator('#prop-shape-stroke-width-num');
     await expect(numInput).toBeVisible();

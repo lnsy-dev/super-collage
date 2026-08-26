@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, createProject, addImage } from './helpers.js';
+import { clearIndexedDB, createProject, addImage, selectTool } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -11,6 +11,33 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('Undo / Redo', () => {
+  test('undo removes a spawned border layer and restores selection', async ({ page }) => {
+    await createProject(page, 'Undo Shape Test');
+    await selectTool(page, 'shape-rect');
+    const canvas = page.locator('#interaction-overlay');
+    await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
+
+    // Selecting Border spawns a sibling outline layer and selects it.
+    await page.check('#prop-shape-border');
+    await page.waitForFunction(() => State.layers.length === 2);
+    expect(await page.isChecked('#prop-shape-border')).toBe(true);
+
+    // Undo should remove the spawned outline layer and restore the previous
+    // single-fill-layer state. (Blur first: the checked radio holds focus,
+    // and shortcuts are ignored while an input is focused.)
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+z');
+    await page.waitForFunction(() => State.layers.length === 1);
+    const info = await page.evaluate(() => ({
+      count: State.layers.length,
+      hasStroke: State.layers[0].shapeHasStroke,
+      selectedId: State.selectedId,
+    }));
+    expect(info.count).toBe(1);
+    expect(info.hasStroke).toBe(false);
+    expect(info.selectedId).toBe(State.layers[0].id);
+  });
+
   test('undo restores previous rotation value', async ({ page }) => {
     await createProject(page, 'Undo Test');
     await addImage(page, TEST_IMAGE);

@@ -6,7 +6,7 @@ import { State, selectedLayer } from './state.js';
 import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateVariantSelect } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
-import { drawShapePath, renderShapeToCanvas, rerenderShapeLayer } from './shape-utils.js';
+import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
@@ -18,6 +18,7 @@ import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
 import { getLinkedLayers, getLinkGroup } from './layer-link-utils.js';
+import { TextEditor } from './text-editor.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -173,7 +174,7 @@ function applyResize(layer, snap, meta, pointerX, pointerY, zoom) {
   layer.height = newH;
 }
 
-function onPointerDown(e) {
+async function onPointerDown(e) {
   e.preventDefault();
   // A primary pointer means no other pointers are physically down, so any
   // leftover multi-touch state is stale (e.g. a pointerup/pointercancel was
@@ -196,8 +197,29 @@ function onPointerDown(e) {
   const { x, y } = getCanvasXY(e);
   const layer = selectedLayer();
 
+  // Clicking anywhere on the canvas while editing text commits the edit.
+  if (TextEditor.active()) {
+    await TextEditor.commit();
+  }
+
   if (State.tool.startsWith('shape-')) {
     State.shapeDrag = { startX: x, startY: y };
+    return;
+  }
+
+  // Type tools: clicking directly on an existing text layer edits it
+  // (Adobe Type-tool behavior); clicking empty canvas creates new text.
+  if (State.tool === 'text-box' || State.tool === 'text-line') {
+    const hit = Renderer.hitTestLayer(x, y);
+    if (hit && hit.isText && !hit.locked) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      TextEditor.beginEdit(hit);
+      return;
+    }
+    State.textDrag = { startX: x, startY: y };
     return;
   }
 
@@ -322,6 +344,21 @@ function onPointerMove(e) {
     return;
   }
 
+  if (State.textDrag && (e.buttons & 1)) {
+    // Reuse a dashed preview for the text box being dragged out.
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    ctx.save();
+    ctx.translate(Math.min(State.textDrag.startX, x), Math.min(State.textDrag.startY, y));
+    ctx.strokeStyle = '#0055ff';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(0, 0, Math.abs(x - State.textDrag.startX), Math.abs(y - State.textDrag.startY));
+    ctx.restore();
+    ctx.setLineDash([]);
+    return;
+  }
+
   if ((State.tool === 'mask-draw' || State.tool === 'mask-erase') && (e.buttons & 1)) {
     const layer = selectedLayer();
     if (!layer) return;
@@ -432,15 +469,43 @@ async function onPointerUp(e) {
       const shapeProps = {
         shapeHasFill: State.shapeMode !== 'outline',
         shapeHasStroke: State.shapeMode === 'outline',
-        shapeStrokeWidth: State.shapeStrokeWidth,
+        // Tool width is a screen-pixel setting; convert to document pixels
+        // once here so the printed border never depends on the zoom level.
+        shapeStrokeWidth: Math.max(1, State.shapeStrokeWidth / State.zoom),
         shapeSides: State.shapeSides,
         shapeIsStar: State.shapeIsStar,
         shapeStarRatio: State.shapeStarRatio,
       };
-      const shapeCanvas = renderShapeToCanvas(State.tool, cw, ch, shapeProps);
-      await LayerManager.addShape(shapeCanvas, cx, cy, cw, ch);
+      await LayerManager.addShape(shapeProps, cx, cy, cw, ch);
       UI.setTool('select');
     }
+    return;
+  }
+  if (State.textDrag) {
+    const { x, y } = getCanvasXY(e);
+    const { startX, startY } = State.textDrag;
+    State.textDrag = null;
+    Renderer.drawOverlay();
+    const isLine = State.tool === 'text-line';
+    const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
+    let cx, cy, cw, ch;
+    if (!isLine && sw >= 8 && sh >= 8) {
+      // Dragged out an explicit paragraph box.
+      cx = Math.round(Math.min(startX, x) / State.zoom - CANVAS_PAD);
+      cy = Math.round(Math.min(startY, y) / State.zoom - CANVAS_PAD);
+      cw = Math.max(1, Math.round(sw / State.zoom));
+      ch = Math.max(1, Math.round(sh / State.zoom));
+    } else {
+      // Click (or tiny drag): place default-size type at the click point.
+      cx = Math.max(0, Math.min(Math.round(startX / State.zoom - CANVAS_PAD), CANVAS_W - 200));
+      cy = Math.max(0, Math.min(Math.round(startY / State.zoom - CANVAS_PAD), CANVAS_H - 100));
+      if (isLine) { cw = Math.min(CANVAS_W - cx, 1600); ch = 150; }
+      else { cw = Math.min(CANVAS_W - cx, 1200); ch = Math.min(CANVAS_H - cy, 400); }
+    }
+    const newLayer = await LayerManager.addText('', cx, cy, cw, ch,
+      { textMode: isLine ? 'line' : 'box' });
+    UI.setTool('select');
+    await TextEditor.beginEdit(newLayer, { isNew: true });
     return;
   }
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
@@ -494,6 +559,22 @@ export function wireControls() {
   overlayCanvas.addEventListener('pointerup',   onPointerUp);
   overlayCanvas.addEventListener('pointercancel', onPointerUp);
   overlayCanvas.addEventListener('pointerleave', e => { if (!(e.buttons & 1)) onPointerUp(e); });
+
+  // Double-click a text layer to edit it in place.
+  overlayCanvas.addEventListener('dblclick', async e => {
+    // The pointerdown that precedes this may already have opened the editor
+    // (Type tool over text) — don't commit-and-reopen it.
+    if (TextEditor.isActive()) return;
+    const { x, y } = getCanvasXY(e);
+    const hit = Renderer.hitTestLayer(x, y);
+    if (hit && hit.isText) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      await TextEditor.beginEdit(hit);
+    }
+  });
 
   /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
   const layerList = document.getElementById('layer-list');
@@ -802,10 +883,31 @@ export function wireControls() {
     });
   });
 
-  document.getElementById('color-swatches')?.addEventListener('click', e => {
+  document.getElementById('color-swatches')?.addEventListener('click', async e => {
     const sw = e.target.closest('.color-swatch');
     if (!sw) return;
     const l = selectedLayer(); if (!l) return;
+    if (l.isShape && !l.isColorSeparation) {
+      // Shape layers are single-ink (one part per layer): apply the swatch to
+      // the layer's active ink — fill body if it has one, border otherwise.
+      const hex = sw.dataset.color;
+      applyShapeChange(l, layer => {
+        if (layer.shapeHasFill) {
+          layer.shapeFillColor = hex;
+        } else {
+          layer.shapeStrokeColor = hex;
+        }
+        // Keep the layer's main color in sync so other UI (layer list,
+        // gradient/pattern editors) stays consistent.
+        layer.color = hex;
+      });
+      // applyShapeChange mutates the layer synchronously before its first
+      // await, so refreshing now shows the new selection immediately instead
+      // of waiting for the re-render to finish.
+      UI.refreshColorSwatches();
+      UI.refreshLayerList();
+      return;
+    }
     pushUndo(snapshotLayer(l));
     l.color = sw.dataset.color;
     l._dirty = true;
@@ -816,14 +918,28 @@ export function wireControls() {
   });
 
   // Text layer property controls
+  let _textSaveTimer = null;
+  let _textUndoPushed = false;
   function updateTextField(field, value, parser = v => v) {
     const l = selectedLayer(); if (!l || !l.isText) return;
-    pushUndo(snapshotLayer(l));
+    // Typing in the textarea fires per-keystroke — snapshot once per burst,
+    // and debounce the IndexedDB write so we don't thrash the DB.
+    const isTyping = field === 'text';
+    if (!isTyping || !_textUndoPushed) {
+      pushUndo(snapshotLayer(l));
+      if (isTyping) _textUndoPushed = true;
+    }
     l[field] = parser(value);
     l._originalCanvas = null;
     l._exportOriginalCanvas = null;
     l._dirty = true;
-    DB.saveLayer(l);
+    if (isTyping) {
+      clearTimeout(_textSaveTimer);
+      _textSaveTimer = setTimeout(() => { _textSaveTimer = null; _textUndoPushed = false; DB.saveLayer(l); }, 400);
+    } else {
+      _textUndoPushed = false;
+      DB.saveLayer(l);
+    }
     Renderer.schedule();
   }
 
@@ -955,8 +1071,6 @@ export function wireControls() {
   const shapeStrokeWidthRange = document.getElementById('prop-shape-stroke-width');
   const shapeStrokeWidthNum = document.getElementById('prop-shape-stroke-width-num');
   const shapeStrokeWidthRow = document.getElementById('shape-stroke-width-row');
-  const shapeStrokeSwatches = document.getElementById('shape-stroke-swatches');
-  const shapeFillSwatches = document.getElementById('shape-fill-swatches');
 
   async function applyShapeChange(layer, mutator) {
     pushUndo(snapshotLayer(layer));
@@ -966,17 +1080,24 @@ export function wireControls() {
     DB.saveLayer(layer);
   }
 
+  // Shape part radios: exactly one part per shape layer. Selecting a part
+  // the layer doesn't have spawns a sibling layer for it (see
+  // LayerManager.spawnShapePart) — the inside keeps its own layer and ink,
+  // the outline gets its own layer and ink. Selecting a layer's existing
+  // part never fires `change`, so re-clicking is a safe no-op.
   if (shapeFillCheck) {
     shapeFillCheck.addEventListener('change', () => {
       const l = selectedLayer(); if (!l || !l.isShape) return;
-      applyShapeChange(l, layer => { layer.shapeHasFill = shapeFillCheck.checked; });
+      if (!shapeFillCheck.checked) return;
+      LayerManager.spawnShapePart(l.id, 'fill');
     });
   }
 
   if (shapeBorderCheck) {
     shapeBorderCheck.addEventListener('change', () => {
       const l = selectedLayer(); if (!l || !l.isShape) return;
-      applyShapeChange(l, layer => { layer.shapeHasStroke = shapeBorderCheck.checked; });
+      if (!shapeBorderCheck.checked) return;
+      LayerManager.spawnShapePart(l.id, 'border');
     });
   }
 
@@ -1007,33 +1128,6 @@ export function wireControls() {
     shapeStrokeWidthNum.addEventListener('change', () => {
       const l = selectedLayer(); if (!l || !l.isShape) return;
       applyShapeChange(l, () => setShapeStrokeWidthForLayer(shapeStrokeWidthNum.value));
-    });
-  }
-
-  if (shapeStrokeSwatches) {
-    shapeStrokeSwatches.addEventListener('click', e => {
-      const sw = e.target.closest('.color-swatch');
-      if (!sw) return;
-      const l = selectedLayer(); if (!l || !l.isShape) return;
-      applyShapeChange(l, layer => {
-        layer.shapeStrokeColor = sw.dataset.color;
-      });
-    });
-  }
-
-  if (shapeFillSwatches) {
-    shapeFillSwatches.addEventListener('click', e => {
-      const sw = e.target.closest('.color-swatch');
-      if (!sw) return;
-      const l = selectedLayer(); if (!l || !l.isShape) return;
-      applyShapeChange(l, layer => {
-        layer.shapeFillColor = sw.dataset.color;
-        // Keep the layer's main color in sync with the body so other UI
-        // (layer list, gradient/pattern editors) stays consistent.
-        layer.color = sw.dataset.color;
-      });
-      UI.refreshColorSwatches();
-      UI.refreshLayerList();
     });
   }
 
@@ -1576,8 +1670,13 @@ export function wireControls() {
   });
 
   // ── Toolbar & panel buttons ───────────────────────────────────────
+  // Switching tools always commits an in-progress on-canvas text edit.
+  const setToolSafe = tool => {
+    if (TextEditor.active()) TextEditor.commit();
+    UI.setTool(tool);
+  };
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn =>
-    btn.addEventListener('click', () => UI.setTool(btn.dataset.tool)));
+    btn.addEventListener('click', () => setToolSafe(btn.dataset.tool)));
 
   // All data-action buttons outside menus
   document.querySelectorAll('[data-action]:not(.menu-entry):not(.tool-btn):not(.halftone-opt):not(.color-swatch)').forEach(el =>
@@ -1644,10 +1743,11 @@ export function wireControls() {
     if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
     const cmd = e.metaKey || e.ctrlKey;
     if (!cmd) {
-      if (e.key === 'v' || e.key === 'V') UI.setTool('select');
-      if (e.key === 'b' || e.key === 'B') UI.setTool('mask-draw');
-      if (e.key === 'e' || e.key === 'E') UI.setTool('mask-erase');
-      if (e.key === 'r' || e.key === 'R') UI.setTool('shape-rect');
+      if (e.key === 'v' || e.key === 'V') setToolSafe('select');
+      if (e.key === 'b' || e.key === 'B') setToolSafe('mask-draw');
+      if (e.key === 'e' || e.key === 'E') setToolSafe('mask-erase');
+      if (e.key === 't' || e.key === 'T') setToolSafe(e.shiftKey ? 'text-line' : 'text-box');
+      if (e.key === 'r' || e.key === 'R') setToolSafe('shape-rect');
       if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');
       if (e.key === 'p' || e.key === 'P') UI.setTool('shape-poly');
       return;

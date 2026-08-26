@@ -6,7 +6,7 @@ import { State } from './state.js';
 import { hexToRgb } from '../utils/color.js';
 import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
-import { isTwoToneShape } from './shape-utils.js';
+import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
@@ -203,6 +203,26 @@ export const ImageProcessor = {
     }
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d', { willReadFrequently: true });
+    if (isTwoToneShape(layer)) {
+      // Two-tone shapes run each channel (fill body / border ring) through the
+      // SAME solid-ink render chain used by every other layer — grayscale →
+      // brightness/contrast/invert → halftone → colorize — once per ink, then
+      // merge with the border over the body. No special-case artwork, so the
+      // screen render and the exported plates cannot drift apart.
+      const merged = this.processShapePart(layer, 'fill', targetW, targetH);
+      const strokePart = this.processShapePart(layer, 'stroke', targetW, targetH);
+      if (merged && strokePart) {
+        merged.getContext('2d').drawImage(strokePart, 0, 0);
+      }
+      const out = merged || work;
+      if (forExport) {
+        return out;
+      }
+      layer._processedCanvas = out;
+      layer._processedAtZoom = State.zoom;
+      layer._dirty = false;
+      return out;
+    }
     if (layer.isSvg && layer._svgImage) {
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, targetW, targetH);
@@ -211,22 +231,6 @@ export const ImageProcessor = {
       ctx.drawImage(layer._originalCanvas, 0, 0, targetW, targetH);
     }
     let px = ctx.getImageData(0, 0, targetW, targetH);
-    if (isTwoToneShape(layer)) {
-      // Two-tone shapes carry their real RGB colors (body + border); keep the
-      // artwork as-is and just make the near-white background transparent.
-      const d = px.data;
-      for (let i = 0; i < d.length; i += 4) {
-        d[i + 3] = (d[i] >= 250 && d[i + 1] >= 250 && d[i + 2] >= 250) ? 0 : 255;
-      }
-      ctx.putImageData(px, 0, 0);
-      if (forExport) {
-        return work;
-      }
-      layer._processedCanvas = work;
-      layer._processedAtZoom = State.zoom;
-      layer._dirty = false;
-      return work;
-    }
     px = this.toGrayscale(px);
     px = this.applyBrightness(px, layer.brightness);
     px = this.applyContrast(px, layer.contrast);
@@ -292,6 +296,33 @@ export const ImageProcessor = {
     layer._processedCanvas = work;
     layer._processedAtZoom = State.zoom;
     layer._dirty = false;
+    return work;
+  },
+
+  /**
+   * Render one channel of a shape layer through the standard solid-ink render
+   * chain and return a transparent-background RGBA canvas in that channel's
+   * riso ink. Shared by screen rendering (processLayer) and plate export so
+   * both use identical output by construction.
+   */
+  processShapePart(layer, part, targetW, targetH) {
+    const src = renderShapeLayerBitmap(layer, part);
+    if (!src) return null;
+    const work = new OffscreenCanvas(targetW, targetH);
+    const ctx = work.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(src, 0, 0, targetW, targetH);
+    let px = ctx.getImageData(0, 0, targetW, targetH);
+    px = this.toGrayscale(px);
+    px = this.applyBrightness(px, layer.brightness);
+    px = this.applyContrast(px, layer.contrast);
+    if (layer.invert) px = this.applyInvert(px);
+    if (layer.halftoneType !== 'none') {
+      px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+    }
+    // Per-part inks are always solid; gradient/pattern color modes apply to
+    // single-ink layers only.
+    px = this.colorize(px, part === 'fill' ? layer.shapeFillColor : layer.shapeStrokeColor, null);
+    ctx.putImageData(px, 0, 0);
     return work;
   },
 
@@ -556,12 +587,18 @@ export const ImageProcessor = {
     if (!layer[cacheKey] ||
         layer[cacheKey].width !== targetW ||
         layer[cacheKey].height !== targetH) {
+      // The npm type-set shapes italic runs from per-char styling only,
+      // so a layer-wide italic is expressed as a per-char set.
+      const perCharItalic = layer.textFontStyle === 'italic'
+        ? new Set(layer.text.split('').map((_c, i) => i))
+        : undefined;
       const renderer = new TypeSetRenderer({
         fontBase: './vendor/type-set/fonts/',
         fontFamily: layer.textFontFamily,
         fontSize: layer.textFontSize,
         fontWeight: layer.textFontWeight,
         fontStyle: layer.textFontStyle,
+        perCharItalic,
         letterSpacing: layer.textLetterSpacing,
         lineHeight: layer.textLineHeight,
         textAlign: layer.textAlign,
@@ -579,6 +616,32 @@ export const ImageProcessor = {
       tCtx.fillRect(0, 0, canvas.width, canvas.height);
       tCtx.globalCompositeOperation = 'source-over';
       layer[cacheKey] = canvas;
+    }
+
+    // ── FAST PATH ────────────────────────────────────────────────
+    // Plain black text with no brightness/contrast/invert/halftone needs
+    // no colorize/halftone math. Just one tight pass converting the
+    // white background to transparency (alpha = 255 - luminance),
+    // matching the full pipeline's output at a fraction of the cost.
+    const plainInk = (layer.color === '#010101' || layer.color === '#000000')
+      && layer.colorMode === 'solid'
+      && !layer.brightness && !layer.contrast && !layer.invert
+      && layer.halftoneType === 'none';
+    if (plainInk) {
+      const out = new OffscreenCanvas(targetW, targetH);
+      const oCtx = out.getContext('2d', { willReadFrequently: true });
+      oCtx.drawImage(layer[cacheKey], 0, 0, targetW, targetH);
+      const px = oCtx.getImageData(0, 0, targetW, targetH);
+      const d = px.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i + 3] = 255 - d[i]; // white bg → transparent, ink → opaque
+      }
+      oCtx.putImageData(px, 0, 0);
+      if (forExport) return out;
+      layer._processedCanvas = out;
+      layer._processedAtZoom = State.zoom;
+      layer._dirty = false;
+      return out;
     }
 
     const work = new OffscreenCanvas(targetW, targetH);

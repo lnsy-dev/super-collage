@@ -10,6 +10,7 @@ import { pushUndo, snapshotLayer } from './undo.js';
 import { computeViewUnits } from './spread-manager.js';
 import { hasItalic } from 'type-set';
 import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
+import { isTwoToneShape } from './shape-utils.js';
 
 const FONT_WEIGHTS = {
   'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
@@ -57,7 +58,7 @@ export function appendKofiNotice(parentEl) {
   if (existing) existing.remove();
   const notice = document.createElement('div');
   notice.className = 'kofi-notice';
-  notice.style.cssText = 'margin-top:8px;font-size:9px;text-align:center;line-height:1.6;';
+  notice.style.cssText = 'margin-top:8px;font-size:1.25rem;text-align:center;line-height:1.6;';
   notice.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
   parentEl.appendChild(notice);
 }
@@ -67,7 +68,7 @@ export function showKofiToast() {
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = 'kofi-toast';
-  toast.style.cssText = 'position:fixed;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;border:2px solid #000;padding:8px 16px;box-shadow:2px 2px 0 #000;font-size:9px;z-index:9999;text-align:center;white-space:nowrap;';
+  toast.style.cssText = 'position:fixed;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;color:#111;border:1px solid rgba(0,0,0,0.38);border-radius:3px;padding:8px 16px;box-shadow:0 2px 6px rgba(0,0,0,0.16);font-size:1.25rem;z-index:9999;text-align:center;white-space:nowrap;';;;
   toast.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
@@ -208,7 +209,18 @@ export const UI = {
     const container = document.getElementById('color-swatches');
     if (!container) return;
     container.innerHTML = '';
-    const selectedHex = selectedLayer()?.color || null;
+    const l = selectedLayer();
+    // Shape layers are single-ink (one part per layer): highlight the active
+    // part's ink so the swatch selection matches what the layer prints with.
+    const isShape = !!(l && l.isShape && !l.isColorSeparation);
+    let selectedHex;
+    if (isShape) {
+      selectedHex = l.shapeHasFill
+        ? (l.shapeFillColor || l.color || null)
+        : (l.shapeStrokeColor || null);
+    } else {
+      selectedHex = l?.color || null;
+    }
     for (const rc of RISO_COLORS) {
       if (rc.hex === '#FFFFFF') continue;
       const sw = document.createElement('div');
@@ -224,7 +236,7 @@ export const UI = {
     const list = document.getElementById('layer-list');
     list.innerHTML = '';
     if (!State.layers.length) {
-      list.innerHTML = '<div style="padding:8px;font-size:8px;color:var(--dark-gray);text-align:center;">No layers</div>';
+      list.innerHTML = '<div style="padding:8px;font-size:1.15rem;color:var(--dark-gray);text-align:center;">No layers</div>';
       return;
     }
     for (let i = State.layers.length - 1; i >= 0; i--) {
@@ -326,7 +338,7 @@ export const UI = {
     const splitBtn = document.getElementById('btn-split-color-separation');
     if (splitBtn) {
       const sel = selectedLayer();
-      splitBtn.style.display = (sel && sel.isColorSeparation) ? '' : 'none';
+      splitBtn.style.display = (sel && (sel.isColorSeparation || isTwoToneShape(sel))) ? '' : 'none';
     }
 
     const linkBtn = document.getElementById('btn-link-layers');
@@ -349,7 +361,7 @@ export const UI = {
     const pages = State.pages || [];
 
     if (!pages.length) {
-      list.innerHTML = '<div style="padding:8px;font-size:8px;color:var(--dark-gray);text-align:center;">No pages</div>';
+      list.innerHTML = '<div style="padding:8px;font-size:1.15rem;color:var(--dark-gray);text-align:center;">No pages</div>';
       return;
     }
 
@@ -407,7 +419,7 @@ export const UI = {
 
       const meta = document.createElement('div');
       meta.className = 'page-spread-meta';
-      meta.style.cssText = 'margin-left:auto;font-size:7px;color:var(--dark-gray);';
+      meta.style.cssText = 'margin-left:auto;font-size:1rem;color:var(--dark-gray);';
       meta.textContent = unit.type === 'spread' ? 'S' : '';
 
       row.append(thumb, name, meta);
@@ -456,7 +468,7 @@ export const UI = {
 
     const order = State.project?.pageOrder || [];
     if (order.length < 4) {
-      list.innerHTML = '<div style="padding:8px;font-size:8px;color:var(--dark-gray);text-align:center;">Not enough pages to remove a folio.</div>';
+      list.innerHTML = '<div style="padding:8px;font-size:1.15rem;color:var(--dark-gray);text-align:center;">Not enough pages to remove a folio.</div>';
       return;
     }
 
@@ -606,29 +618,11 @@ export const UI = {
     const widthNum = document.getElementById('prop-shape-stroke-width-num');
     const widthRow = document.getElementById('shape-stroke-width-row');
 
-    if (fillCheck) fillCheck.checked = layer.shapeHasFill;
-    if (borderCheck) borderCheck.checked = layer.shapeHasStroke;
+    if (fillCheck) fillCheck.checked = !!layer.shapeHasFill;
+    if (borderCheck) borderCheck.checked = !!layer.shapeHasStroke;
     if (widthRange) widthRange.value = layer.shapeStrokeWidth;
     if (widthNum) widthNum.value = layer.shapeStrokeWidth;
     if (widthRow) widthRow.style.display = layer.shapeHasStroke ? '' : 'none';
-
-    this._refreshSwatchRow('shape-fill-swatches', layer.shapeFillColor || layer.color);
-    this._refreshSwatchRow('shape-stroke-swatches', layer.shapeStrokeColor);
-  },
-
-  _refreshSwatchRow(containerId, selectedHex) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = '';
-    for (const rc of RISO_COLORS) {
-      if (rc.hex === '#FFFFFF') continue;
-      const sw = document.createElement('div');
-      sw.className = 'color-swatch' + (rc.hex === selectedHex ? ' selected' : '');
-      sw.dataset.color = rc.hex;
-      sw.style.background = rc.hex;
-      sw.title = rc.name;
-      container.appendChild(sw);
-    }
   },
 
   refreshZoom() {
@@ -682,6 +676,7 @@ export const UI = {
     const names = {
       select: 'Select',
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
+      'text-box': 'Type — Paragraph Box', 'text-line': 'Type — Single Line',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
     };
     document.getElementById('status-tool').textContent = names[tool] || tool;

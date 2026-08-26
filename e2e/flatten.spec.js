@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, createProject, addImage, addImageFromBuffer, createShapePngBuffer, createSolidPngBuffer } from './helpers.js';
+import { clearIndexedDB, createProject, addImage, addImageFromBuffer, addTextLayer, createShapePngBuffer, createSolidPngBuffer } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -128,5 +128,73 @@ test.describe('Flatten layer', () => {
     expect(after.nh).toBe(200);
     expect(after.imageMaskIds).toBe(0);
     expect(after.hasMaskCanvas).toBe(false);
+  });
+
+  test('flatten converts a text layer to a standard pixel layer', async ({ page }) => {
+    await createProject(page, 'Flatten Text Test');
+    await addTextLayer(page, 'Hello');
+
+    const before = await page.evaluate(() => {
+      const l = window.State.layers[0];
+      return { isText: l.isText, nw: l.naturalWidth, nh: l.naturalHeight, x: l.x, y: l.y, w: l.width, h: l.height };
+    });
+    expect(before.isText).toBe(true);
+
+    await page.locator('#layer-buttons [data-action="flatten-layer"]').click();
+
+    const after = await page.evaluate(() => {
+      const l = window.State.layers[0];
+      return { isText: l.isText, hasOriginal: !!l._originalCanvas, nw: l.naturalWidth, nh: l.naturalHeight };
+    });
+
+    // The text layer became a raster pixel layer.
+    expect(after.isText).toBe(false);
+    expect(after.hasOriginal).toBe(true);
+    // Content was baked at natural size and cropped to the text's bounding box.
+    expect(after.nw).toBeGreaterThan(0);
+    expect(after.nw).toBeLessThanOrEqual(before.nw);
+    expect(after.nh).toBeLessThanOrEqual(before.nh);
+
+    // Persists as a pixel layer across reload (image blob stored in IndexedDB).
+    // Wait for flatten's final IndexedDB write to land before reloading.
+    await page.waitForFunction(async () => {
+      const all = await new Promise((res, rej) => {
+        const req = window.DB._db.transaction('layers').objectStore('layers').getAll();
+        req.onsuccess = e => res(e.target.result);
+        req.onerror = rej;
+      });
+      return all.length === 1 && all[0].isText === false;
+    }, null, { timeout: 10000 });
+
+    await page.reload();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await page.locator('.project-entry', { hasText: 'Flatten Text Test' }).click();
+    await page.click('#btn-open-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    await expect(page.locator('.layer-row')).toHaveCount(1);
+    const reloaded = await page.evaluate(() => {
+      const l = window.State.layers[0];
+      return { isText: l.isText, hasOriginal: !!l._originalCanvas, nw: l.naturalWidth };
+    });
+    expect(reloaded.isText).toBe(false);
+    expect(reloaded.hasOriginal).toBe(true);
+    expect(reloaded.nw).toBe(after.nw);
+  });
+
+  test('undo restores a flattened text layer back to editable text', async ({ page }) => {
+    await createProject(page, 'Flatten Text Undo Test');
+    await addTextLayer(page, 'Hello');
+
+    await page.locator('#layer-buttons [data-action="flatten-layer"]').click();
+    await expect(page.locator('#layer-list .layer-name').filter({ hasText: /^T / })).toHaveCount(0);
+
+    await page.keyboard.press('Control+z');
+
+    const restored = await page.evaluate(() => {
+      const l = window.State.layers[0];
+      return { isText: l.isText, hasTextContent: l.text === 'Hello' };
+    });
+    expect(restored.isText).toBe(true);
+    expect(restored.hasTextContent).toBe(true);
   });
 });

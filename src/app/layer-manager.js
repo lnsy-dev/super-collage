@@ -11,16 +11,18 @@ import { hexToRgb } from '../utils/color.js';
 import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
-import { pushUndoState } from './undo.js';
+import { renderShapeLayerBitmap, isTwoToneShape, effectiveShapeColor, rerenderShapeLayer } from './shape-utils.js';
+import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 
 export const LayerManager = {
-  async addText(defaultText, x, y, w, h) {
+  async addText(defaultText, x, y, w, h, { textMode = 'box' } = {}) {
     pushUndoState();
     const layer = new Layer({
       name: 'Text',
       isText: true,
+      textMode,
       text: defaultText,
       x, y, width: w, height: h,
       naturalWidth: w, naturalHeight: h,
@@ -41,7 +43,10 @@ export const LayerManager = {
     return layer;
   },
 
-  async addShape(shapeCanvas, x, y, w, h) {
+  // Creates a shape layer from tool state + the given shape properties
+  // (shapeStrokeWidth is expected in DOCUMENT pixels — see events.js),
+  // renders its bitmap from geometry, and persists it.
+  async addShape(shapeProps = {}, x, y, w, h) {
     pushUndoState();
     const toolNames = {
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse',
@@ -53,21 +58,21 @@ export const LayerManager = {
       naturalWidth: w, naturalHeight: h,
       isShape: true,
       shapeType: State.tool,
-      shapeHasFill: State.shapeMode !== 'outline',
-      shapeHasStroke: State.shapeMode === 'outline',
-      shapeStrokeWidth: State.shapeStrokeWidth,
+      shapeHasFill: shapeProps.shapeHasFill ?? State.shapeMode !== 'outline',
+      shapeHasStroke: shapeProps.shapeHasStroke ?? State.shapeMode === 'outline',
+      shapeStrokeWidth: shapeProps.shapeStrokeWidth ?? Math.max(1, State.shapeStrokeWidth / State.zoom),
       shapeStrokeColor: '#010101',
       shapeFillColor: '#010101',
-      shapeSides: State.shapeSides,
-      shapeIsStar: State.shapeIsStar,
-      shapeStarRatio: State.shapeStarRatio,
+      shapeSides: shapeProps.shapeSides ?? State.shapeSides,
+      shapeIsStar: shapeProps.shapeIsStar ?? State.shapeIsStar,
+      shapeStarRatio: shapeProps.shapeStarRatio ?? State.shapeStarRatio,
     });
-    layer._originalCanvas = shapeCanvas;
+    layer._originalCanvas = renderShapeLayerBitmap(layer);
     MaskEngine.initMask(layer);
     State.layers.push(layer);
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
-    const blob = await shapeCanvas.convertToBlob({ type: 'image/png' });
+    const blob = await layer._originalCanvas.convertToBlob({ type: 'image/png' });
     await DB.put('layers', layer.toRecord());
     await DB.put('imageBlobs', { layerId: layer.id, blob });
     await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
@@ -466,6 +471,132 @@ export const LayerManager = {
     Renderer.schedule();
   },
 
+  // Splits a two-tone shape (distinct fill + border inks) into two separate
+  // parametric shape layers — one carrying only the fill body (inked with
+  // shapeFillColor), one carrying only the border ring (inked with
+  // shapeStrokeColor). Both keep the source geometry, so the parts stay
+  // aligned, and each remains a fully editable shape (resize, recolor,
+  // border width, etc.). Mirrors splitColorSeparation for images.
+  async splitTwoToneShape(layerId) {
+    pushUndoState();
+    const src = State.layers.find(l => l.id === layerId);
+    if (!src || !isTwoToneShape(src)) return;
+
+    // Clean up mask relationships the same way delete() does.
+    for (const maskId of (src.imageMaskIds || [])) {
+      const maskLayer = State.layers.find(l => l.id === maskId);
+      if (maskLayer) { maskLayer.isMaskFor = null; await DB.saveLayer(maskLayer); }
+    }
+    if (src.isMaskFor) {
+      const baseLayer = State.layers.find(l => l.id === src.isMaskFor);
+      if (baseLayer) {
+        baseLayer.imageMaskIds = (baseLayer.imageMaskIds || []).filter(id => id !== src.id);
+        await DB.saveLayer(baseLayer);
+      }
+    }
+
+    const sourceIdx = State.layers.findIndex(l => l.id === layerId);
+    const newLayers = [];
+
+    const partSpecs = [
+      { suffix: ' Fill', apply: rec => { rec.shapeHasStroke = false; } },
+      { suffix: ' Border', apply: rec => { rec.shapeHasFill = false; } },
+    ];
+    for (const { suffix, apply } of partSpecs) {
+      const rec = src.toRecord();
+      apply(rec);
+      const newLayer = new Layer({
+        ...rec,
+        id: undefined,
+        name: src.name + suffix,
+        linkedIds: [],
+      });
+      // Sync the main ink color and regenerate the bitmap from geometry.
+      newLayer.color = effectiveShapeColor(newLayer);
+      newLayer._dirty = true;
+      if (src._maskCanvas) {
+        const mc = new OffscreenCanvas(src._maskCanvas.width, src._maskCanvas.height);
+        mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
+        newLayer._maskCanvas = mc;
+      } else {
+        MaskEngine.initMask(newLayer);
+      }
+      // Renders this part's bitmap from geometry and persists the layer record
+      // + artwork blob. The single-ink pipeline now colorizes it correctly.
+      await rerenderShapeLayer(newLayer);
+      await DB.put('maskBlobs', { layerId: newLayer.id, blob: await newLayer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+      newLayers.push(newLayer);
+    }
+
+    // Remove the original two-tone shape.
+    State.layers.splice(sourceIdx, 1);
+    await DB.del('layers', layerId);
+    await DB.del('imageBlobs', layerId);
+    await DB.del('maskBlobs', layerId);
+
+    // Insert the fill/border layers at the original stacking position.
+    State.layers.splice(sourceIdx, 0, ...newLayers);
+
+    State.selectedId = newLayers[0]?.id || null;
+    State.selectedIds = newLayers[0] ? [newLayers[0].id] : [];
+
+    await PageManager.saveActivePage();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
+  // Spawns a sibling shape layer carrying only the requested part ('fill'
+  // body or 'border' ring) with the same geometry as the source shape.
+  // Shapes are one-part-per-layer — each ink lives on its own layer — so
+  // switching a fill shape to Border adds an outline layer above it while
+  // the inside stays on its original layer, and adding Fill to an outline
+  // gives it a body underneath. Selecting the part a layer already has is a
+  // no-op.
+  async spawnShapePart(layerId, part) {
+    pushUndoState();
+    const src = State.layers.find(l => l.id === layerId);
+    if (!src || !src.isShape) return;
+    const wantFill = part === 'fill';
+    if (wantFill ? src.shapeHasFill : src.shapeHasStroke) return;
+
+    const rec = src.toRecord();
+    rec.shapeHasFill = wantFill;
+    rec.shapeHasStroke = !wantFill;
+    if (!wantFill && !rec.shapeStrokeWidth) rec.shapeStrokeWidth = 4;
+
+    const newLayer = new Layer({
+      ...rec,
+      id: undefined,
+      name: src.name + (wantFill ? ' Fill' : ' Border'),
+      linkedIds: [],
+    });
+    // Sync the main ink color and render this part's bitmap from geometry.
+    newLayer.color = effectiveShapeColor(newLayer);
+    newLayer._dirty = true;
+    if (src._maskCanvas) {
+      const mc = new OffscreenCanvas(src._maskCanvas.width, src._maskCanvas.height);
+      mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
+      newLayer._maskCanvas = mc;
+    } else {
+      MaskEngine.initMask(newLayer);
+    }
+    await rerenderShapeLayer(newLayer);
+    await DB.put('maskBlobs', { layerId: newLayer.id, blob: await newLayer._maskCanvas.convertToBlob({ type: 'image/png' }) });
+
+    // Insert adjacent to the source: outlines stack above their body,
+    // bodies sit beneath their outline.
+    const insertIdx = State.layers.indexOf(src) + (wantFill ? 0 : 1);
+    State.layers.splice(insertIdx, 0, newLayer);
+    State.selectedId = newLayer.id;
+    State.selectedIds = [newLayer.id];
+
+    await PageManager.saveActivePage();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
   move(layerId, delta) {
     pushUndoState();
     const layer = State.layers.find(l => l.id === layerId);
@@ -615,7 +746,6 @@ export const LayerManager = {
   },
 
   async flatten(layerId) {
-    pushUndoState();
     const layer = State.layers.find(l => l.id === layerId);
     if (!layer) return;
 
@@ -626,8 +756,19 @@ export const LayerManager = {
       if (!baseLayer) return;
     }
 
-    // Only raster image/shape layers can be flattened.
-    if (baseLayer.isText || baseLayer.isSvg || baseLayer.isColorSeparation || !baseLayer._originalCanvas) return;
+    // Snapshot the layer record BEFORE flattening so undo can restore the
+    // original (possibly live-text) content. A reference-based state snapshot
+    // wouldn't help here: flatten mutates the layer instance in place.
+    pushUndoWithMask(baseLayer);
+
+    // Text layers are flattened by converting them to standard pixel layers:
+    // their rendered output is baked into an _originalCanvas first.
+    if (baseLayer.isText) {
+      if (!await this._bakeTextToRaster(baseLayer)) return;
+    } else if (baseLayer.isSvg || baseLayer.isColorSeparation || !baseLayer._originalCanvas) {
+      // Only raster image/shape layers can be flattened.
+      return;
+    }
 
     const nw = baseLayer.naturalWidth;
     const nh = baseLayer.naturalHeight;
@@ -776,6 +917,35 @@ export const LayerManager = {
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
+  },
+
+  /**
+   * Bake a live text layer's rendered output into a raster _originalCanvas and
+   * convert it into a standard (non-text) pixel layer. Returns true on success.
+   * After this, normal flatten logic (mask baking + crop) applies unchanged.
+   */
+  async _bakeTextToRaster(layer) {
+    const nw = layer.naturalWidth;
+    const nh = layer.naturalHeight;
+    if (!nw || !nh) return false;
+
+    // Render at export quality: full pipeline (grayscale/brightness/halftone/
+    // colorize) applied, transparent background.
+    const proc = await ImageProcessor.processLayer(layer, { forExport: true });
+    if (!proc) return false;
+
+    // Composite onto white so the canvas matches how raster image layers
+    // store their artwork (flatten's bbox detection relies on this).
+    const orig = new OffscreenCanvas(nw, nh);
+    const ctx = orig.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, nw, nh);
+    ctx.drawImage(proc, 0, 0);
+
+    layer._originalCanvas = orig;
+    layer._exportOriginalCanvas = null;
+    layer.isText = false;
+    return true;
   },
 
   /**

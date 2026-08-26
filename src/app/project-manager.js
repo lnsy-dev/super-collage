@@ -312,7 +312,7 @@ export async function showExportDialog() {
     ? [...plateMap.entries()].map(([hex, info]) => {
         const label = info.mode !== 'solid' ? `${info.name} (${info.mode})` : info.name;
         return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <div style="width:14px;height:14px;background:${hex};border:1px solid #000;flex-shrink:0;"></div>
+          <div style="width:14px;height:14px;background:${hex};border:1px solid rgba(0,0,0,0.28);border-radius:2px;flex-shrink:0;"></div>
           <span>${label} — ${info.layerCount} layer(s)</span></div>`;
       }).join('')
     : '<p>No visible layers to export.</p>';

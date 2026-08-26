@@ -11,6 +11,7 @@ import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, getProjectSizeLabel } from './constants.js';
 import { hexToRgb } from '../utils/color.js';
+import { renderShapeLayerBitmap } from './shape-utils.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 
 export const PageManager = {
@@ -357,6 +358,12 @@ export const PageManager = {
     }
 
     const maskRec = await DB.get('maskBlobs', layer.id);
+    if (layer.isShape) {
+      // Shapes are parametric — regenerate artwork from geometry instead of
+      // trusting the stored blob, so outdated colors/stroke widths baked by
+      // older versions can never resurface.
+      layer._originalCanvas = renderShapeLayerBitmap(layer);
+    }
     if (maskRec?.blob) {
       await MaskEngine.loadMask(layer, maskRec.blob);
     } else {

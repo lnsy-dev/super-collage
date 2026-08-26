@@ -197,9 +197,10 @@ export async function generateOutline(layerId) {
     shapePath,
     shapeHasFill: false,
     shapeHasStroke: true,
-    shapeStrokeWidth: 4,
-    shapeStrokeColor: '#010101',
-    shapeFillColor: '#010101',
+    shapeStrokeWidth: 12, // document pixels @600 dpi ≈ 0.02"
+    shapeStrokeColor: src.color || '#010101',
+    shapeFillColor: src.color || '#010101',
+    // Synced from shapeStrokeColor by rerenderShapeLayer (single-ink layer).
     color: src.color || '#010101',
   });
 
