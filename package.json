@@ -19,7 +19,5 @@
     "concurrently": "^9.1.2",
     "sharp": "^0.34.5"
   },
-  "dependencies": {
-    "type-set": "file:../type-set"
-  }
+  "dependencies": {}
 }
