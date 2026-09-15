@@ -180,6 +180,83 @@ export function buildSheets(pages, options = {}) {
   return _buildGridSheets(pages, layout, bleed);
 }
 
+/**
+ * Compute the best grid for `copies` copies of one image on a target paper.
+ * Like calculateLayout, this is the "adjust to the paper" step used when a
+ * single image is exported: it tries both orientations of the paper and both
+ * orientations of the image, plus every column×row factor pair of `copies`,
+ * never scaling the image above 100%. Scores prefer the largest image scale,
+ * then the upright image, then the paper's natural orientation, then a
+ * vertical arrangement (rows ≥ cols) so copies stack top-to-bottom.
+ * Returns { cols, rows, imageRotated, sheetW, sheetH }.
+ */
+export function calculateSingleImageLayout(imageW, imageH, copies, targetSheetSize, customTargetW, customTargetH) {
+  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
+  const n = Math.max(1, Math.floor(copies) || 1);
+
+  let best = { cols: 1, rows: n, imageRotated: false, sheetW: dims.w, sheetH: dims.h };
+  let bestScore = -1;
+
+  const sheetConfigs = [
+    { w: dims.w, h: dims.h, natural: true },
+    { w: dims.h, h: dims.w, natural: false },
+  ];
+  const imageConfigs = [
+    { w: imageW, h: imageH, rotated: false },
+    { w: imageH, h: imageW, rotated: true },
+  ];
+
+  for (const sheet of sheetConfigs) {
+    for (const image of imageConfigs) {
+      for (let cols = 1; cols <= n; cols++) {
+        if (n % cols) continue;
+        const rows = n / cols;
+        const scale = Math.min(1, sheet.w / cols / image.w, sheet.h / rows / image.h);
+        const score = scale * 100
+          + (image.rotated ? 0 : 10)
+          + (sheet.natural ? 5 : 0)
+          + (rows >= cols ? 1 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { cols, rows, imageRotated: image.rotated, sheetW: sheet.w, sheetH: sheet.h };
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Tile `copies` copies of one image onto a sheet of the target paper — the
+ * single-image counterpart of buildSheets. The image is drawn upright when it
+ * fits, letterboxed and centered in its cell, scaled down only if it cannot
+ * fit. Returns one OffscreenCanvas sized to the paper.
+ */
+export function buildSingleImageSheet(image, options = {}) {
+  const {
+    copies = 1,
+    targetSheetSize = 'letter',
+    customTargetW = 0,
+    customTargetH = 0,
+  } = options;
+
+  const layout = calculateSingleImageLayout(image.width, image.height, copies, targetSheetSize, customTargetW, customTargetH);
+  const sheet = new OffscreenCanvas(layout.sheetW, layout.sheetH);
+  const ctx = sheet.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, layout.sheetW, layout.sheetH);
+
+  const cellW = layout.sheetW / layout.cols;
+  const cellH = layout.sheetH / layout.rows;
+  for (let r = 0; r < layout.rows; r++) {
+    for (let c = 0; c < layout.cols; c++) {
+      _drawPageInCell(ctx, image, c * cellW, r * cellH, cellW, cellH, layout.imageRotated, 0);
+    }
+  }
+  return sheet;
+}
+
 function _buildGridSheets(pages, layout, bleed) {
   const { cols, rows, pagesPerSheet, pageRotated, sheetW, sheetH } = layout;
   const sheets = [];
