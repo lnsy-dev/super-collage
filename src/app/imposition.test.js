@@ -5,7 +5,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { saddleStitchOrder, calculateLayout } from './imposition.js';
+import { saddleStitchOrder, calculateLayout, calculateSingleImageLayout } from './imposition.js';
 
 describe('saddleStitchOrder', () => {
   it('returns classic zine order for 8 pages', () => {
@@ -43,5 +43,61 @@ describe('calculateLayout', () => {
     assert.equal(layout.sheetW, 6600);
     assert.equal(layout.sheetH, 10200);
     assert.equal(layout.pageRotated, false);
+  });
+});
+
+describe('calculateSingleImageLayout', () => {
+  // 18cm × 12.5cm @ 600 dpi.
+  const IMAGE_W = 4252, IMAGE_H = 2953;
+
+  it('stacks two copies vertically on portrait letter', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 2, 'letter');
+    assert.equal(layout.sheetW, 5100);
+    assert.equal(layout.sheetH, 6600);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 2);
+    assert.equal(layout.imageRotated, false);
+  });
+
+  it('centers a single copy upright on portrait letter', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 1, 'letter');
+    assert.equal(layout.sheetW, 5100);
+    assert.equal(layout.sheetH, 6600);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 1);
+    assert.equal(layout.imageRotated, false);
+  });
+
+  it('prefers a vertical stack when both orientations fit at 100%', () => {
+    const layout = calculateSingleImageLayout(3000, 3000, 2, 'letter');
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 2);
+    assert.equal(layout.imageRotated, false);
+  });
+
+  it('turns the sheet landscape when only that orientation fits upright at 100%', () => {
+    const layout = calculateSingleImageLayout(6000, 2000, 1, 'letter');
+    assert.equal(layout.sheetW, 6600);
+    assert.equal(layout.sheetH, 5100);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 1);
+    assert.equal(layout.imageRotated, false);
+  });
+
+  it('picks the largest scale for four copies (2×2 on landscape letter)', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 4, 'letter');
+    assert.equal(layout.cols, 2);
+    assert.equal(layout.rows, 2);
+    assert.equal(layout.sheetW, 6600);
+    assert.equal(layout.sheetH, 5100);
+    assert.equal(layout.imageRotated, false);
+  });
+
+  it('honours a custom paper size', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 2, 'custom', 5100, 6600);
+    assert.equal(layout.sheetW, 5100);
+    assert.equal(layout.sheetH, 6600);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 2);
   });
 });

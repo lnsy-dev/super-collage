@@ -9,7 +9,7 @@ import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
 import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, formatPageSizeLabel, formatPxDimensions } from './constants.js';
 import { PageManager } from './page-manager.js';
-import { calculateLayout } from './imposition.js';
+import { calculateLayout, calculateSingleImageLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
 
 export let _selProjectId = null;
@@ -186,8 +186,8 @@ export function updateExportLayoutInfo() {
     customRow.style.display = targetSize === 'custom' ? '' : 'none';
   }
 
-  // Page imposition only matters when there is more than one page. Binding is
-  // always saddle-stitch, so its row is never shown.
+  // The binding/booklet-layout rows only matter when there is more than one
+  // page. The target-paper row applies to both single images and booklets.
   const isBooklet = State.pages.length > 1;
   const section = document.getElementById('export-imposition-section');
   if (section) section.style.display = isBooklet ? '' : 'none';
@@ -208,6 +208,18 @@ export function updateExportLayoutInfo() {
     const page = State.pages.find(p => p.id === State.pageId);
     if (page) { pageW = page.width; pageH = page.height; }
   }
+
+  if (!isBooklet) {
+    // Single image: the Layout radios choose copies per sheet, imposed onto
+    // the target paper (upright, centered, stacked vertically when they fit).
+    const layoutValue = document.querySelector('input[name="export-layout"]:checked')?.value || '1up';
+    const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[layoutValue] || 1;
+    const layout = calculateSingleImageLayout(pageW, pageH, copies, targetSize, customW, customH);
+    const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+    info.textContent = `${copies} per sheet, ${orientation}${layout.imageRotated ? ', image rotated' : ''}`;
+    return;
+  }
+
   const layout = calculateLayout(pageW, pageH, targetSize, customW, customH);
   const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
 

@@ -9,7 +9,7 @@ import { DB } from './db.js';
 import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
 import { appendKofiNotice } from './ui.js';
-import { buildSheets } from './imposition.js';
+import { buildSheets, buildSingleImageSheet } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
 import { isTwoToneShape } from './shape-utils.js';
@@ -271,6 +271,15 @@ export const ExportEngine = {
       const plateMap = await this.exportLayers(State.layers, CANVAS_W, CANVAS_H);
       const colorEntries = [...plateMap.entries()];
       const spreadInfo = this._getSpreadSplitInfo();
+      // Single-image exports adjust to the target paper like booklet exports:
+      // the layout radios choose copies per sheet, imposed by buildSingleImageSheet.
+      const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[layout] || 1;
+      const singleImageOptions = {
+        copies,
+        targetSheetSize,
+        customTargetW: customW,
+        customTargetH: customH,
+      };
 
       for (let ci = 0; ci < colorEntries.length; ci++) {
         const [color, canvas] = colorEntries[ci];
@@ -284,11 +293,11 @@ export const ExportEngine = {
           const leftSlug = spreadInfo.leftPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           const rightSlug = spreadInfo.rightPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-          for (const [side, sideCanvas, sideSlug, sideDims] of [
-            ['left', left, leftSlug, { w: spreadInfo.leftWidth, h: spreadInfo.leftPage.height }],
-            ['right', right, rightSlug, { w: spreadInfo.rightWidth, h: spreadInfo.rightPage.height }],
+          for (const [side, sideCanvas, sideSlug] of [
+            ['left', left, leftSlug],
+            ['right', right, rightSlug],
           ]) {
-            const tiled = this._tileCanvas(sideCanvas, layout, sideDims.w, sideDims.h);
+            const tiled = buildSingleImageSheet(sideCanvas, singleImageOptions);
             const blob = await tiled.convertToBlob({ type: 'image/png' });
             const layoutSuffix = layout !== '1up' ? `-${layout}` : '';
             const url = URL.createObjectURL(blob);
@@ -299,7 +308,7 @@ export const ExportEngine = {
             await new Promise(r => setTimeout(r, 400));
           }
         } else {
-          const tiled = this._tileCanvas(canvas, layout, CANVAS_W, CANVAS_H);
+          const tiled = buildSingleImageSheet(canvas, singleImageOptions);
           const blob = await tiled.convertToBlob({ type: 'image/png' });
           const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           const layoutSuffix = layout !== '1up' ? `-${layout}` : '';

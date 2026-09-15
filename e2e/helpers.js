@@ -435,6 +435,68 @@ export async function runExportBooklet(page, {
 }
 
 /**
+ * Run the single-image color-plate export path in the browser and return
+ * compact sheet summaries per color plate: sheet dimensions, the bounding box
+ * of inked (non-white) pixels, and the grey level of the horizontal band at
+ * the sheet's vertical midpoint. Exercises exportLayers + buildSingleImageSheet —
+ * the same production calls ExportEngine.export makes for one-page projects.
+ *
+ * Returns { [colorHex]: { width, height, ink: {minX, minY, maxX, maxY}, midGapGrey } }
+ */
+export async function runExportSinglePlate(page, {
+  layout = '1up',
+  targetSheetSize = 'letter',
+  customTargetW = 0,
+  customTargetH = 0,
+} = {}) {
+  return page.evaluate(async ({ layout, targetSheetSize, customTargetW, customTargetH }) => {
+    const { ExportEngine } = await import('/src/app/export-engine.js');
+    const { buildSingleImageSheet } = await import('/src/app/imposition.js');
+    const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+
+    const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[layout] || 1;
+    const plateMap = await ExportEngine.exportLayers(State.layers, CANVAS_W, CANVAS_H);
+
+    const result = {};
+    for (const [color, canvas] of plateMap.entries()) {
+      const sheet = buildSingleImageSheet(canvas, { copies, targetSheetSize, customTargetW, customTargetH });
+      const w = sheet.width, h = sheet.height;
+      const data = sheet.getContext('2d').getImageData(0, 0, w, h).data;
+
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (data[(y * w + x) * 4] < 128) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      // Grey level of a thin horizontal band at the sheet's vertical midpoint:
+      // white (255) when vertically stacked copies leave a gap there.
+      let gapSum = 0, gapCount = 0;
+      for (let y = Math.floor(h / 2) - 25; y < Math.floor(h / 2) + 25; y++) {
+        for (let x = 0; x < w; x += 11) {
+          gapSum += data[(y * w + x) * 4];
+          gapCount++;
+        }
+      }
+
+      result[color] = {
+        width: w,
+        height: h,
+        ink: { minX, minY, maxX, maxY },
+        midGapGrey: gapCount ? gapSum / gapCount : 255,
+      };
+    }
+    return result;
+  }, { layout, targetSheetSize, customTargetW, customTargetH });
+}
+
+/**
  * Sample the dominant grey value of a rectangular region in a sheet's pixel array.
  * Sheets are exported as greyscale ink on white (R=G=B=grey, A=255).
  * Returns the average grey value (0-255). 255 = white/empty, 0 = black/fully inked.

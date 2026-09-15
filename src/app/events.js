@@ -1584,6 +1584,8 @@ export function wireControls() {
     r.addEventListener('change', updateExportLayoutInfo));
   document.querySelectorAll('input[name="export-booklet-layout"]').forEach(r =>
     r.addEventListener('change', updateExportLayoutInfo));
+  document.querySelectorAll('input[name="export-layout"]').forEach(r =>
+    r.addEventListener('change', updateExportLayoutInfo));
 
   // ── Composite export dialog controls ──────────────────────────────
   document.getElementById('composite-target-size')?.addEventListener('change', updateCompositeLayoutInfo);
