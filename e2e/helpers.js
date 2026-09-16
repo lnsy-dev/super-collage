@@ -101,7 +101,8 @@ export async function selectTool(page, toolName) {
     toolName === 'text-line' ? 'Type — Single Line' :
     toolName === 'shape-rect' ? 'Rectangle' :
     toolName === 'shape-ellipse' ? 'Ellipse' :
-    toolName === 'shape-poly' ? 'Polygon' : toolName
+    toolName === 'shape-poly' ? 'Polygon' :
+    toolName === 'zoom' ? 'Zoom' : toolName
   );
 }
 

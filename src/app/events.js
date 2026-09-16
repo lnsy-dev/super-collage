@@ -76,6 +76,44 @@ export function getCanvasXY(e) {
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
+/* ─── ZOOM TOOL ────────────────────────────────────────────────────
+   Zooms in (or, with Shift, out) around the clicked point: the page-space
+   point under the cursor stays under the cursor after the zoom. */
+const ZOOM_TOOL_STEP = 1.25; // matches the zoom-in/out buttons
+const ZOOM_TOOL_MIN = 0.04, ZOOM_TOOL_MAX = 2;
+
+function zoomAtClick(e, x, y, direction) {
+  const scroll = document.getElementById('canvas-scroll');
+  const oldZoom = State.zoom;
+  const newZoom = direction === 'out'
+    ? Math.max(ZOOM_TOOL_MIN, oldZoom / ZOOM_TOOL_STEP)
+    : Math.min(ZOOM_TOOL_MAX, oldZoom * ZOOM_TOOL_STEP);
+  if (newZoom === oldZoom) return;
+
+  // Page-space point under the click (overlay origin = canvas minus CANVAS_PAD).
+  const pageX = x / oldZoom - CANVAS_PAD;
+  const pageY = y / oldZoom - CANVAS_PAD;
+  // Click position within the scroll container's viewport.
+  const sRect = scroll.getBoundingClientRect();
+  const vx = e.clientX - sRect.left;
+  const vy = e.clientY - sRect.top;
+
+  State.zoom = newZoom;
+  Renderer.resize();
+  UI.refreshZoom();
+
+  // Keep the page point under the cursor: measure where the wrapper landed
+  // after the resize (margin:auto centers it when content is smaller than the
+  // viewport), convert the point to scroll-content coordinates, then scroll so
+  // it sits back at the same viewport position. The wrapper origin is page
+  // point (0, 0), so the point's wrapper-relative position is (pageX, pageY) * zoom.
+  const wRect = document.getElementById('canvas-wrapper').getBoundingClientRect();
+  const contentX = (wRect.left - sRect.left) + scroll.scrollLeft + pageX * newZoom;
+  const contentY = (wRect.top  - sRect.top)  + scroll.scrollTop  + pageY * newZoom;
+  scroll.scrollLeft = Math.max(0, Math.min(contentX - vx, scroll.scrollWidth  - scroll.clientWidth));
+  scroll.scrollTop  = Math.max(0, Math.min(contentY - vy, scroll.scrollHeight - scroll.clientHeight));
+}
+
 // Returns snapshots of all selected layers except the primary one.
 export function getExtraSnaps(primaryId) {
   return State.selectedIds
@@ -204,6 +242,12 @@ async function onPointerDown(e) {
 
   if (State.tool.startsWith('shape-')) {
     State.shapeDrag = { startX: x, startY: y };
+    return;
+  }
+
+  // Zoom tool: click zooms in, Shift+click zooms out, both around the click.
+  if (State.tool === 'zoom') {
+    zoomAtClick(e, x, y, e.shiftKey ? 'out' : 'in');
     return;
   }
 
@@ -1752,6 +1796,7 @@ export function wireControls() {
       if (e.key === 'r' || e.key === 'R') setToolSafe('shape-rect');
       if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');
       if (e.key === 'p' || e.key === 'P') UI.setTool('shape-poly');
+      if (e.key === 'z' || e.key === 'Z') setToolSafe('zoom');
       return;
     }
     if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
@@ -1796,6 +1841,15 @@ export function wireControls() {
     }
     Renderer.schedule();
   });
+
+  // Zoom tool: mirror Shift in a body class so the cursor flips to zoom-out.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Shift') document.body.classList.add('shift-held');
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === 'Shift') document.body.classList.remove('shift-held');
+  });
+  window.addEventListener('blur', () => document.body.classList.remove('shift-held'));
 
   UI.updateBrushPopout();
 }

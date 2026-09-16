@@ -678,6 +678,7 @@ export const UI = {
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
       'text-box': 'Type — Paragraph Box', 'text-line': 'Type — Single Line',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
+      zoom: 'Zoom',
     };
     document.getElementById('status-tool').textContent = names[tool] || tool;
     const isShape = tool.startsWith('shape-');
