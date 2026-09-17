@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateVariantSelect } from './ui.js';
+import { UI, renderGradientBar, refreshGradientEditor, refreshPatternEditor, showKofiToast, populateVariantSelect, openKofiTab } from './ui.js';
 import { Renderer, Transform, overlayCanvas } from './renderer.js';
 import { MaskEngine } from './mask-engine.js';
 import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
@@ -1644,6 +1644,10 @@ export function wireControls() {
 
   document.getElementById('btn-export-go').addEventListener('click', async () => {
     document.getElementById('btn-export-go').disabled = true;
+    // Open Ko-fi right away, synchronously inside the click gesture so popup
+    // blockers allow it. The window closes itself once downloads finish
+    // (see ExportEngine.export / exportBooklet).
+    openKofiTab();
     await ExportEngine.export();
   });
 

@@ -8,7 +8,7 @@ import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from '.
 import { DB } from './db.js';
 import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
-import { appendKofiNotice } from './ui.js';
+import { appendKofiNotice, closeWindowAfterExport } from './ui.js';
 import { buildSheets, buildSingleImageSheet } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
@@ -326,6 +326,7 @@ export const ExportEngine = {
 
       prog.textContent = `Done! ${colorEntries.length} plate(s) exported.`;
       appendKofiNotice(prog);
+      closeWindowAfterExport();
     } catch (err) {
       console.error('Export failed:', err);
       prog.textContent = `Export failed: ${err.message}`;
@@ -495,6 +496,7 @@ export const ExportEngine = {
 
     prog.textContent = `Done! ${colorEntries.length} color(s) exported.`;
     appendKofiNotice(prog);
+    closeWindowAfterExport();
   },
 
   async _renderComposite(layers, width, height, prog = null, label = '') {

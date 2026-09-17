@@ -53,13 +53,31 @@ export function populateVariantSelect(font, currentWeight, currentStyle) {
   sel.value = `${match.weight}:${match.style}`;
 }
 
+export const KOFI_URL = 'https://ko-fi.com/lnsy47369';
+
+// "Export All Plates" extras: open the Ko-fi page the moment the button is
+// clicked, and close the tab once every plate download has been handed to the
+// browser. Both are skipped under automation (navigator.webdriver) so e2e runs
+// keep their page and stay offline.
+export function openKofiTab() {
+  if (navigator.webdriver) return;
+  // Must run synchronously inside the click gesture or popup blockers eat it.
+  window.open(KOFI_URL, '_blank', 'noopener');
+}
+
+export function closeWindowAfterExport() {
+  if (navigator.webdriver) return;
+  // Short delay so the final blob download has started before the tab goes away.
+  setTimeout(() => window.close(), 1500);
+}
+
 export function appendKofiNotice(parentEl) {
   const existing = parentEl.querySelector('.kofi-notice');
   if (existing) existing.remove();
   const notice = document.createElement('div');
   notice.className = 'kofi-notice';
   notice.style.cssText = 'margin-top:8px;font-size:1.25rem;text-align:center;line-height:1.6;';
-  notice.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
+  notice.innerHTML = `Enjoying Super Collage? <a href="${KOFI_URL}" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>`;
   parentEl.appendChild(notice);
 }
 
@@ -69,7 +87,7 @@ export function showKofiToast() {
   const toast = document.createElement('div');
   toast.className = 'kofi-toast';
   toast.style.cssText = 'position:fixed;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;color:#111;border:1px solid rgba(0,0,0,0.38);border-radius:3px;padding:8px 16px;box-shadow:0 2px 6px rgba(0,0,0,0.16);font-size:1.25rem;z-index:9999;text-align:center;white-space:nowrap;';;;
-  toast.innerHTML = 'Enjoying Super Collage? <a href="https://ko-fi.com/lnsy47369" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>';
+  toast.innerHTML = `Enjoying Super Collage? <a href="${KOFI_URL}" target="_blank" rel="noopener" style="color:#000;text-decoration:underline;">Support me on Ko-fi</a>`;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
 }
