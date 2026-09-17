@@ -126,9 +126,10 @@ test.describe('Performance Optimizations', () => {
     await page.waitForTimeout(2000);
 
     expect(exportDims).not.toBeNull();
-    // For half-letter at 600 dpi: 3300 x 5100
-    expect(exportDims.width).toBe(3300);
-    expect(exportDims.height).toBe(5100);
+    // The half-letter page plate is imposed onto the default target paper
+    // (portrait letter) at 600 dpi: 5100 x 6600.
+    expect(exportDims.width).toBe(5100);
+    expect(exportDims.height).toBe(6600);
   });
 
   test('app remains interactive under CPU throttling', async ({ page }) => {

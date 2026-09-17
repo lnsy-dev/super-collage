@@ -86,14 +86,17 @@ test.describe('Generate Outline', () => {
       };
       return {
         edgeTop: darkest(cx, cy - halfW),
-        center: darkest(cx, cy),
+        // Tight radius: at fit zoom the stroke sits ~5.5px from the center, so
+        // the default radius would catch its anti-aliased fringe. A filled
+        // outline would still darken the whole interior and fail this probe.
+        center: darkest(cx, cy, 2),
         outside: darkest(l.x * z - 10, l.y * z - 10),
       };
     });
 
-    expect(samples.edgeTop[0]).toBeLessThan(128);   // stroke on the square's edge
-    expect(samples.center[0]).toBeGreaterThan(200); // no fill inside
-    expect(samples.outside[0]).toBeGreaterThan(200);
+    expect(samples.edgeTop).toBeLessThan(128);   // stroke on the square's edge
+    expect(samples.center).toBeGreaterThan(200); // no fill inside
+    expect(samples.outside).toBeGreaterThan(200);
   });
 
   test('outline stroke width can be edited like other shapes', async ({ page }) => {

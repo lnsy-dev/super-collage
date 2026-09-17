@@ -32,10 +32,11 @@ test.describe('Undo / Redo', () => {
       count: State.layers.length,
       hasStroke: State.layers[0].shapeHasStroke,
       selectedId: State.selectedId,
+      firstLayerId: State.layers[0].id,
     }));
     expect(info.count).toBe(1);
     expect(info.hasStroke).toBe(false);
-    expect(info.selectedId).toBe(State.layers[0].id);
+    expect(info.selectedId).toBe(info.firstLayerId);
   });
 
   test('undo restores previous rotation value', async ({ page }) => {
