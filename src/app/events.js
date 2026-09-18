@@ -1639,8 +1639,11 @@ export function wireControls() {
     r.addEventListener('change', updateCompositeLayoutInfo));
 
   // ── Export dialog buttons ─────────────────────────────────────────
-  document.getElementById('btn-export-cancel').addEventListener('click', () =>
-    document.getElementById('export-dialog').classList.add('hidden'));
+  document.getElementById('btn-export-cancel').addEventListener('click', () => {
+    // Stop the running export (checked between sheets) and close the dialog.
+    ExportEngine.requestCancel?.();
+    document.getElementById('export-dialog').classList.add('hidden');
+  });
 
   document.getElementById('btn-export-go').addEventListener('click', async () => {
     document.getElementById('btn-export-go').disabled = true;

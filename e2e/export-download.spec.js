@@ -34,6 +34,9 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
     page.click('#btn-export-go'),
   ]);
 
+  // The export progress shows a determinate bar while sheets stream out.
+  await expect(page.locator('#export-progress .export-progress-bar')).toBeVisible();
+
   // Saddle-stitch folio with 4 pages and 4 colors yields 2 sheets per color.
   const downloads = [download1];
   for (let i = 0; i < 7; i++) {
@@ -44,4 +47,8 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
   for (const d of downloads) {
     expect(d.suggestedFilename()).toMatch(/\.png$/);
   }
+
+  // Completion summary with metrics (elapsed time, downloaded size).
+  await expect(page.locator('#export-progress .export-progress-label')).toContainText('Done!', { timeout: 10000 });
+  await expect(page.locator('#export-progress .export-progress-metrics')).toContainText('⏱');
 });

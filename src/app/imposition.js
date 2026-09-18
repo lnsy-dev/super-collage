@@ -173,11 +173,131 @@ export function buildSheets(pages, options = {}) {
   const pageH = firstPage.height;
   const layout = calculateLayout(pageW, pageH, targetSheetSize, customTargetW, customTargetH);
 
+  const plan = computeSheetPlan(pages.length, layout, binding, bookletLayout, bleed);
+  return plan.map(side => renderSheetSide(side, i => pages[i] || null));
+}
+
+/**
+ * Compute WHERE every reader page lands on every printable sheet side,
+ * without rendering anything. One side descriptor per downloadable PNG:
+ *   { sheetW, sheetH, pageRotated, bleed, cells: [{ pageIndex, cellX, cellY,
+ *     cellW, cellH, extraRotation }] }
+ * Cell geometry is final — renderSheetSide draws the cells verbatim, so the
+ * plan and buildSheets cannot drift apart. Used by buildSheets and by the
+ * streaming plate exporter, which renders pages on demand instead of holding
+ * every page plate in memory.
+ */
+export function computeSheetPlan(pageCount, layout, binding, bookletLayout, bleed = 0) {
+  const { sheetW, sheetH, pageRotated } = layout;
   if (binding === 'saddle-stitch') {
-    return _buildSaddleStitchSheets(pages, layout, bleed, bookletLayout);
+    const spec = BOOKLET_LAYOUTS[bookletLayout] || BOOKLET_LAYOUTS.folio;
+    if (spec.zine) return _zineSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed);
+    return _bookletSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed);
+  }
+  return _gridSheetPlan(pageCount, layout, bleed);
+}
+
+function _zineSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed) {
+  // Classic zine folio: 2 pages per side, cover sheet first.
+  const order = saddleStitchOrder(pageCount);
+  const halfW = sheetW / 2;
+  const sides = [];
+  for (let i = 0; i < order.length; i += 2) {
+    const cells = [];
+    if (order[i] !== null) {
+      cells.push({ pageIndex: order[i], cellX: 0, cellY: 0, cellW: halfW - bleed / 2, cellH: sheetH, extraRotation: 0 });
+    }
+    if (order[i + 1] !== null) {
+      cells.push({ pageIndex: order[i + 1], cellX: halfW + bleed / 2, cellY: 0, cellW: halfW - bleed / 2, cellH: sheetH, extraRotation: 0 });
+    }
+    sides.push({ sheetW, sheetH, pageRotated, bleed, cells });
+  }
+  return sides;
+}
+
+function _bookletSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed) {
+  // Center-out booklet layouts (quarto, octavo) adapted from bookbinder-js.
+  const k = spec.perSheet / 2;
+  const padded = Math.ceil(pageCount / spec.perSheet) * spec.perSheet;
+  const sheetCount = padded / spec.perSheet;
+  const center = padded / 2;
+  const cellW = sheetW / spec.cols;
+  const cellH = sheetH / spec.rows;
+
+  const mkSideCells = (block, indices) => indices.map((blockPos, i) => ({
+    // `blockPos` indexes the front+back block of reader page slots; rotations
+    // are keyed by the same block position (bookbinder-js convention).
+    pageIndex: block[blockPos],
+    cellX: (i % spec.cols) * cellW,
+    cellY: Math.floor(i / spec.cols) * cellH,
+    cellW,
+    cellH,
+    extraRotation: (spec.rotations[blockPos] || 0) * Math.PI / 180,
+  }));
+
+  const innerSides = [];
+  for (let innerS = 0; innerS < sheetCount; innerS++) {
+    const frontStart = center - k * (innerS + 1);
+    const frontEnd = center - k * innerS;
+    const backStart = center + k * innerS;
+    const backEnd = center + k * (innerS + 1);
+
+    const block = [];
+    for (let i = frontStart; i < frontEnd; i++) block.push(i >= 0 && i < pageCount ? i : null);
+    for (let i = backStart; i < backEnd; i++) block.push(i >= 0 && i < pageCount ? i : null);
+
+    innerSides.push(
+      { sheetW, sheetH, pageRotated, bleed, cells: mkSideCells(block, spec.front) },
+      { sheetW, sheetH, pageRotated, bleed, cells: mkSideCells(block, spec.back) }
+    );
   }
 
-  return _buildGridSheets(pages, layout, bleed);
+  // Reverse so outermost sheet is first; keep front/back pairs intact.
+  const sides = [];
+  for (let i = innerSides.length - 2; i >= 0; i -= 2) {
+    sides.push(innerSides[i], innerSides[i + 1]);
+  }
+  return sides;
+}
+
+function _gridSheetPlan(pageCount, layout, bleed) {
+  const { cols, rows, pagesPerSheet, sheetW, sheetH, pageRotated } = layout;
+  const cellW = sheetW / cols;
+  const cellH = sheetH / rows;
+  const sides = [];
+  for (let i = 0; i < pageCount; i += pagesPerSheet) {
+    const cells = [];
+    for (let j = 0; j < pagesPerSheet && i + j < pageCount; j++) {
+      cells.push({
+        pageIndex: i + j,
+        cellX: (j % cols) * cellW,
+        cellY: Math.floor(j / cols) * cellH,
+        cellW,
+        cellH,
+        extraRotation: 0,
+      });
+    }
+    sides.push({ sheetW, sheetH, pageRotated, bleed, cells });
+  }
+  return sides;
+}
+
+/**
+ * Render one planned sheet side to an OffscreenCanvas. `getPage(pageIndex)`
+ * supplies each cell's plate canvas (or null/undefined for a blank cell).
+ */
+export function renderSheetSide(side, getPage) {
+  const { sheetW, sheetH, pageRotated, bleed, cells } = side;
+  const sheet = new OffscreenCanvas(sheetW, sheetH);
+  const ctx = sheet.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, sheetW, sheetH);
+  for (const cell of cells) {
+    const page = getPage(cell.pageIndex);
+    if (!page) continue;
+    _drawPageInCell(ctx, page, cell.cellX, cell.cellY, cell.cellW, cell.cellH, pageRotated, bleed, cell.extraRotation);
+  }
+  return sheet;
 }
 
 /**
@@ -254,133 +374,6 @@ export function buildSingleImageSheet(image, options = {}) {
       _drawPageInCell(ctx, image, c * cellW, r * cellH, cellW, cellH, layout.imageRotated, 0);
     }
   }
-  return sheet;
-}
-
-function _buildGridSheets(pages, layout, bleed) {
-  const { cols, rows, pagesPerSheet, pageRotated, sheetW, sheetH } = layout;
-  const sheets = [];
-
-  for (let i = 0; i < pages.length; i += pagesPerSheet) {
-    const sheet = new OffscreenCanvas(sheetW, sheetH);
-    const ctx = sheet.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, sheetW, sheetH);
-
-    const cellW = sheetW / cols;
-    const cellH = sheetH / rows;
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const idx = i + r * cols + c;
-        if (idx >= pages.length) continue;
-        const page = pages[idx];
-        if (!page) continue;
-        const cellX = c * cellW;
-        const cellY = r * cellH;
-        _drawPageInCell(ctx, page, cellX, cellY, cellW, cellH, pageRotated, bleed);
-      }
-    }
-    sheets.push(sheet);
-  }
-
-  return sheets;
-}
-
-function _buildSaddleStitchSheets(pages, layout, bleed, bookletLayout) {
-  const spec = BOOKLET_LAYOUTS[bookletLayout] || BOOKLET_LAYOUTS.folio;
-
-  if (spec.zine) {
-    return _buildZineSheets(pages, layout, bleed, spec);
-  }
-
-  return _buildBookletSheets(pages, layout, bleed, spec);
-}
-
-function _buildZineSheets(pages, layout, bleed, spec) {
-  // Classic zine folio: 2 pages per side, cover sheet first.
-  const order = saddleStitchOrder(pages.length);
-  const { sheetW, sheetH, pageRotated } = layout;
-  const sheets = [];
-  const halfW = sheetW / 2;
-
-  for (let i = 0; i < order.length; i += 2) {
-    const leftIdx = order[i];
-    const rightIdx = order[i + 1];
-    const sheet = new OffscreenCanvas(sheetW, sheetH);
-    const ctx = sheet.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, sheetW, sheetH);
-
-    if (leftIdx !== null && pages[leftIdx]) {
-      _drawPageInCell(ctx, pages[leftIdx], 0, 0, halfW - bleed / 2, sheetH, pageRotated, bleed);
-    }
-    if (rightIdx !== null && pages[rightIdx]) {
-      _drawPageInCell(ctx, pages[rightIdx], halfW + bleed / 2, 0, halfW - bleed / 2, sheetH, pageRotated, bleed);
-    }
-    sheets.push(sheet);
-  }
-
-  return sheets;
-}
-
-function _buildBookletSheets(pages, layout, bleed, spec) {
-  // Center-out booklet layouts (quarto, octavo) adapted from bookbinder-js.
-  const k = spec.perSheet / 2;
-  const pageCount = pages.length;
-  const padded = Math.ceil(pageCount / spec.perSheet) * spec.perSheet;
-  const sheetCount = padded / spec.perSheet;
-  const center = padded / 2;
-  const { sheetW, sheetH, pageRotated } = layout;
-
-  const innerSheets = [];
-
-  for (let innerS = 0; innerS < sheetCount; innerS++) {
-    const frontStart = center - k * (innerS + 1);
-    const frontEnd = center - k * innerS;
-    const backStart = center + k * innerS;
-    const backEnd = center + k * (innerS + 1);
-
-    const block = [];
-    for (let i = frontStart; i < frontEnd; i++) {
-      block.push(i >= 0 && i < pageCount ? pages[i] : null);
-    }
-    for (let i = backStart; i < backEnd; i++) {
-      block.push(i >= 0 && i < pageCount ? pages[i] : null);
-    }
-
-    innerSheets.push(
-      _buildBookletSide(block, spec.front, spec.rotations, sheetW, sheetH, spec.cols, spec.rows, bleed, pageRotated),
-      _buildBookletSide(block, spec.back, spec.rotations, sheetW, sheetH, spec.cols, spec.rows, bleed, pageRotated)
-    );
-  }
-
-  // Reverse so outermost sheet is first; keep front/back pairs intact.
-  const sheets = [];
-  for (let i = innerSheets.length - 2; i >= 0; i -= 2) {
-    sheets.push(innerSheets[i], innerSheets[i + 1]);
-  }
-  return sheets;
-}
-
-function _buildBookletSide(block, indices, rotations, sheetW, sheetH, cols, rows, bleed, pageRotated) {
-  const sheet = new OffscreenCanvas(sheetW, sheetH);
-  const ctx = sheet.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, sheetW, sheetH);
-
-  const cellW = sheetW / cols;
-  const cellH = sheetH / rows;
-
-  for (let i = 0; i < indices.length; i++) {
-    const page = block[indices[i]];
-    if (!page) continue;
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    const rotation = (rotations[indices[i]] || 0) * Math.PI / 180;
-    _drawPageInCell(ctx, page, c * cellW, r * cellH, cellW, cellH, pageRotated, bleed, rotation);
-  }
-
   return sheet;
 }
 

@@ -9,10 +9,11 @@ import { DB } from './db.js';
 import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
 import { appendKofiNotice, closeWindowAfterExport } from './ui.js';
-import { buildSheets, buildSingleImageSheet } from './imposition.js';
+import { calculateLayout, computeSheetPlan, renderSheetSide, buildSheets, buildSingleImageSheet } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
 import { isTwoToneShape } from './shape-utils.js';
+import { createExportProgress, formatBytes, formatDuration } from './export-progress.js';
 
 export const ExportEngine = {
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
@@ -237,8 +238,10 @@ export const ExportEngine = {
   },
 
   async export() {
-    const prog = document.getElementById('export-progress');
+    const progEl = document.getElementById('export-progress');
+    const prog = createExportProgress(progEl);
     const btn = document.getElementById('btn-export-go');
+    this._cancelRequested = false;
     try {
       const projectSlug = document.getElementById('status-project').textContent
         .toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -268,8 +271,11 @@ export const ExportEngine = {
         return;
       }
 
-      const plateMap = await this.exportLayers(State.layers, CANVAS_W, CANVAS_H);
-      const colorEntries = [...plateMap.entries()];
+      const visibleLayers = State.layers.filter(l => l.visible && !l.isMaskFor);
+      const plateMap = this._buildPlateMap(visibleLayers);
+      // Stream one ink at a time: render the plate, download it, release it.
+      // Only the current plate canvas is ever held in memory.
+      const colors = [...plateMap.keys()].filter(c => c !== '#FFFFFF');
       const spreadInfo = this._getSpreadSplitInfo();
       // Single-image exports adjust to the target paper like booklet exports:
       // the layout radios choose copies per sheet, imposed by buildSingleImageSheet.
@@ -281,55 +287,54 @@ export const ExportEngine = {
         customTargetH: customH,
       };
 
-      for (let ci = 0; ci < colorEntries.length; ci++) {
-        const [color, canvas] = colorEntries[ci];
+      const startedAt = performance.now();
+      prog.begin(colors.length);
+      let bytes = 0;
+
+      for (let ci = 0; ci < colors.length; ci++) {
+        const color = colors[ci];
         const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
-        prog.textContent = `Rendering ${colorName} (${ci + 1}/${colorEntries.length})…`;
+        prog.textContent = `Rendering ${colorName} (${ci + 1}/${colors.length})…`;
         await new Promise(r => setTimeout(r, 0));
 
-        if (spreadInfo) {
-          const { left, right } = this._splitCanvasByWidth(canvas, spreadInfo.leftWidth);
-          const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-          const leftSlug = spreadInfo.leftPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-          const rightSlug = spreadInfo.rightPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const canvas = await this._renderPlate(color, plateMap.get(color), CANVAS_W, CANVAS_H, State.layers);
 
-          for (const [side, sideCanvas, sideSlug] of [
-            ['left', left, leftSlug],
-            ['right', right, rightSlug],
-          ]) {
-            const tiled = buildSingleImageSheet(sideCanvas, singleImageOptions);
-            const blob = await tiled.convertToBlob({ type: 'image/png' });
-            const layoutSuffix = layout !== '1up' ? `-${layout}` : '';
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `${projectSlug}-${sideSlug}-${colorSlug}${layoutSuffix}.png`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-            await new Promise(r => setTimeout(r, 400));
-          }
-        } else {
-          const tiled = buildSingleImageSheet(canvas, singleImageOptions);
-          const blob = await tiled.convertToBlob({ type: 'image/png' });
-          const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-          const layoutSuffix = layout !== '1up' ? `-${layout}` : '';
+        const download = async (sideCanvas, name) => {
+          const blob = await sideCanvas.convertToBlob({ type: 'image/png' });
+          bytes += blob.size;
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
-          a.href = url; a.download = `${projectSlug}-${colorSlug}${layoutSuffix}.png`;
+          a.href = url; a.download = name;
           a.click();
           setTimeout(() => URL.revokeObjectURL(url), 5000);
           await new Promise(r => setTimeout(r, 400));
+        };
+
+        const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const layoutSuffix = layout !== '1up' ? `-${layout}` : '';
+
+        if (spreadInfo) {
+          const { left, right } = this._splitCanvasByWidth(canvas, spreadInfo.leftWidth);
+          const leftSlug = spreadInfo.leftPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          const rightSlug = spreadInfo.rightPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          await download(buildSingleImageSheet(left, singleImageOptions), `${projectSlug}-${leftSlug}-${colorSlug}${layoutSuffix}.png`);
+          await download(buildSingleImageSheet(right, singleImageOptions), `${projectSlug}-${rightSlug}-${colorSlug}${layoutSuffix}.png`);
+        } else {
+          await download(buildSingleImageSheet(canvas, singleImageOptions), `${projectSlug}-${colorSlug}${layoutSuffix}.png`);
         }
+
+        prog.advance(1, { bytes });
       }
 
       for (const l of State.layers) { l._dirty = true; }
       Renderer.schedule();
 
-      prog.textContent = `Done! ${colorEntries.length} plate(s) exported.`;
-      appendKofiNotice(prog);
+      prog.finish(`Done! ${colors.length} plate(s) exported.`);
+      appendKofiNotice(progEl);
       closeWindowAfterExport();
     } catch (err) {
       console.error('Export failed:', err);
-      prog.textContent = `Export failed: ${err.message}`;
+      prog?.fail(`Export failed: ${err.message}`);
     } finally {
       btn.disabled = false;
     }
@@ -363,8 +368,8 @@ export const ExportEngine = {
   // Build per-color page plates in reader order for a saddle-stitch booklet.
   // Returns Map<colorHex, Array(pageOrder.length) of canvas|null>. Missing
   // pages stay null so buildSheets renders them as blank white sheets. Used by
-  // both exportBooklet (production downloads) and the e2e harness so the
-  // spanning/crop behaviour is exercised in one place.
+  // the e2e harness so the spanning/crop behaviour is exercised in one place
+  // with the streaming exporter (which shares _renderSpreadPlates).
   async _buildBookletPagePlates(pageOrder, prog = null) {
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
@@ -378,125 +383,284 @@ export const ExportEngine = {
     };
 
     for (let si = 0; si < spreads.length; si++) {
-      const spread = spreads[si];
-      const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
-      const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
-      const leftWidth = leftPage?.width || 0;
-      const rightWidth = rightPage?.width || 0;
-      const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
-
       if (prog) {
         prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
         await new Promise(r => setTimeout(r, 0));
       }
 
-      const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
-      const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = readerSpreadIds.has(spread.id)
-        && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
+      const spread = spreads[si];
+      const { left, right } = await this._renderSpreadPlates(spread, readerSpreadIds);
 
-      if (!spanning) {
-        // Single pages (or non-spread printer pairs): render each page into its
-        // own page-sized canvas so content is cropped at the page edge.
-        if (leftPage) {
-          const plateMap = await this.exportLayers(leftLayers, leftWidth, pageHeight);
-          for (const [color, canvas] of plateMap.entries()) {
-            ensurePagePlate(color)[pageOrder.indexOf(leftPage.id)] = canvas;
-          }
-        }
-        if (rightPage) {
-          const plateMap = await this.exportLayers(rightLayers, rightWidth, pageHeight);
-          for (const [color, canvas] of plateMap.entries()) {
-            ensurePagePlate(color)[pageOrder.indexOf(rightPage.id)] = canvas;
-          }
-        }
-      } else {
-        // Genuine reader spread: render combined and split so layers bleed
-        // across the fold.
-        const spreadWidth = leftWidth + rightWidth;
-        const layers = [...leftLayers];
-        for (const l of rightLayers) {
-          l.x += leftWidth;
-          layers.push(l);
-        }
-
-        const spreadPlateMap = await this.exportLayers(layers, spreadWidth, pageHeight);
-        for (const [color, spreadCanvas] of spreadPlateMap.entries()) {
-          const plates = ensurePagePlate(color);
-          if (leftPage) {
-            const leftIdx = pageOrder.indexOf(leftPage.id);
-            if (leftIdx !== -1) {
-              const leftPlate = new OffscreenCanvas(leftWidth, pageHeight);
-              leftPlate.getContext('2d').drawImage(spreadCanvas, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
-              plates[leftIdx] = leftPlate;
-            }
-          }
-          if (rightPage) {
-            const rightIdx = pageOrder.indexOf(rightPage.id);
-            if (rightIdx !== -1) {
-              const rightPlate = new OffscreenCanvas(rightWidth, pageHeight);
-              rightPlate.getContext('2d').drawImage(spreadCanvas, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
-              plates[rightIdx] = rightPlate;
-            }
-          }
+      if (spread.leftPageId && left) {
+        const leftIdx = pageOrder.indexOf(spread.leftPageId);
+        for (const [color, canvas] of left.entries()) {
+          if (leftIdx !== -1) ensurePagePlate(color)[leftIdx] = canvas;
         }
       }
-
-      // Release bitmaps for this spread to keep memory low.
-      for (const l of [...leftLayers, ...rightLayers]) {
-        l._originalCanvas = null;
-        l._processedCanvas = null;
-        l._maskCanvas = null;
-        l._svgImage = null;
-        l.separationPlates?.clear();
+      if (spread.rightPageId && right) {
+        const rightIdx = pageOrder.indexOf(spread.rightPageId);
+        for (const [color, canvas] of right.entries()) {
+          if (rightIdx !== -1) ensurePagePlate(color)[rightIdx] = canvas;
+        }
       }
     }
 
     return colorPages;
   },
 
+  // Render both halves of one printer spread. Spreads that are genuine reader
+  // spreads with layers crossing the fold render combined and split (so the
+  // content bleeds across the fold); every other pairing renders each page
+  // into its own page-sized canvas so content crops at the page edge.
+  // Returns { left: Map<color,canvas>|null, right: Map<color,canvas>|null }.
+  // All hydrated layer bitmaps are released before returning.
+  async _renderSpreadPlates(spread, readerSpreadIds) {
+    const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
+    const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
+    const leftWidth = leftPage?.width || 0;
+    const rightWidth = rightPage?.width || 0;
+    const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
+
+    const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
+    const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
+    const spanning = readerSpreadIds.has(spread.id)
+      && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
+
+    let left = null;
+    let right = null;
+
+    if (!spanning) {
+      if (leftPage) left = await this.exportLayers(leftLayers, leftWidth, pageHeight);
+      if (rightPage) right = await this.exportLayers(rightLayers, rightWidth, pageHeight);
+    } else {
+      // Genuine reader spread: render combined and split so layers bleed
+      // across the fold.
+      const spreadWidth = leftWidth + rightWidth;
+      const layers = [...leftLayers];
+      for (const l of rightLayers) {
+        l.x += leftWidth;
+        layers.push(l);
+      }
+
+      const spreadPlateMap = await this.exportLayers(layers, spreadWidth, pageHeight);
+      left = new Map();
+      right = new Map();
+      for (const [color, spreadCanvas] of spreadPlateMap.entries()) {
+        if (leftPage) {
+          const leftPlate = new OffscreenCanvas(leftWidth, pageHeight);
+          leftPlate.getContext('2d').drawImage(spreadCanvas, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
+          left.set(color, leftPlate);
+        }
+        if (rightPage) {
+          const rightPlate = new OffscreenCanvas(rightWidth, pageHeight);
+          rightPlate.getContext('2d').drawImage(spreadCanvas, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
+          right.set(color, rightPlate);
+        }
+      }
+    }
+
+    // Release bitmaps so streamed exports keep memory low.
+    for (const l of [...leftLayers, ...rightLayers]) {
+      l._originalCanvas = null;
+      l._processedCanvas = null;
+      l._maskCanvas = null;
+      l._svgImage = null;
+      l.separationPlates?.clear();
+    }
+
+    return { left, right };
+  },
+
   async exportBooklet({ prog, projectSlug, layout, binding, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
-    // Render spreads rather than individual pages so layers that span the
-    // center fold are preserved on both sides of the imposition. Page plates
-    // are collected in reader order (pageOrder) so buildSheets imposes them
-    // correctly.
+    // Streamed export: pages are rendered and imposed ONE SHEET SIDE at a
+    // time, so only the current side's page plates are ever in memory (the
+    // previous implementation held every page's plates for every ink before
+    // the first download — gigabytes on long multi-page documents).
     const pageOrder = State.project.pageOrder;
-    const colorPages = await this._buildBookletPagePlates(pageOrder, prog);
-    const colorEntries = [...colorPages.entries()];
+    const pageCount = pageOrder.length;
 
-    for (let ci = 0; ci < colorEntries.length; ci++) {
-      const [color, pages] = colorEntries[ci];
-      const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
-      prog.textContent = `Imposing ${colorName} (${ci + 1}/${colorEntries.length})…`;
-      await new Promise(r => setTimeout(r, 0));
+    // Cheap pre-flight over layer records only (no bitmap decoding): the
+    // global ink list, the total layer count for the metrics readout, and the
+    // reference page for the sheet layout (matches the previous behavior of
+    // sizing imposition from the first page with content).
+    const scan = await this._scanPages(pageOrder);
+    const colors = scan.colors;
 
-      const outputCanvases = buildSheets(pages, {
-        binding: 'saddle-stitch',
-        bookletLayout,
-        targetSheetSize,
-        customTargetW,
-        customTargetH,
-      });
+    const refPage = scan.firstContentPage;
+    const sheetLayout = calculateLayout(
+      refPage?.width || CANVAS_W,
+      refPage?.height || CANVAS_H,
+      targetSheetSize, customTargetW, customTargetH
+    );
+    const plan = computeSheetPlan(pageCount, sheetLayout, binding, bookletLayout, 0);
 
-      for (let si = 0; si < outputCanvases.length; si++) {
-        const blob = await outputCanvases[si].convertToBlob({ type: 'image/png' });
+    prog.begin(plan.length * colors.length);
+    const startedAt = performance.now();
+
+    // Saddle-stitch pairing: reader page index → the spread it belongs to.
+    const spreads = computeSpreads(pageOrder, 'saddle-stitch');
+    const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
+    const spreadOfPage = new Map();
+    spreads.forEach((sp, i) => {
+      const li = sp.leftPageId ? pageOrder.indexOf(sp.leftPageId) : -1;
+      const ri = sp.rightPageId ? pageOrder.indexOf(sp.rightPageId) : -1;
+      if (li !== -1) spreadOfPage.set(li, { index: i, role: 'left' });
+      if (ri !== -1) spreadOfPage.set(ri, { index: i, role: 'right' });
+    });
+
+    let bytes = 0;
+    let done = 0;
+
+    // Spread halves cache. Booklet imposition always places a reader spread's
+    // two halves on adjacent sides of the same physical sheet, so keeping the
+    // last side's spreads is enough to render every spread exactly once while
+    // bounding memory to roughly one sheet's worth of page plates.
+    const spreadCache = new Map();    // spreadIndex → { halves, lastSide }
+
+    for (let si = 0; si < plan.length; si++) {
+      const side = plan[si];
+
+      // Render the pages this side needs, one page at a time. Spanning
+      // spreads render combined and split into cached halves.
+      const pagePlates = new Map();     // pageIndex → Map(color → canvas)
+      const neededPages = [...new Set(side.cells.map(c => c.pageIndex))]
+        .filter(pi => pi !== null && pi !== undefined);
+
+      for (const pi of neededPages) {
+        if (this._cancelRequested) return this._reportCancelled(prog, done, bytes);
+        prog.textContent = `Sheet ${si + 1} of ${plan.length} — rendering page ${pi + 1} of ${pageCount}…`;
+        await new Promise(r => setTimeout(r, 0));
+
+        const spInfo = spreadOfPage.get(pi);
+        let half;
+        if (spInfo) {
+          let entry = spreadCache.get(spInfo.index);
+          if (!entry) {
+            const halves = await this._renderSpreadPlates(spreads[spInfo.index], readerSpreadIds);
+            entry = { halves, lastSide: si };
+            spreadCache.set(spInfo.index, entry);
+          }
+          entry.lastSide = si;
+          half = entry.halves[spInfo.role];
+        } else {
+          half = await this._renderPagePlates(pageOrder, pi);
+        }
+        if (half) pagePlates.set(pi, half);
+      }
+
+      // Compose, encode and download each ink for this side. Inks with no
+      // content on this side still download as blank white sheets, keeping
+      // the per-ink file set complete for print shops.
+      for (const color of colors) {
+        if (this._cancelRequested) return this._reportCancelled(prog, done, bytes);
+        const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
+        prog.textContent = `Sheet ${si + 1} of ${plan.length} — ${colorName} ink…`;
+
+        const sideCanvas = renderSheetSide(side, i => pagePlates.get(i)?.get(color) || null);
+        const blob = await sideCanvas.convertToBlob({ type: 'image/png' });
+        bytes += blob.size;
         const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `${projectSlug}-${colorSlug}-sheet-${si + 1}.png`;
+        a.href = url; a.download = `${projectSlug}-${colorSlug}-sheet-${si + 1}.png`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
         await new Promise(r => setTimeout(r, 400));
+        done += 1;
+        prog.advance(1, { bytes });
+      }
+
+      // Release this side's page plates, and spread halves that were last
+      // used on a previous side (a spread never reaches later sheets).
+      pagePlates.clear();
+      for (const [k, entry] of spreadCache) {
+        if (entry.lastSide < si) spreadCache.delete(k);
       }
     }
 
     for (const l of State.layers) { l._dirty = true; }
     Renderer.schedule();
 
-    prog.textContent = `Done! ${colorEntries.length} color(s) exported.`;
-    appendKofiNotice(prog);
+    prog.finish(`Done! ${done} sheets — ${plan.length} sides × ${colors.length} inks · ${pageCount} pages · ${scan.totalLayers} layers · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
+    appendKofiNotice(prog.element || prog);
     closeWindowAfterExport();
+  },
+
+  // Render one reader page's plates (every ink) from its own layers,
+  // releasing the hydrated layer bitmaps before returning.
+  async _renderPagePlates(pageOrder, pageIndex) {
+    const pid = pageOrder[pageIndex];
+    const page = await DB.get('pages', pid);
+    const layers = await PageManager.loadPageLayers(pid);
+    const plates = await this.exportLayers(layers, page?.width || CANVAS_W, page?.height || CANVAS_H);
+    for (const l of layers) {
+      l._originalCanvas = null;
+      l._processedCanvas = null;
+      l._maskCanvas = null;
+      l._svgImage = null;
+      l.separationPlates?.clear();
+    }
+    return plates;
+  },
+
+  // Cheap pre-flight over layer RECORDS only — no bitmap decoding. Collects
+  // the global ink list in first-seen page order (white never prints), the
+  // total layer count, and the first page with content (the sheet layout
+  // reference page, matching the previous first-non-empty-plate behavior).
+  async _scanPages(pageOrder) {
+    const colors = [];
+    const seen = new Set();
+    let totalLayers = 0;
+    let firstContentPage = null;
+    for (const pid of pageOrder) {
+      const recs = await DB.getByIndex('layers', 'by-page', pid);
+      totalLayers += recs.length;
+      if (recs.length && !firstContentPage) {
+        firstContentPage = await DB.get('pages', pid);
+      }
+      for (const rec of recs) {
+        // Mirror exportLayers' filters: invisible layers and mask layers
+        // (rendered as part of their base layer) contribute no ink.
+        if (!rec.visible || rec.isMaskFor) continue;
+        for (const c of this._plateColorsOfRecord(rec)) {
+          if (!c || c === '#FFFFFF' || seen.has(c)) continue;
+          seen.add(c);
+          colors.push(c);
+        }
+      }
+    }
+    return { colors, totalLayers, firstContentPage };
+  },
+
+  // Ink list contributed by one layer record — mirrors _buildPlateMap's
+  // color derivation, but works on raw DB records (no hydration).
+  _plateColorsOfRecord(rec) {
+    if (rec.isColorSeparation) return rec.separationColors || [];
+    if (isTwoToneShape(rec)) {
+      const out = [];
+      if (rec.shapeHasFill && rec.shapeFillColor) out.push(rec.shapeFillColor);
+      if (rec.shapeHasStroke && rec.shapeStrokeColor) out.push(rec.shapeStrokeColor);
+      return out;
+    }
+    if (rec.colorMode === 'gradient' && rec.gradient?.stops?.length >= 2) {
+      return rec.gradient.stops.map(s => s.color);
+    }
+    if (rec.colorMode === 'pattern' && rec.pattern) {
+      return [rec.pattern.color1, rec.pattern.color2];
+    }
+    return rec.color ? [rec.color] : [];
+  },
+
+  _reportCancelled(prog, done, bytes) {
+    for (const l of State.layers) { l._dirty = true; }
+    Renderer.schedule();
+    prog.finish(`Export cancelled — ${done} sheet${done === 1 ? '' : 's'} saved${bytes ? ` (${formatBytes(bytes)})` : ''}.`);
+  },
+
+  // Ask the active export to stop after the current plate. Checked between
+  // units of work, so cancellation lands within a second or two.
+  requestCancel() {
+    this._cancelRequested = true;
   },
 
   async _renderComposite(layers, width, height, prog = null, label = '') {
