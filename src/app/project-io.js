@@ -130,10 +130,18 @@ export const ProjectIO = {
   },
 
   /**
-   * Parse a project zip and write it into IndexedDB under fresh IDs.
-   * Returns the new projectId. Never overwrites an existing project.
+   * Read-only parse of a project zip: decode the manifest, validate the
+   * format, and return the raw content as Blobs — NO IndexedDB writes.
+   *
+   * Throws when project.json is missing or the manifest format is wrong,
+   * with the same messages importZip has always thrown.
+   *
+   * Returns { project, pages, layerEntries } where layerEntries is
+   * Array<{ record, imageBlob: Blob|null, maskBlob: Blob|null }> in manifest
+   * order (imageBlob/maskBlob null when the zip has no such file for that
+   * layer, so callers can degrade gracefully on partial zips).
    */
-  async importZip(fileOrBlob) {
+  async parseZip(fileOrBlob) {
     const JSZip = _getJSZip();
     const zip = await JSZip.loadAsync(fileOrBlob);
 
@@ -144,17 +152,49 @@ export const ProjectIO = {
       throw new Error('Unrecognized project format: ' + manifest.format);
     }
 
+    async function _decodeBlob(path, type) {
+      if (!path) return null;
+      const f = zip.file(path);
+      if (!f) return null;
+      const buf = await f.async('arraybuffer');
+      return new Blob([buf], { type: type || 'image/png' });
+    }
+
+    const layerEntries = [];
+    for (const entry of manifest.layers || []) {
+      layerEntries.push({
+        record: entry.record,
+        imageBlob: await _decodeBlob(entry.image?.path, entry.image?.type),
+        maskBlob: await _decodeBlob(entry.mask?.path, entry.mask?.type),
+      });
+    }
+
+    return {
+      project: manifest.project,
+      pages: manifest.pages || [],
+      layerEntries,
+    };
+  },
+
+  /**
+   * Parse a project zip and write it into IndexedDB under fresh IDs.
+   * Returns the new projectId. Never overwrites an existing project.
+   */
+  async importZip(fileOrBlob) {
+    const { project: srcProject, pages: manifestPages, layerEntries } =
+      await this.parseZip(fileOrBlob);
+
     // ── Build ID remaps so the import is collision-free and repeatable. ──
     const newProjectId = crypto.randomUUID();
     const pageIdMap = new Map();
     const layerIdMap = new Map();
-    for (const page of manifest.pages || []) pageIdMap.set(page.id, crypto.randomUUID());
-    for (const entry of manifest.layers || []) layerIdMap.set(entry.record.id, crypto.randomUUID());
+    for (const page of manifestPages) pageIdMap.set(page.id, crypto.randomUUID());
+    for (const entry of layerEntries) layerIdMap.set(entry.record.id, crypto.randomUUID());
 
     const now = Date.now();
 
     // ── Project record ──
-    const project = { ...manifest.project };
+    const project = { ...srcProject };
     project.id = newProjectId;
     project.pageOrder = (project.pageOrder || []).map(id => pageIdMap.get(id)).filter(Boolean);
     project.createdAt = now;
@@ -162,7 +202,7 @@ export const ProjectIO = {
     await DB.put('projects', project);
 
     // ── Pages ──
-    for (const srcPage of manifest.pages || []) {
+    for (const srcPage of manifestPages) {
       const page = { ...srcPage };
       page.id = pageIdMap.get(srcPage.id);
       page.projectId = newProjectId;
@@ -174,7 +214,7 @@ export const ProjectIO = {
     }
 
     // ── Layers (+ blobs) ──
-    for (const entry of manifest.layers || []) {
+    for (const entry of layerEntries) {
       const rec = { ...entry.record };
       const newId = layerIdMap.get(entry.record.id);
       rec.id = newId;
@@ -185,21 +225,11 @@ export const ProjectIO = {
       rec.isMaskFor = rec.isMaskFor ? (layerIdMap.get(rec.isMaskFor) || null) : null;
       await DB.put('layers', rec);
 
-      if (entry.image?.path) {
-        const f = zip.file(entry.image.path);
-        if (f) {
-          const buf = await f.async('arraybuffer');
-          const blob = new Blob([buf], { type: entry.image.type || 'image/png' });
-          await DB.put('imageBlobs', { layerId: newId, blob });
-        }
+      if (entry.imageBlob) {
+        await DB.put('imageBlobs', { layerId: newId, blob: entry.imageBlob });
       }
-      if (entry.mask?.path) {
-        const f = zip.file(entry.mask.path);
-        if (f) {
-          const buf = await f.async('arraybuffer');
-          const blob = new Blob([buf], { type: entry.mask.type || 'image/png' });
-          await DB.put('maskBlobs', { layerId: newId, blob });
-        }
+      if (entry.maskBlob) {
+        await DB.put('maskBlobs', { layerId: newId, blob: entry.maskBlob });
       }
     }
 

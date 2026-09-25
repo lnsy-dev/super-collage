@@ -6,6 +6,9 @@ import {
   createProject,
   buildComplexProject,
   snapshotProject,
+  addImageFromBuffer,
+  createSolidPngBuffer,
+  createShapePngBuffer,
 } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -266,5 +269,169 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
     expect(originalLayers.length).toBe(1);
     expect(originalLayers[0].text).toBe('Keep me');
     expect(originalLayers[0].projectId).toBe(originalId);
+  });
+});
+
+/* ─── ProjectIO.parseZip (read-only parse) ──────────────────────────── */
+
+test.describe('ProjectIO.parseZip (read-only parse)', () => {
+  test('returns project, pages and per-layer blob entries without writing to IndexedDB', async ({ page }) => {
+    await createProject(page, 'Parse Zip', { pageSize: 'half-letter' });
+
+    // Two image layers (one with a drawn mask) + one text layer (no blobs).
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 120, 80), { name: 'plain.png' });
+    await addImageFromBuffer(page, createShapePngBuffer('rect', 100, 100), { name: 'masked.png' });
+    await page.evaluate(async () => {
+      const l = window.State.layers[window.State.layers.length - 1];
+      l.color = '#0078bf';
+      window.MaskEngine._paint(l, l.naturalWidth / 2, l.naturalHeight / 2, l.naturalWidth / 3, false);
+      l._dirty = true;
+      await window.DB.saveLayer(l);
+      await window.DB.saveMask(l);
+    });
+    await page.evaluate(async () => {
+      const l = await window.LayerManager.addText('Parse Me', 200, 300, 800, 300);
+      l._originalCanvas = null; l._dirty = true;
+      await window.DB.saveLayer(l);
+    });
+    await page.waitForFunction(() => window.State.layers.length === 3);
+    await page.evaluate(() => window.PageManager.saveActivePage());
+
+    const result = await page.evaluate(async () => {
+      const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
+
+      const countsBefore = {
+        projects: (await window.DB.getAll('projects')).length,
+        layers: (await window.DB.getAll('layers')).length,
+        imageBlobs: (await window.DB.getAll('imageBlobs')).length,
+        maskBlobs: (await window.DB.getAll('maskBlobs')).length,
+      };
+
+      const parsed = await window.ProjectIO.parseZip(blob);
+
+      const countsAfter = {
+        projects: (await window.DB.getAll('projects')).length,
+        layers: (await window.DB.getAll('layers')).length,
+        imageBlobs: (await window.DB.getAll('imageBlobs')).length,
+        maskBlobs: (await window.DB.getAll('maskBlobs')).length,
+      };
+
+      // Layer records must be exactly the persisted records (deep-equal check
+      // happens on the Node side; here just ship them across with blob sigs).
+      // dbHas*: whether IndexedDB actually holds an image/mask blob for the
+      // layer — parseZip must mirror DB truth, not assumptions about which
+      // layers "should" have masks (the image pipeline auto-saves default
+      // masks for image layers).
+      const entries = [];
+      for (const e of parsed.layerEntries) {
+        const dbRec = await window.DB.get('layers', e.record.id);
+        const dbImg = await window.DB.get('imageBlobs', e.record.id);
+        const dbMask = await window.DB.get('maskBlobs', e.record.id);
+        entries.push({
+          record: e.record,
+          matchesDbRecord: JSON.stringify(e.record) === JSON.stringify(dbRec),
+          dbHasImage: !!(dbImg && dbImg.blob),
+          dbHasMask: !!(dbMask && dbMask.blob),
+          image: e.imageBlob ? { isBlob: e.imageBlob instanceof Blob, type: e.imageBlob.type, size: e.imageBlob.size } : null,
+          mask: e.maskBlob ? { isBlob: e.maskBlob instanceof Blob, type: e.maskBlob.type, size: e.maskBlob.size } : null,
+        });
+      }
+
+      return {
+        projectId: parsed.project.id,
+        projectName: parsed.project.name,
+        pageIds: parsed.pages.map(p => p.id),
+        countsBefore,
+        countsAfter,
+        entries,
+      };
+    });
+
+    const source = await page.evaluate(() => ({
+      projectId: window.State.project.id,
+      projectName: window.State.project.name,
+      pageId: window.State.pageId,
+      layers: window.State.layers.map(l => ({
+        id: l.id, color: l.color, isText: l.isText,
+      })),
+    }));
+
+    // Structure: the manifest's project + pages, untouched.
+    expect(result.projectId).toBe(source.projectId);
+    expect(result.projectName).toBe(source.projectName);
+    expect(result.pageIds).toEqual([source.pageId]);
+
+    // Layer entries: one per layer, in manifest order, ids matching.
+    expect(result.entries.length).toBe(3);
+    expect(result.entries.map(e => e.record.id).sort()).toEqual(source.layers.map(l => l.id).sort());
+
+    const byId = new Map(result.entries.map(e => [e.record.id, e]));
+
+    // parseZip's blob presence must mirror IndexedDB truth for every layer.
+    for (const e of result.entries) {
+      expect(!!e.image).toBe(e.dbHasImage);
+      expect(!!e.mask).toBe(e.dbHasMask);
+    }
+
+    // Plain image layer: real PNG image blob, record intact. (The image
+    // pipeline auto-saves a default mask, so only the image side is pinned
+    // here; the mask side is covered by the DB-truth loop above.)
+    const plain = byId.get(source.layers[0].id);
+    expect(plain.matchesDbRecord).toBe(true);
+    expect(plain.image).toEqual({ isBlob: true, type: 'image/png', size: expect.any(Number) });
+    expect(plain.image.size).toBeGreaterThan(0);
+
+    // Masked image layer: image + hand-drawn mask blobs, both real PNGs.
+    const masked = byId.get(source.layers[1].id);
+    expect(masked.matchesDbRecord).toBe(true);
+    expect(masked.image).toEqual({ isBlob: true, type: 'image/png', size: expect.any(Number) });
+    expect(masked.mask).toEqual({ isBlob: true, type: 'image/png', size: expect.any(Number) });
+    expect(masked.mask.size).toBeGreaterThan(0);
+    expect(masked.record.color).toBe('#0078bf');
+
+    // Text layer: no blobs at all.
+    const text = byId.get(source.layers[2].id);
+    expect(text.record.isText).toBe(true);
+    expect(text.record.text).toBe('Parse Me');
+    expect(text.image).toBe(null);
+    expect(text.mask).toBe(null);
+
+    // Read-only: nothing was written to IndexedDB.
+    expect(result.countsAfter).toEqual(result.countsBefore);
+    expect(result.countsAfter.projects).toBe(1);
+  });
+
+  test('parseZip rejects a zip without project.json', async ({ page }) => {
+    await gotoApp(page); // JSZip is loaded with the app shell
+    const err = await page.evaluate(async () => {
+      const zip = new window.JSZip();
+      zip.file('readme.txt', 'not a project');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      try {
+        await window.ProjectIO.parseZip(blob);
+        return null;
+      } catch (e) {
+        return { message: e.message };
+      }
+    });
+    expect(err).toBeTruthy();
+    expect(err.message).toContain('project.json missing');
+  });
+
+  test('parseZip rejects a manifest with the wrong format', async ({ page }) => {
+    await gotoApp(page);
+    const err = await page.evaluate(async () => {
+      const zip = new window.JSZip();
+      zip.file('project.json', JSON.stringify({ format: 'someone-elses-format', layers: [] }));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      try {
+        await window.ProjectIO.parseZip(blob);
+        return null;
+      } catch (e) {
+        return { message: e.message };
+      }
+    });
+    expect(err).toBeTruthy();
+    expect(err.message).toBe('Unrecognized project format: someone-elses-format');
   });
 });
