@@ -418,6 +418,39 @@ test.describe('ProjectIO.parseZip (read-only parse)', () => {
     expect(err.message).toContain('project.json missing');
   });
 
+  test('importZip remaps importedGroupId to a fresh non-null id', async ({ page }) => {
+    await createProject(page, 'Group RT', { pageSize: 'half-letter' });
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'g1.png' });
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'g2.png' });
+    await page.evaluate(async () => {
+      const gid = crypto.randomUUID();
+      for (const l of window.State.layers) {
+        l.importedGroupId = gid;
+        l._dirty = true;
+        await window.DB.saveLayer(l);
+      }
+      await window.PageManager.saveActivePage();
+    });
+    await page.waitForFunction(() => window.State.layers.every(l => l.importedGroupId));
+
+    const out = await page.evaluate(async () => {
+      const sourceGid = window.State.layers[0].importedGroupId;
+      const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
+      const newId = await window.ProjectIO.importZip(blob);
+      const importedLayers = await window.DB.getByIndex('layers', 'by-project', newId);
+      return {
+        sourceGid,
+        imported: importedLayers.map(l => ({ importedGroupId: l.importedGroupId })),
+      };
+    });
+
+    // Both imported layers share ONE group id, different from the source's.
+    expect(out.imported.length).toBe(2);
+    expect(out.imported[0].importedGroupId).toBeTruthy();
+    expect(out.imported[0].importedGroupId).not.toBe(out.sourceGid);
+    expect(out.imported[1].importedGroupId).toBe(out.imported[0].importedGroupId);
+  });
+
   test('parseZip rejects a manifest with the wrong format', async ({ page }) => {
     await gotoApp(page);
     const err = await page.evaluate(async () => {
