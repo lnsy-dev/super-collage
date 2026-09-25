@@ -164,6 +164,84 @@ test.describe('Import Menu Project', () => {
     expect(info.total).toBe(0);
   });
 
+  test('split button unpacks an imported group; members move independently after', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+    await importZip(page, zip, { expectLayers: 2 });
+
+    // Select ONE imported member via the layer list → split button visible.
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await expect(page.locator('#btn-split-color-separation')).toBeVisible();
+
+    // Click it: group unpacks in place.
+    await page.click('#btn-split-color-separation');
+    await page.waitForTimeout(200);
+
+    const after = await page.evaluate(() => {
+      const layers = window.State.layers;
+      return {
+        count: layers.length,
+        anyGid: layers.some(l => l.importedGroupId),
+        anyLinks: layers.some(l => (l.linkedIds || []).length > 0),
+      };
+    });
+    expect(after.count).toBe(2);        // no layers deleted
+    expect(after.anyGid).toBe(false);   // importedGroupId cleared on all members
+    expect(after.anyLinks).toBe(false); // every linkedIds pair among members cleared
+
+    // Members are independent now: drag one, the other must not move.
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const [a, b] = window.State.layers;
+      a.x = 200; a.y = 200;
+      window.State.selectedId = a.id;
+      window.State.selectedIds = [a.id];
+      window.State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+      window.UI.refreshLayerList();
+    });
+    await page.waitForTimeout(100);
+
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+    const target = await page.evaluate(async () => {
+      const { CANVAS_PAD } = await import('/src/app/constants.js');
+      const a = window.State.layers[0];
+      const z = window.State.zoom;
+      return { sx: (a.x + a.width / 2 + CANVAS_PAD) * z, sy: (a.y + a.height / 2 + CANVAS_PAD) * z };
+    });
+    const before = await page.evaluate(() => {
+      const [a, b] = window.State.layers;
+      return { ax: a.x, bx: b.x, by: b.y };
+    });
+
+    const startX = box.x + target.sx;
+    const startY = box.y + target.sy;
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: startX, sy: startY, ex: startX + 120, ey: startY + 80 });
+    await page.waitForTimeout(100);
+
+    const moved = await page.evaluate(() => {
+      const [a, b] = window.State.layers;
+      return { ax: a.x, bx: b.x, by: b.y };
+    });
+    expect(moved.ax).toBeGreaterThan(before.ax + 20); // dragged member moved
+    expect(moved.bx).toBe(before.bx);                 // sibling untouched
+    expect(moved.by).toBe(before.by);
+  });
+
   test('missing project.json alerts and adds zero layers', async ({ page }) => {
     await createProject(page, 'No Manifest Target', { pageSize: 'half-letter' });
 

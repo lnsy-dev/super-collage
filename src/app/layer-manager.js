@@ -598,6 +598,32 @@ export const LayerManager = {
     Renderer.schedule();
   },
 
+  /**
+   * Split imported project: ungroup the imported-project group the selected
+   * layer belongs to. Clears every linkedIds pair among the group's members
+   * and clears importedGroupId on all of them — no layers are deleted, and
+   * afterward every member moves/scales independently.
+   */
+  async splitImportedProject(layerId) {
+    pushUndoState();
+    const sel = State.layers.find(l => l.id === layerId);
+    if (!sel || !sel.importedGroupId) return;
+    const members = State.layers.filter(l => l.importedGroupId === sel.importedGroupId);
+    if (members.length < 2) return;
+
+    const memberIds = new Set(members.map(m => m.id));
+    for (const m of members) {
+      m.linkedIds = (m.linkedIds || []).filter(id => !memberIds.has(id));
+      m.importedGroupId = null;
+      m._dirty = true;
+      await DB.saveLayer(m);
+    }
+
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
   async splitColorSeparation(layerId) {
     pushUndoState();
     const src = State.layers.find(l => l.id === layerId);

@@ -304,6 +304,7 @@ export async function handleAction(action, value = null) {
     case 'split-color-separation':
       if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id);
       else if (isTwoToneShape(layer)) await LayerManager.splitTwoToneShape(layer.id);
+      else if (layer?.importedGroupId) await LayerManager.splitImportedProject(layer.id);
       break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
     case 'layer-down': if (layer) LayerManager.move(layer.id, -1); break;
