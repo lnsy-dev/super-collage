@@ -59,6 +59,7 @@ export async function applySnapshot(layer, snap) {
     naturalHeight: snap.naturalHeight,
     imageMaskIds: snap.imageMaskIds ? [...snap.imageMaskIds] : [],
     linkedIds: snap.linkedIds ? [...snap.linkedIds] : [],
+    importedGroupId: snap.importedGroupId ?? null,
     isMaskFor: snap.isMaskFor,
     isSvg: snap.isSvg,
     isColorSeparation: snap.isColorSeparation,

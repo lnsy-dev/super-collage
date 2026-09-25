@@ -356,7 +356,7 @@ export const UI = {
     const splitBtn = document.getElementById('btn-split-color-separation');
     if (splitBtn) {
       const sel = selectedLayer();
-      splitBtn.style.display = (sel && (sel.isColorSeparation || isTwoToneShape(sel))) ? '' : 'none';
+      splitBtn.style.display = (sel && (sel.isColorSeparation || isTwoToneShape(sel) || sel.importedGroupId)) ? '' : 'none';
     }
 
     const linkBtn = document.getElementById('btn-link-layers');

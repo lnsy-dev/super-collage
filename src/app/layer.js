@@ -51,6 +51,10 @@ export class Layer {
     this.imageMaskIds = data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []);
     this.isMaskFor = data.isMaskFor || null;
     this.linkedIds = data.linkedIds || [];
+    // Marks membership in one imported-project group (see Import Menu
+    // Project): members of a group move/scale as a unit and can be split
+    // apart later. Null for layers created normally.
+    this.importedGroupId = data.importedGroupId || null;
     this.isSvg = data.isSvg || false;
     this.isColorSeparation = data.isColorSeparation || false;
     this.isText = data.isText || false;
@@ -118,6 +122,7 @@ export class Layer {
       imageMaskIds: this.imageMaskIds,
       isMaskFor: this.isMaskFor,
       linkedIds: this.linkedIds,
+      importedGroupId: this.importedGroupId,
       isSvg: this.isSvg,
       isColorSeparation: this.isColorSeparation,
       isText: this.isText,

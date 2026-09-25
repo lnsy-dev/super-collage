@@ -80,7 +80,7 @@
   <!-- ─── AI / LLM Context Metadata ─── -->
   <meta name="ai-purpose" content="Creative design tool for risograph printing and multi-layer image composition.">
   <meta name="ai-target-audience" content="Graphic designers, printmakers, zine makers, illustrators, DIY publishers, risograph enthusiasts.">
-  <meta name="ai-capabilities" content="Layer management, image import, color separation, halftone rendering (grayscale, dither, magazine dots, grunge), screentone overlays, gradient and pattern fills, mask painting, shape drawing (rectangles, ellipses, polygons, stars), transform controls, undo/redo, 600 DPI plate export, composite preview export.">
+  <meta name="ai-capabilities" content="Layer management, image import, import another project zip as layers on the current page (single- or multi-page, grouped and splittable), color separation, halftone rendering (grayscale, dither, magazine dots, grunge), screentone overlays, gradient and pattern fills, mask painting, shape drawing (rectangles, ellipses, polygons, stars), transform controls, undo/redo, 600 DPI plate export, composite preview export.">
   <meta name="ai-technology" content="Vanilla JavaScript (ES modules), HTML5 Canvas 2D, WebAssembly (Rust/wasm-pack), IndexedDB for local project storage.">
   <meta name="ai-interaction" content="Mouse and keyboard driven desktop web application. Drag-and-drop image import. Menu bar and toolbar UI reminiscent of classic Mac OS.">
   <meta name="ai-content-policy" content="User-generated content only. No user tracking. All data stored locally in the browser.">
@@ -516,6 +516,7 @@
         <div class="menu-entry" data-action="add-screentone">Add Screentone…</div>
         <div class="menu-entry" data-action="add-text">Add Text…</div>
         <div class="menu-entry" data-action="import-color-separation">Import Color Separation…</div>
+        <div class="menu-entry" data-action="import-menu-project">Import Menu Project…</div>
         <div class="menu-divider"></div>
         <div class="menu-entry" data-action="export">Export Plates… <span class="shortcut">&#8984;E</span></div>
         <div class="menu-entry" data-action="export-composite">Export Composite… <span class="shortcut">&#8984;&#8679;E</span></div>
@@ -886,8 +887,6 @@
                   <div class="grad-center-row" id="grad-center-row" style="display:none;">
                     <span class="prop-label">CX</span>
                     <input type="range" id="grad-cx" min="0" max="100" value="50" style="flex:1;">
-                  </div>
-                  <div class="grad-center-row" id="grad-center-row" style="display:none;">
                     <span class="prop-label">CY</span>
                     <input type="range" id="grad-cy" min="0" max="100" value="50" style="flex:1;">
                   </div>
@@ -959,6 +958,7 @@
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none;">
 <input type="file" id="color-sep-input" accept="image/*" style="display:none;">
+<input type="file" id="import-project-layers-input" accept=".zip" style="display:none;">
 <input type="file" id="project-import-input" accept=".zip,application/zip" style="display:none;">
 
 <script type="module">

@@ -55,6 +55,41 @@ test.describe('Color Manager', () => {
     expect(layerColor).toBe('#333333');
   });
 
+  test('radial gradient center row shows CX and CY; moving CY updates and persists centerY', async ({ page }) => {
+    await createProject(page, 'Radial CY Test');
+    await addSolidColorImage(page, '#000000');
+
+    // Switch the layer to gradient mode and pick the Radial type.
+    await page.click('#btn-mode-gradient');
+    await page.click('.grad-type-btn[data-grad-type="circular"]');
+
+    // The single center row must now be visible with BOTH sliders in it.
+    const centerRow = page.locator('#grad-center-row');
+    await expect(centerRow).toBeVisible();
+    await expect(centerRow.locator('#grad-cx')).toBeVisible();
+    await expect(centerRow.locator('#grad-cy')).toBeVisible();
+
+    // Move CY; the layer's gradient.centerY must follow.
+    await page.locator('#grad-cy').fill('25');
+    await page.locator('#grad-cy').dispatchEvent('change');
+    const cy = await page.evaluate(() => window.State.layers[0].gradient.centerY);
+    expect(cy).toBeCloseTo(0.25, 5);
+
+    // centerX must be untouched by the CY slider.
+    const cx = await page.evaluate(() => window.State.layers[0].gradient.centerX);
+    expect(cx).toBeCloseTo(0.5, 5);
+
+    // Value survives save + reload (DB persistence).
+    await page.reload();
+    await page.waitForFunction(() => window.__appReady === true, null, { timeout: 10000 });
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await page.click('.project-entry');
+    await page.click('#btn-open-project');
+    await expect(page.locator('#main-app')).toBeVisible();
+    const cyAfterReload = await page.evaluate(() => window.State.layers[0].gradient.centerY);
+    expect(cyAfterReload).toBeCloseTo(0.25, 5);
+  });
+
   test('persists project colors across reload', async ({ page }) => {
     await createProject(page, 'Color Persistence Test');
 

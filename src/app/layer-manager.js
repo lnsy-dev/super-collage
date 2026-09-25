@@ -8,13 +8,14 @@ import { Layer } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
-import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
+import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { renderShapeLayerBitmap, isTwoToneShape, effectiveShapeColor, rerenderShapeLayer } from './shape-utils.js';
 import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
+import { ProjectIO } from './project-io.js';
 
 export const LayerManager = {
   async addText(defaultText, x, y, w, h, { textMode = 'box' } = {}) {
@@ -281,6 +282,257 @@ export const LayerManager = {
     }
   },
 
+  /**
+   * Rebuild a decoded image blob at a layer's natural size (white base +
+   * downscaled draw), the same way PageManager.hydrateLayer restores
+   * _originalCanvas from a stored imageBlobs record.
+   */
+  async _originalCanvasFromBlob(blob, layer) {
+    const bmp = await createImageBitmap(blob);
+    const w = layer.naturalWidth, h = layer.naturalHeight;
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    return canvas;
+  },
+
+  /**
+   * Rebuild color-separation plates from a freshly imported layer's
+   * _originalCanvas (mirrors PageManager._rebuildSeparationPlates).
+   */
+  _rebuildImportedSeparationPlates(layer) {
+    const source = layer._originalCanvas;
+    if (!source) return;
+    const sCtx = source.getContext('2d');
+    const nw = source.width, nh = source.height;
+    const imageData = sCtx.getImageData(0, 0, nw, nh);
+    const risoColors = [];
+    for (const rc of RISO_COLORS) {
+      if (rc.hex === '#FFFFFF') continue;
+      const { r, g, b } = hexToRgb(rc.hex);
+      risoColors.push(r, g, b);
+    }
+    const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
+    const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16, numColors);
+    const pixelCount = nw * nh;
+    const numPlates = RISO_COLORS.length - 1;
+    const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+    layer.separationPlates = new Map();
+    for (let i = 0; i < numPlates; i++) {
+      const plateCanvas = new OffscreenCanvas(nw, nh);
+      const pCtx = plateCanvas.getContext('2d');
+      const plateData = new ImageData(
+        new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
+        nw, nh
+      );
+      pCtx.putImageData(plateData, 0, 0);
+      layer.separationPlates.set(separationColors[i], plateCanvas);
+    }
+  },
+
+  /**
+   * Import Menu Project: rebuild a downloaded project zip's pages as layers
+   * on the CURRENT page. A single-page source behaves like one image; a
+   * multi-page source stacks ALL pages vertically in page order (each page's
+   * layers offset down by the cumulative height of the previous source pages
+   * plus a fixed gap). Every imported layer gets a fresh id, the current
+   * project/page, one shared importedGroupId, and symmetric all-pairs
+   * linkedIds so the whole stack moves/scales as a unit until it is split
+   * apart. The stack is scaled (only if oversized) and centered on the
+   * canvas like an imported image; naturalWidth/naturalHeight are left
+   * untouched. Invalid or empty zips alert and add nothing.
+   */
+  async importProjectAsLayers(file) {
+    // Parse first — invalid zips must not touch state.
+    let parsed;
+    try {
+      parsed = await ProjectIO.parseZip(file);
+    } catch (err) {
+      console.error(err);
+      alert('Could not import project: ' + (err?.message || 'not a Super Collage project file.'));
+      return [];
+    }
+
+    const srcPages = parsed.pages || [];
+    // Logical page order: project.pageOrder is authoritative — manifest.pages
+    // comes out of IndexedDB in uuid key order, NOT page order. Any page
+    // missing from pageOrder is appended at the end.
+    const pageOrder = (parsed.project && parsed.project.pageOrder) || [];
+    const orderedPages = pageOrder.length
+      ? pageOrder.map(id => srcPages.find(p => p.id === id)).filter(Boolean)
+          .concat(srcPages.filter(p => !pageOrder.includes(p.id)))
+      : srcPages;
+    // Group layers by source page in logical order (per-page stacking order
+    // is preserved inside each bucket).
+    const buckets = orderedPages
+      .map(page => ({ page, entries: parsed.layerEntries.filter(e => e.record.pageId === page.id) }))
+      .filter(b => b.entries.length > 0);
+    if (!buckets.length && parsed.layerEntries.length) {
+      // Degenerate manifest (layers without a matching page record) —
+      // import everything as one bucket rather than nothing.
+      buckets.push({ page: srcPages[0] || null, entries: parsed.layerEntries });
+    }
+    if (!buckets.length) {
+      alert('That project has no layers to import — nothing to do.');
+      return [];
+    }
+
+    // Source page dimensions: page record → project page size → letter.
+    // (Mirrors ProjectManager._resolveProjectDims.)
+    let projW = 0, projH = 0;
+    {
+      const proj = parsed.project || {};
+      const dims = PAGE_SIZE_DIMS[proj.pageSize];
+      let w = dims ? dims.w : 0, h = dims ? dims.h : 0;
+      if (proj.pageSize === 'custom' && proj.customW && proj.customH) {
+        w = proj.customW; h = proj.customH;
+      }
+      if (!w || !h) { w = PAGE_SIZE_DIMS['letter'].w; h = PAGE_SIZE_DIMS['letter'].h; }
+      if (proj.orientation === 'landscape' && h > w) [w, h] = [h, w];
+      projW = w; projH = h;
+    }
+    const heightOf = page => (page && page.height) ? page.height : projH;
+
+    // Stack source pages vertically: page N's content sits below the
+    // cumulative height of the previous pages plus a fixed gap (in source
+    // coordinates; the group is fitted/centered as a whole afterwards).
+    const PAGE_GAP = 400;
+    const yOffsetByPage = new Map();
+    let cum = 0;
+    buckets.forEach((b, i) => {
+      if (b.page) yOffsetByPage.set(b.page.id, cum);
+      cum += heightOf(b.page) + (i < buckets.length - 1 ? PAGE_GAP : 0);
+    });
+    const pageLayers = buckets.flatMap(b => b.entries);
+
+    pushUndoState();
+
+    // Progress modal, same pattern as color separation.
+    const dialog = document.getElementById('color-sep-loading-dialog');
+    const statusEl = document.getElementById('color-sep-status');
+    const previewEl = document.getElementById('color-sep-preview');
+    if (dialog && statusEl) {
+      if (previewEl) previewEl.style.display = 'none';
+      statusEl.textContent = 'Importing project as layers…';
+      dialog.classList.remove('hidden');
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    const importedGroupId = crypto.randomUUID();
+    const imported = [];
+    try {
+      // Fit + center the source group's bounding box on the current canvas,
+      // exactly like an oversized imported image is handled. Natural sizes
+      // are deliberately not scaled.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const e of pageLayers) {
+        const r = e.record;
+        const yOff = yOffsetByPage.get(r.pageId) || 0;
+        minX = Math.min(minX, r.x);
+        minY = Math.min(minY, r.y + yOff);
+        maxX = Math.max(maxX, r.x + r.width);
+        maxY = Math.max(maxY, r.y + yOff + r.height);
+      }
+      const fit = Math.min(1, CANVAS_W / (maxX - minX), CANVAS_H / (maxY - minY));
+      const offX = (CANVAS_W - (maxX - minX) * fit) / 2 - minX * fit;
+      const offY = (CANVAS_H - (maxY - minY) * fit) / 2 - minY * fit;
+
+      const idMap = new Map();
+      const idOf = srcId => {
+        if (!idMap.has(srcId)) idMap.set(srcId, crypto.randomUUID());
+        return idMap.get(srcId);
+      };
+      const projectId = State.project.id;
+      const pageId = State.pageId;
+
+      for (const e of pageLayers) {
+        const src = e.record;
+        const yOff = yOffsetByPage.get(src.pageId) || 0;
+        const layer = new Layer({
+          ...src,
+          id: idOf(src.id),
+          projectId,
+          pageId,
+          x: src.x * fit + offX,
+          y: (src.y + yOff) * fit + offY,
+          width: src.width * fit,
+          height: src.height * fit,
+          name: src.name || 'Imported Layer',
+          importedGroupId,
+          linkedIds: [],
+        });
+        layer._importedImageBlob = e.imageBlob || null;
+
+        if (!layer.isText && e.imageBlob) {
+          if (layer.isSvg) {
+            const text = await e.imageBlob.text();
+            layer._svgText = text;
+            const svgBlob = new Blob([text], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(svgBlob);
+            const img = new Image();
+            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+            URL.revokeObjectURL(url);
+            layer._svgImage = img;
+          } else {
+            layer._originalCanvas = await this._originalCanvasFromBlob(e.imageBlob, layer);
+            if (layer.isColorSeparation) this._rebuildImportedSeparationPlates(layer);
+          }
+        }
+
+        if (e.maskBlob) {
+          await MaskEngine.loadMask(layer, e.maskBlob);
+        } else {
+          MaskEngine.initMask(layer);
+        }
+
+        imported.push(layer);
+      }
+
+      // Remap in-group mask relationships to the fresh ids.
+      for (const layer of imported) {
+        layer.imageMaskIds = (layer.imageMaskIds || []).map(id => idMap.get(id)).filter(Boolean);
+        layer.isMaskFor = layer.isMaskFor ? (idMap.get(layer.isMaskFor) || null) : null;
+      }
+
+      // Symmetric all-pairs linking so the whole group moves/scales as one.
+      for (const layer of imported) {
+        layer.linkedIds = imported.filter(m => m.id !== layer.id).map(m => m.id);
+      }
+
+      for (const layer of imported) {
+        State.layers.push(layer);
+      }
+      State.selectedId = imported[imported.length - 1].id;
+      State.selectedIds = imported.map(l => l.id);
+
+      for (const layer of imported) {
+        layer._dirty = true;
+        await DB.put('layers', layer.toRecord());
+        if (!layer.isText && layer._importedImageBlob) {
+          await DB.put('imageBlobs', { layerId: layer.id, blob: layer._importedImageBlob });
+        }
+        await DB.saveMask(layer); // text layers have no _maskCanvas: no-op
+      }
+
+      await PageManager.saveActivePage();
+      document.getElementById('no-layer-msg').style.display = 'none';
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.schedule();
+    } finally {
+      if (dialog) dialog.classList.add('hidden');
+      if (previewEl) {
+        previewEl.style.display = 'none';
+        previewEl.src = '';
+      }
+    }
+
+    return imported.map(l => l.id);
+  },
+
   async delete(layerId) {
     pushUndoState();
     const idx = State.layers.findIndex(l => l.id === layerId);
@@ -383,6 +635,32 @@ export const LayerManager = {
     State.selectedIds = [layer.id];
     await DB.put('layers', layer.toRecord());
     await PageManager.saveActivePage();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  },
+
+  /**
+   * Split imported project: ungroup the imported-project group the selected
+   * layer belongs to. Clears every linkedIds pair among the group's members
+   * and clears importedGroupId on all of them — no layers are deleted, and
+   * afterward every member moves/scales independently.
+   */
+  async splitImportedProject(layerId) {
+    pushUndoState();
+    const sel = State.layers.find(l => l.id === layerId);
+    if (!sel || !sel.importedGroupId) return;
+    const members = State.layers.filter(l => l.importedGroupId === sel.importedGroupId);
+    if (members.length < 2) return;
+
+    const memberIds = new Set(members.map(m => m.id));
+    for (const m of members) {
+      m.linkedIds = (m.linkedIds || []).filter(id => !memberIds.has(id));
+      m.importedGroupId = null;
+      m._dirty = true;
+      await DB.saveLayer(m);
+    }
+
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
