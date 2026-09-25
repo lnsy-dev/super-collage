@@ -298,6 +298,176 @@ test.describe('Import Menu Project', () => {
     expect(after.anyLinks).toBe(false);
   });
 
+  test('imported group moves as one when one member is dragged', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+    await importZip(page, zip, { expectLayers: 2 });
+
+    // Select ONE member via the layer list, then drag it on the canvas.
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(1).click();
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      window.State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+    });
+    await page.waitForTimeout(100);
+
+    const start = await page.evaluate(async () => {
+      const { CANVAS_PAD } = await import('/src/app/constants.js');
+      const m = window.State.layers.find(l => l.color === '#0078bf');
+      const z = window.State.zoom;
+      return { sx: (m.x + m.width / 2 + CANVAS_PAD) * z, sy: (m.y + m.height / 2 + CANVAS_PAD) * z };
+    });
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+    const before = await page.evaluate(() => window.State.layers.map(l => ({
+      id: l.id, x: l.x, y: l.y, color: l.color, colorMode: l.colorMode,
+    })));
+
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 11, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: box.x + start.sx, sy: box.y + start.sy, ex: box.x + start.sx + 200, ey: box.y + start.sy + 120 });
+    await page.waitForTimeout(150);
+
+    const after = await page.evaluate(() => window.State.layers.map(l => ({
+      id: l.id, x: l.x, y: l.y, color: l.color, colorMode: l.colorMode,
+    })));
+    const byId = (arr, id) => arr.find(l => l.id === id);
+    const d = after.map((l, i) => ({ dx: l.x - before[i].x, dy: l.y - before[i].y }));
+
+    // The dragged member moved, and the other member moved by the SAME delta.
+    expect(Math.hypot(d[1].dx, d[1].dy)).toBeGreaterThan(20);
+    expect(d[0].dx).toBeCloseTo(d[1].dx, 0);
+    expect(d[0].dy).toBeCloseTo(d[1].dy, 0);
+
+    // Colors survived the transform untouched.
+    for (let i = 0; i < after.length; i++) {
+      expect(after[i].color).toBe(before[i].color);
+      expect(after[i].colorMode).toBe(before[i].colorMode);
+    }
+  });
+
+  test('properties-panel width change scales every member by the same factor', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+    await importZip(page, zip, { expectLayers: 2 });
+
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await page.waitForTimeout(150);
+
+    const sel = await page.evaluate(() => ({
+      selectedId: window.State.selectedId,
+      members: window.State.layers.map(l => ({
+        id: l.id, w: l.width, cx: l.x + l.width / 2, color: l.color, colorMode: l.colorMode,
+      })),
+    }));
+    const before = sel.members;
+
+    await page.fill('#prop-w', '600');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+
+    const after = await page.evaluate(() => window.State.layers.map(l => ({
+      id: l.id, w: l.width, cx: l.x + l.width / 2, color: l.color, colorMode: l.colorMode,
+    })));
+
+    // Every member scaled by the same factor; the edited member is 600.
+    const primBefore = before.find(l => l.id === sel.selectedId);
+    const primAfter = after.find(l => l.id === sel.selectedId);
+    const otherBefore = before.find(l => l.id !== sel.selectedId);
+    const otherAfter = after.find(l => l.id !== sel.selectedId);
+    expect(primAfter.w).toBe(600);
+    const f0 = primAfter.w / primBefore.w;
+    const f1 = otherAfter.w / otherBefore.w;
+    expect(f1).toBeCloseTo(f0, 1);
+    expect(f0).toBeGreaterThan(1.5);
+
+    // Layout preserved: both centers stayed fixed (primary center kept too,
+    // or the group's arrangement would shift on every numeric resize).
+    expect(primAfter.cx).toBeCloseTo(primBefore.cx, 0);
+    expect(otherAfter.cx).toBeCloseTo(otherBefore.cx, 0);
+
+    // Colors survived.
+    for (let i = 0; i < after.length; i++) {
+      const b = before.find(l => l.id === after[i].id);
+      expect(after[i].color).toBe(b.color);
+      expect(after[i].colorMode).toBe(b.colorMode);
+    }
+  });
+
+  test('rotating one member applies the same delta to all members', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+    await importZip(page, zip, { expectLayers: 2 });
+
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      window.State.zoom = 4;
+      Renderer.resize();
+      Renderer.schedule();
+    });
+    await page.waitForTimeout(100);
+
+    const start = await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const m = window.State.layers.find(l => window.State.selectedIds.includes(l.id));
+      const handles = Renderer.getHandles(m, window.State.zoom);
+      const rot = handles.find(h => h.id === 'rotate');
+      if (!rot) throw new Error('rotate handle not found');
+      return { sx: rot.x, sy: rot.y };
+    });
+    const box = await page.locator('#interaction-overlay').boundingBox();
+    if (!box) throw new Error('Canvas not found');
+    const before = await page.evaluate(() => window.State.layers.map(l => ({
+      rot: l.rotation, color: l.color, colorMode: l.colorMode,
+    })));
+
+    await page.evaluate(({ sx, sy, ex, ey }) => {
+      const el = document.getElementById('interaction-overlay');
+      const orig = el.setPointerCapture;
+      el.setPointerCapture = () => {};
+      const opts = { pointerId: 12, isPrimary: true, bubbles: true, cancelable: true };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: sx, clientY: sy, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: ex, clientY: ey, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: ex, clientY: ey, buttons: 0 }));
+      el.setPointerCapture = orig;
+    }, { sx: box.x + start.sx, sy: box.y + start.sy, ex: box.x + start.sx + 150, ey: box.y + start.sy - 150 });
+    await page.waitForTimeout(150);
+
+    const after = await page.evaluate(() => window.State.layers.map(l => ({
+      rot: l.rotation, color: l.color, colorMode: l.colorMode,
+    })));
+    const delta = after.map((l, i) => l.rot - before[i].rot);
+
+    // Rotation actually happened, and BOTH members got the same delta.
+    expect(Math.abs(delta[0])).toBeGreaterThan(3);
+    expect(delta[1]).toBeCloseTo(delta[0], 0);
+
+    // Colors survived.
+    for (let i = 0; i < after.length; i++) {
+      expect(after[i].color).toBe(before[i].color);
+      expect(after[i].colorMode).toBe(before[i].colorMode);
+    }
+  });
+
   test('missing project.json alerts and adds zero layers', async ({ page }) => {
     await createProject(page, 'No Manifest Target', { pageSize: 'half-letter' });
 

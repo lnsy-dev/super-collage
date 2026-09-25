@@ -357,9 +357,17 @@ export const LayerManager = {
     }
 
     const srcPages = parsed.pages || [];
-    // Group layers by source page, keeping manifest page order (per-page
-    // stacking order is preserved inside each bucket).
-    const buckets = srcPages
+    // Logical page order: project.pageOrder is authoritative — manifest.pages
+    // comes out of IndexedDB in uuid key order, NOT page order. Any page
+    // missing from pageOrder is appended at the end.
+    const pageOrder = (parsed.project && parsed.project.pageOrder) || [];
+    const orderedPages = pageOrder.length
+      ? pageOrder.map(id => srcPages.find(p => p.id === id)).filter(Boolean)
+          .concat(srcPages.filter(p => !pageOrder.includes(p.id)))
+      : srcPages;
+    // Group layers by source page in logical order (per-page stacking order
+    // is preserved inside each bucket).
+    const buckets = orderedPages
       .map(page => ({ page, entries: parsed.layerEntries.filter(e => e.record.pageId === page.id) }))
       .filter(b => b.entries.length > 0);
     if (!buckets.length && parsed.layerEntries.length) {
