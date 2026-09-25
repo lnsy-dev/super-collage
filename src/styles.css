@@ -1009,6 +1009,12 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
 
+/* Two labeled sliders share the single center row (radial CX + CY): keep
+   each label pinned to its own slider. */
+.grad-center-row .prop-label:not(:first-child) {
+  margin-left: 8px;
+}
+
 /* ─── COLOR MANAGER DIALOG ───────────────────────────────────────── */
 #color-manager-list {
   max-height: 240px;

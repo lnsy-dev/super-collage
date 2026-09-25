@@ -271,6 +271,7 @@ export async function handleAction(action, value = null) {
       break;
     }
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
+    case 'import-menu-project': document.getElementById('import-project-layers-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
     case 'link-layers': {
@@ -303,6 +304,7 @@ export async function handleAction(action, value = null) {
     case 'split-color-separation':
       if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id);
       else if (isTwoToneShape(layer)) await LayerManager.splitTwoToneShape(layer.id);
+      else if (layer?.importedGroupId) await LayerManager.splitImportedProject(layer.id);
       break;
     case 'layer-up':   if (layer) LayerManager.move(layer.id, 1);  break;
     case 'layer-down': if (layer) LayerManager.move(layer.id, -1); break;

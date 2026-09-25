@@ -188,6 +188,7 @@ export const ProjectIO = {
     const newProjectId = crypto.randomUUID();
     const pageIdMap = new Map();
     const layerIdMap = new Map();
+    const groupIdMap = new Map();
     for (const page of manifestPages) pageIdMap.set(page.id, crypto.randomUUID());
     for (const entry of layerEntries) layerIdMap.set(entry.record.id, crypto.randomUUID());
 
@@ -223,6 +224,16 @@ export const ProjectIO = {
       rec.imageMaskIds = (rec.imageMaskIds || []).map(id => layerIdMap.get(id)).filter(Boolean);
       rec.linkedIds = (rec.linkedIds || []).map(id => layerIdMap.get(id)).filter(Boolean);
       rec.isMaskFor = rec.isMaskFor ? (layerIdMap.get(rec.isMaskFor) || null) : null;
+      // importedGroupId marks an imported-project group. Remap it through
+      // layerIdMap like linkedIds; when it references a group uuid that is
+      // not itself a layer id, hand the whole group one stable fresh uuid so
+      // members stay grouped (and collision-free) across round-trips.
+      if (rec.importedGroupId) {
+        if (!groupIdMap.has(rec.importedGroupId)) {
+          groupIdMap.set(rec.importedGroupId, layerIdMap.get(rec.importedGroupId) || crypto.randomUUID());
+        }
+        rec.importedGroupId = groupIdMap.get(rec.importedGroupId);
+      }
       await DB.put('layers', rec);
 
       if (entry.imageBlob) {

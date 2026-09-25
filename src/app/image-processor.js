@@ -484,15 +484,24 @@ export const ImageProcessor = {
         }
         const avg = cnt ? sum / cnt : 255;
         const darkness = 1 - avg / 255;
-        if (darkness < 0.05) continue;
 
-        // Base radius with random size variation (~±35%)
-        const baseR = darkness * (cellSize * 0.55);
+        // Dot AREA must track darkness (√ response) so the rendered tone
+        // follows the source gradient linearly — a radius-linear response
+        // makes area quadratic, which visually bunches midtones into hard
+        // steps (banding).
+        const baseR = Math.sqrt(darkness) * (cellSize * 0.55);
         const r = baseR * (0.95 + rand() * 0.1);
-        if (r < 0.4) continue;
+
+        // Fade tiny dots in smoothly instead of cutting them off at a fixed
+        // threshold — hard visibility cliffs read as banding in gradients.
+        const t = (darkness - 0.01) / (0.07 - 0.01);           // 0..1 over the fade band
+        const alpha = Math.max(0, Math.min(1, t));
+        if (alpha <= 0) continue;
+        const drawR = Math.max(r, 0.35);
 
         // Randomly choose shape: circle, slightly squashed ellipse, or splat
         const shapeChoice = rand();
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         if (shapeChoice < 0.55) {
           // Plain circle (most common)
@@ -524,6 +533,7 @@ export const ImageProcessor = {
           ctx.restore();
         }
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
     }
     return ctx.getImageData(0, 0, w, h);
