@@ -21,8 +21,9 @@ test.beforeEach(async ({ page }) => {
 
 // Build a source project zip the same way e2e/project-io.spec.js does:
 // real layers in a real project, persisted to IndexedDB, then zipped via
-// window.ProjectIO.buildZipBlob. `layers` is an array of extra props to
-// assign to successively added images ({ color, colorMode, x, y, ... }).
+// window.ProjectIO.buildZipBlob. Each def is extra props for one layer
+// ({ color, colorMode, x, y, ... }) plus an optional `page` index (default
+// 0) saying which source page it lands on.
 async function buildSourceZip(page, layerDefs, { pageCount = 1 } = {}) {
   await createProject(page, 'Import Source', { pageSize: 'half-letter' });
   if (pageCount > 1) {
@@ -33,17 +34,19 @@ async function buildSourceZip(page, layerDefs, { pageCount = 1 } = {}) {
       }
     }, pageCount);
   }
-  await loadPage(page, 0);
-  for (const def of layerDefs) {
-    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: `src-${Math.random().toString(36).slice(2)}.png` });
-    await page.evaluate(async (d) => {
-      const l = window.State.layers[window.State.layers.length - 1];
-      Object.assign(l, d);
-      l._dirty = true;
-      await window.DB.saveLayer(l);
-    }, def);
+  for (let p = 0; p < pageCount; p++) {
+    await loadPage(page, p);
+    for (const def of layerDefs.filter(d => (d.page || 0) === p)) {
+      await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: `src-${Math.random().toString(36).slice(2)}.png` });
+      await page.evaluate(async (d) => {
+        const l = window.State.layers[window.State.layers.length - 1];
+        Object.assign(l, d);
+        l._dirty = true;
+        await window.DB.saveLayer(l);
+      }, def);
+    }
+    await page.evaluate(() => window.PageManager.saveActivePage());
   }
-  await page.evaluate(() => window.PageManager.saveActivePage());
 
   const zipB64 = await page.evaluate(async () => {
     const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
@@ -240,6 +243,59 @@ test.describe('Import Menu Project', () => {
     expect(moved.ax).toBeGreaterThan(before.ax + 20); // dragged member moved
     expect(moved.bx).toBe(before.bx);                 // sibling untouched
     expect(moved.by).toBe(before.by);
+  });
+
+  test('multi-page source stacks all pages vertically as one group', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', page: 0, x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', page: 1, x: 150, y: 150, width: 250, height: 180 },
+    ], { pageCount: 2 });
+    await importZip(page, zip, { expectLayers: 2 });
+
+    const info = await groupInfo(page);
+    expect(info.total).toBe(2);
+    expect(info.gids.length).toBe(1);        // pages share ONE importedGroupId
+    expect(info.linkSymmetryOk).toBe(true);  // full linking across pages
+
+    // Second-page layers sit below the first page's extent.
+    const box = await page.evaluate(async () => {
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const byColor = Object.fromEntries(
+        window.State.layers.map(l => [l.color, { top: l.y, bottom: l.y + l.height, x: l.x, w: l.width }])
+      );
+      return { byColor, CANVAS_W, CANVAS_H };
+    });
+    const first = box.byColor['#f65058'];
+    const second = box.byColor['#0078bf'];
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(second.top).toBeGreaterThan(first.bottom);
+    // Whole stack still fits and is centered on the canvas.
+    const minY = Math.min(first.top, second.top);
+    const maxY = Math.max(first.bottom, second.bottom);
+    const minX = Math.min(first.x, second.x);
+    const maxX = Math.max(first.x + first.w, second.x + second.w);
+    expect(minY).toBeGreaterThanOrEqual(0);
+    expect(maxY).toBeLessThanOrEqual(box.CANVAS_H);
+    expect(minX).toBeGreaterThanOrEqual(0);
+    expect(maxX).toBeLessThanOrEqual(box.CANVAS_W);
+    expect((minY + maxY) / 2).toBeCloseTo(box.CANVAS_H / 2, 0);
+    expect((minX + maxX) / 2).toBeCloseTo(box.CANVAS_W / 2, 0);
+
+    // Split still unpacks everything (members, links, group id).
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await expect(page.locator('#btn-split-color-separation')).toBeVisible();
+    await page.click('#btn-split-color-separation');
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() => ({
+      count: window.State.layers.length,
+      anyGid: window.State.layers.some(l => l.importedGroupId),
+      anyLinks: window.State.layers.some(l => (l.linkedIds || []).length > 0),
+    }));
+    expect(after.count).toBe(2);
+    expect(after.anyGid).toBe(false);
+    expect(after.anyLinks).toBe(false);
   });
 
   test('missing project.json alerts and adds zero layers', async ({ page }) => {

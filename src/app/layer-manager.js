@@ -8,7 +8,7 @@ import { Layer } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
-import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
+import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { renderShapeLayerBitmap, isTwoToneShape, effectiveShapeColor, rerenderShapeLayer } from './shape-utils.js';
@@ -334,12 +334,15 @@ export const LayerManager = {
   },
 
   /**
-   * Import Menu Project: rebuild a downloaded project zip's FIRST page as
-   * layers on the CURRENT page. Every imported layer gets a fresh id, the
-   * current project/page, one shared importedGroupId, and symmetric
-   * all-pairs linkedIds so the whole group moves/scales as a unit until it
-   * is split apart. The group is scaled (only if oversized) and centered on
-   * the canvas like an imported image; naturalWidth/naturalHeight are left
+   * Import Menu Project: rebuild a downloaded project zip's pages as layers
+   * on the CURRENT page. A single-page source behaves like one image; a
+   * multi-page source stacks ALL pages vertically in page order (each page's
+   * layers offset down by the cumulative height of the previous source pages
+   * plus a fixed gap). Every imported layer gets a fresh id, the current
+   * project/page, one shared importedGroupId, and symmetric all-pairs
+   * linkedIds so the whole stack moves/scales as a unit until it is split
+   * apart. The stack is scaled (only if oversized) and centered on the
+   * canvas like an imported image; naturalWidth/naturalHeight are left
    * untouched. Invalid or empty zips alert and add nothing.
    */
   async importProjectAsLayers(file) {
@@ -354,19 +357,48 @@ export const LayerManager = {
     }
 
     const srcPages = parsed.pages || [];
-    const firstPage = srcPages[0] || null;
-    let pageLayers = firstPage
-      ? parsed.layerEntries.filter(e => e.record.pageId === firstPage.id)
-      : [];
-    if (!pageLayers.length && parsed.layerEntries.length) {
+    // Group layers by source page, keeping manifest page order (per-page
+    // stacking order is preserved inside each bucket).
+    const buckets = srcPages
+      .map(page => ({ page, entries: parsed.layerEntries.filter(e => e.record.pageId === page.id) }))
+      .filter(b => b.entries.length > 0);
+    if (!buckets.length && parsed.layerEntries.length) {
       // Degenerate manifest (layers without a matching page record) —
-      // import everything rather than nothing.
-      pageLayers = parsed.layerEntries;
+      // import everything as one bucket rather than nothing.
+      buckets.push({ page: srcPages[0] || null, entries: parsed.layerEntries });
     }
-    if (!pageLayers.length) {
-      alert('That project has no layers on its first page — nothing to import.');
+    if (!buckets.length) {
+      alert('That project has no layers to import — nothing to do.');
       return [];
     }
+
+    // Source page dimensions: page record → project page size → letter.
+    // (Mirrors ProjectManager._resolveProjectDims.)
+    let projW = 0, projH = 0;
+    {
+      const proj = parsed.project || {};
+      const dims = PAGE_SIZE_DIMS[proj.pageSize];
+      let w = dims ? dims.w : 0, h = dims ? dims.h : 0;
+      if (proj.pageSize === 'custom' && proj.customW && proj.customH) {
+        w = proj.customW; h = proj.customH;
+      }
+      if (!w || !h) { w = PAGE_SIZE_DIMS['letter'].w; h = PAGE_SIZE_DIMS['letter'].h; }
+      if (proj.orientation === 'landscape' && h > w) [w, h] = [h, w];
+      projW = w; projH = h;
+    }
+    const heightOf = page => (page && page.height) ? page.height : projH;
+
+    // Stack source pages vertically: page N's content sits below the
+    // cumulative height of the previous pages plus a fixed gap (in source
+    // coordinates; the group is fitted/centered as a whole afterwards).
+    const PAGE_GAP = 400;
+    const yOffsetByPage = new Map();
+    let cum = 0;
+    buckets.forEach((b, i) => {
+      if (b.page) yOffsetByPage.set(b.page.id, cum);
+      cum += heightOf(b.page) + (i < buckets.length - 1 ? PAGE_GAP : 0);
+    });
+    const pageLayers = buckets.flatMap(b => b.entries);
 
     pushUndoState();
 
@@ -390,10 +422,11 @@ export const LayerManager = {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const e of pageLayers) {
         const r = e.record;
+        const yOff = yOffsetByPage.get(r.pageId) || 0;
         minX = Math.min(minX, r.x);
-        minY = Math.min(minY, r.y);
+        minY = Math.min(minY, r.y + yOff);
         maxX = Math.max(maxX, r.x + r.width);
-        maxY = Math.max(maxY, r.y + r.height);
+        maxY = Math.max(maxY, r.y + yOff + r.height);
       }
       const fit = Math.min(1, CANVAS_W / (maxX - minX), CANVAS_H / (maxY - minY));
       const offX = (CANVAS_W - (maxX - minX) * fit) / 2 - minX * fit;
@@ -409,13 +442,14 @@ export const LayerManager = {
 
       for (const e of pageLayers) {
         const src = e.record;
+        const yOff = yOffsetByPage.get(src.pageId) || 0;
         const layer = new Layer({
           ...src,
           id: idOf(src.id),
           projectId,
           pageId,
           x: src.x * fit + offX,
-          y: src.y * fit + offY,
+          y: (src.y + yOff) * fit + offY,
           width: src.width * fit,
           height: src.height * fit,
           name: src.name || 'Imported Layer',
