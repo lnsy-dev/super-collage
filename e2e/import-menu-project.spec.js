@@ -1,0 +1,185 @@
+import { test, expect } from '@playwright/test';
+import {
+  clearIndexedDB,
+  createProject,
+  addImageFromBuffer,
+  createSolidPngBuffer,
+  createShapePngBuffer,
+} from './helpers.js';
+
+let dialogMessages = [];
+
+test.beforeEach(async ({ page }) => {
+  await clearIndexedDB(page);
+  // The import flow alerts on invalid zips — record + auto-dismiss so tests
+  // don't hang (single handler; a second one would double-handle dialogs).
+  dialogMessages = [];
+  page.on('dialog', async d => { dialogMessages.push(d.message()); await d.accept(); });
+});
+
+/* ─── helpers ───────────────────────────────────────────────────────── */
+
+// Build a source project zip the same way e2e/project-io.spec.js does:
+// real layers in a real project, persisted to IndexedDB, then zipped via
+// window.ProjectIO.buildZipBlob. `layers` is an array of extra props to
+// assign to successively added images ({ color, colorMode, x, y, ... }).
+async function buildSourceZip(page, layerDefs, { pageCount = 1 } = {}) {
+  await createProject(page, 'Import Source', { pageSize: 'half-letter' });
+  if (pageCount > 1) {
+    await page.evaluate(async (n) => {
+      const p0 = window.State.pages[0];
+      for (let i = 1; i < n; i++) {
+        await window.PageManager.addBlankPageToProject(window.State.project.id, p0.width, p0.height);
+      }
+    }, pageCount);
+  }
+  await loadPage(page, 0);
+  for (const def of layerDefs) {
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: `src-${Math.random().toString(36).slice(2)}.png` });
+    await page.evaluate(async (d) => {
+      const l = window.State.layers[window.State.layers.length - 1];
+      Object.assign(l, d);
+      l._dirty = true;
+      await window.DB.saveLayer(l);
+    }, def);
+  }
+  await page.evaluate(() => window.PageManager.saveActivePage());
+
+  const zipB64 = await page.evaluate(async () => {
+    const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
+    const buf = await blob.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  });
+  const zipBuffer = Buffer.from(zipB64, 'base64');
+
+  // Fresh document to import into (source project stays in the DB but the
+  // current page is now empty and belongs to the new project).
+  await clearIndexedDB(page);
+  await createProject(page, 'Import Target', { pageSize: 'half-letter' });
+  return zipBuffer;
+}
+
+async function loadPage(page, index) {
+  await page.evaluate(async (i) => {
+    const pid = window.State.project.pageOrder[i];
+    const { PageManager } = await import('/src/app/page-manager.js');
+    if (pid !== window.State.pageId) await PageManager.loadPage(pid);
+  }, index);
+}
+
+async function importZip(page, zipBuffer, { expectLayers = null } = {}) {
+  await page.setInputFiles('#import-project-layers-input', {
+    name: 'source-project.zip',
+    mimeType: 'application/zip',
+    buffer: zipBuffer,
+  });
+  if (expectLayers != null) {
+    await page.waitForFunction(
+      (n) => window.State.layers.length === n,
+      expectLayers,
+      { timeout: 15000 }
+    );
+  } else {
+    // No-op path: give the import a moment to (not) land.
+    await page.waitForTimeout(500);
+  }
+}
+
+function groupInfo(page) {
+  return page.evaluate(() => {
+    const layers = window.State.layers;
+    const members = layers.filter(l => l.importedGroupId);
+    return {
+      total: layers.length,
+      members,
+      gids: [...new Set(members.map(l => l.importedGroupId))],
+      linkSymmetryOk: members.every(m =>
+        m.linkedIds.length === members.length - 1 &&
+        members.every(o => o.id === m.id || m.linkedIds.includes(o.id))
+      ),
+    };
+  });
+}
+
+/* ─── tests ─────────────────────────────────────────────────────────── */
+
+test.describe('Import Menu Project', () => {
+
+  test('menu command imports source layers as one linked, centered group', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+      { color: '#00a95c', colorMode: 'gradient', x: 900, y: 200, width: 250, height: 250,
+        gradient: { type: 'radial', angle: 0, centerX: 0.5, centerY: 0.5, stops: [
+          { color: '#010101', position: 0 }, { color: '#0078bf', position: 1 }], poles: [] } },
+    ]);
+
+    await importZip(page, zip, { expectLayers: 3 });
+
+    const info = await groupInfo(page);
+    expect(info.total).toBe(3);
+    expect(info.members.length).toBe(3);
+    expect(info.gids.length).toBe(1);           // one shared importedGroupId
+    expect(info.linkSymmetryOk).toBe(true);      // all-pairs symmetric linking
+
+    // Colors and color modes preserved.
+    const members = info.members;
+    expect(members.map(m => m.color).sort()).toEqual(
+      ['#f65058', '#0078bf', '#00a95c'].sort());
+    expect(members.filter(m => m.colorMode === 'gradient').length).toBe(1);
+    expect(members.filter(m => m.colorMode === 'gradient')[0].gradient.type).toBe('radial');
+
+    // Group bbox fits inside the canvas and is centered on it.
+    const box = await page.evaluate(async () => {
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const ms = window.State.layers.filter(l => l.importedGroupId);
+      const xs = ms.map(m => m.x), ys = ms.map(m => m.y);
+      const xe = ms.map(m => m.x + m.width), ye = ms.map(m => m.y + m.height);
+      return {
+        minX: Math.min(...xs), minY: Math.min(...ys),
+        maxX: Math.max(...xe), maxY: Math.max(...ye),
+        CANVAS_W, CANVAS_H,
+      };
+    });
+    expect(box.minX).toBeGreaterThanOrEqual(0);
+    expect(box.minY).toBeGreaterThanOrEqual(0);
+    expect(box.maxX).toBeLessThanOrEqual(box.CANVAS_W);
+    expect(box.maxY).toBeLessThanOrEqual(box.CANVAS_H);
+    expect((box.minX + box.maxX) / 2).toBeCloseTo(box.CANVAS_W / 2, 0);
+    expect((box.minY + box.maxY) / 2).toBeCloseTo(box.CANVAS_H / 2, 0);
+  });
+
+  test('invalid zip (wrong format) alerts and adds zero layers', async ({ page }) => {
+    await createProject(page, 'Invalid Target', { pageSize: 'half-letter' });
+
+    const zip = Buffer.from('PK\x03\x04definitely-not-a-project');
+    await importZip(page, zip);
+
+    expect(dialogMessages.length).toBe(1);
+    expect(dialogMessages[0]).toContain('Could not import project');
+    const info = await groupInfo(page);
+    expect(info.total).toBe(0);
+  });
+
+  test('missing project.json alerts and adds zero layers', async ({ page }) => {
+    await createProject(page, 'No Manifest Target', { pageSize: 'half-letter' });
+
+    // Build a zip in the browser that has no project.json at all.
+    const buf = await page.evaluate(async () => {
+      const zip = new window.JSZip();
+      zip.file('readme.txt', 'nothing to see');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const arr = new Uint8Array(await blob.arrayBuffer());
+      return Array.from(arr);
+    });
+    await importZip(page, Buffer.from(buf));
+
+    expect(dialogMessages.length).toBe(1);
+    expect(dialogMessages[0]).toContain('Could not import project');
+    const info = await groupInfo(page);
+    expect(info.total).toBe(0);
+  });
+});

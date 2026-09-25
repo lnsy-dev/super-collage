@@ -271,6 +271,7 @@ export async function handleAction(action, value = null) {
       break;
     }
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
+    case 'import-menu-project': document.getElementById('import-project-layers-input').click(); break;
     case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
     case 'link-layers': {

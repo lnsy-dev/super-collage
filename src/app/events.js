@@ -1747,6 +1747,13 @@ export function wireControls() {
     e.target.value = '';
   });
 
+  // ── Import Menu Project: another project zip as layers on this page ──
+  document.getElementById('import-project-layers-input')?.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) await LayerManager.importProjectAsLayers(file);
+  });
+
   // ── Project download / upload ─────────────────────────────────────
   document.getElementById('btn-upload-project')?.addEventListener('click', () => {
     document.getElementById('project-import-input').click();
