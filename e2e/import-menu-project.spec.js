@@ -5,6 +5,7 @@ import {
   addImageFromBuffer,
   createSolidPngBuffer,
   createShapePngBuffer,
+  createMultiColorPngBuffer,
 } from './helpers.js';
 
 let dialogMessages = [];
@@ -466,6 +467,183 @@ test.describe('Import Menu Project', () => {
       expect(after[i].color).toBe(before[i].color);
       expect(after[i].colorMode).toBe(before[i].colorMode);
     }
+  });
+
+  test('empty source project (no layers) is a friendly no-op', async ({ page }) => {
+    const zip = await buildSourceZip(page, []);
+    await importZip(page, zip);
+
+    // Friendly explanation, nothing added.
+    expect(dialogMessages.some(m => m.includes('nothing'))).toBe(true);
+    const info = await groupInfo(page);
+    expect(info.total).toBe(0);
+  });
+
+  test('image-mask relationships survive import and still mask on canvas', async ({ page }) => {
+    await createProject(page, 'Mask Source', { pageSize: 'half-letter' });
+    // Base: solid ink. Mask: triangle-shaped ink that will cut the base.
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 160, 160), { name: 'base.png' });
+    await addImageFromBuffer(page, createShapePngBuffer('triangle', 160, 160), { name: 'maskimg.png' });
+    await page.evaluate(async () => {
+      const layers = window.State.layers;
+      const a = layers[layers.length - 2], b = layers[layers.length - 1];
+      a.color = '#f65058'; a._dirty = true; await window.DB.saveLayer(a);
+      window.State.selectedIds = [a.id, b.id];
+      window.State.selectedId = b.id;
+      await window.handleAction('create-image-mask');
+      await window.PageManager.saveActivePage();
+    });
+    await page.waitForFunction(() => window.State.layers.some(l => l.isMaskFor));
+    const srcIds = await page.evaluate(() => {
+      const base = window.State.layers.find(l => (l.imageMaskIds || []).length > 0);
+      const mask = window.State.layers.find(l => l.isMaskFor);
+      return { baseId: base.id, maskId: mask.id };
+    });
+
+    const zipB64 = await page.evaluate(async () => {
+      const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
+      const buf = await blob.arrayBuffer();
+      let bin = ''; const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    });
+    await clearIndexedDB(page);
+    await createProject(page, 'Mask Target', { pageSize: 'half-letter' });
+    await page.setInputFiles('#import-project-layers-input', {
+      name: 'masked.zip', mimeType: 'application/zip', buffer: Buffer.from(zipB64, 'base64'),
+    });
+    await page.waitForFunction(() => window.State.layers.length === 2, null, { timeout: 15000 });
+
+    // Fresh ids: neither imported layer keeps a source id, and the
+    // relationship points at the imported partner.
+    const rel = await page.evaluate(() => {
+      const base = window.State.layers.find(l => (l.imageMaskIds || []).length > 0);
+      const mask = window.State.layers.find(l => l.isMaskFor);
+      return {
+        base: base ? { id: base.id, masks: base.imageMaskIds.slice() } : null,
+        mask: mask ? { id: mask.id, isMaskFor: mask.isMaskFor } : null,
+        gids: [...new Set(window.State.layers.filter(l => l.importedGroupId).map(l => l.importedGroupId))],
+      };
+    });
+    expect(rel.base).toBeTruthy();
+    expect(rel.mask).toBeTruthy();
+    expect(rel.base.id).not.toBe(srcIds.baseId);
+    expect(rel.mask.id).not.toBe(srcIds.maskId);
+    expect(rel.base.masks).toEqual([rel.mask.id]);
+    expect(rel.mask.isMaskFor).toBe(rel.base.id);
+    expect(rel.gids.length).toBe(1);
+
+    // Masking still applies on canvas: render the page through the real
+    // drawLayers path — the mask's triangle ink must cut the base away in the
+    // center (white paper shows) while the base shows at the corner (red ink).
+    const pixels = await page.evaluate(async () => {
+      const { Renderer } = await import('/src/app/renderer.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const base = window.State.layers.find(l => (l.imageMaskIds || []).length > 0);
+      const c = new OffscreenCanvas(CANVAS_W, CANVAS_H);
+      const ctx = c.getContext('2d');
+      await Renderer.drawLayers(ctx, window.State.layers, CANVAS_W, CANVAS_H, 1, true);
+      const at = (fx, fy) => {
+        const d = ctx.getImageData(Math.round(base.x + fx * base.width), Math.round(base.y + fy * base.height), 1, 1).data;
+        return [d[0], d[1], d[2]];
+      };
+      return { center: at(0.5, 0.5), corner: at(0.08, 0.08) };
+    });
+    // Center: mask ink cut the base → white paper.
+    expect(pixels.center[0]).toBeGreaterThan(240);
+    expect(pixels.center[1]).toBeGreaterThan(240);
+    expect(pixels.center[2]).toBeGreaterThan(240);
+    // Corner: base's red ink survives (multiply over white keeps it red).
+    expect(pixels.corner[0]).toBeGreaterThan(180);
+    expect(pixels.corner[1]).toBeLessThan(150);
+    expect(pixels.corner[2]).toBeLessThan(150);
+  });
+
+  test('color-separation source imports with plates rebuilt and splits after', async ({ page }) => {
+    await createProject(page, 'Sep Source', { pageSize: 'half-letter' });
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('.menu-entry[data-action="import-color-separation"]');
+    await page.setInputFiles('#color-sep-input', {
+      name: 'sep.png', mimeType: 'image/png', buffer: createMultiColorPngBuffer(120, 120),
+    });
+    await page.waitForFunction(() => window.State.layers.some(l => l.isColorSeparation), null, { timeout: 20000 });
+
+    const zipB64 = await page.evaluate(async () => {
+      const blob = await window.ProjectIO.buildZipBlob(window.State.project.id);
+      const buf = await blob.arrayBuffer();
+      let bin = ''; const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    });
+    await clearIndexedDB(page);
+    await createProject(page, 'Sep Target', { pageSize: 'half-letter' });
+    await page.setInputFiles('#import-project-layers-input', {
+      name: 'sep.zip', mimeType: 'application/zip', buffer: Buffer.from(zipB64, 'base64'),
+    });
+    await page.waitForFunction(() => window.State.layers.some(l => l.isColorSeparation), null, { timeout: 20000 });
+
+    // Plates rebuilt from the imported blob (same count as separationColors).
+    const sep = await page.evaluate(() => {
+      const l = window.State.layers.find(x => x.isColorSeparation);
+      return { colors: l.separationColors.length, plates: l.separationPlates.size, hasOrig: !!l._originalCanvas };
+    });
+    expect(sep.plates).toBe(sep.colors);
+    expect(sep.plates).toBeGreaterThan(0);
+    expect(sep.hasOrig).toBe(true);
+
+    // split-color-separation still works on the imported layer.
+    const rows = page.locator('#layer-list .layer-row');
+    await rows.nth(0).click();
+    await expect(page.locator('#btn-split-color-separation')).toBeVisible();
+    const before = await page.evaluate(() => window.State.layers.length);
+    await page.click('#btn-split-color-separation');
+    await page.waitForFunction((n) => window.State.layers.length > n, before, { timeout: 15000 });
+    const afterSplit = await page.evaluate(() => ({
+      n: window.State.layers.length,
+      sepLeft: window.State.layers.some(l => l.isColorSeparation),
+    }));
+    expect(afterSplit.n).toBeGreaterThan(before);
+    expect(afterSplit.sepLeft).toBe(false);
+  });
+
+  test('missing image blob file in zip degrades gracefully', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+
+    // Remove ONE layer's image file from the zip (browser-side JSZip).
+    const brokenB64 = await page.evaluate(async (b64) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const zip = await window.JSZip.loadAsync(bytes);
+      const manifest = JSON.parse(await zip.file('project.json').async('string'));
+      const victim = manifest.layers.find(e => e.image && e.image.path);
+      zip.remove(victim.image.path);
+      const out = await zip.generateAsync({ type: 'base64' });
+      return out;
+    }, zip.toString('base64'));
+
+    // Import must not crash and must still add BOTH layer records.
+    await page.setInputFiles('#import-project-layers-input', {
+      name: 'broken.zip', mimeType: 'application/zip', buffer: Buffer.from(brokenB64, 'base64'),
+    });
+    await page.waitForFunction(() => window.State.layers.length === 2, null, { timeout: 15000 });
+
+    const state = await page.evaluate(async () => {
+      const layers = window.State.layers;
+      const blobs = [];
+      for (const l of layers) {
+        const rec = await window.DB.get('imageBlobs', l.id);
+        blobs.push({ color: l.color, hasBlob: !!(rec && rec.blob), gid: !!l.importedGroupId });
+      }
+      return { blobs, gids: [...new Set(layers.map(l => l.importedGroupId).filter(Boolean))] };
+    });
+    expect(state.blobs.length).toBe(2);
+    expect(state.blobs.filter(b => b.hasBlob).length).toBe(1); // only the intact one
+    expect(state.blobs.filter(b => b.gid).length).toBe(2);     // still one group
+    expect(state.gids.length).toBe(1);
   });
 
   test('missing project.json alerts and adds zero layers', async ({ page }) => {
