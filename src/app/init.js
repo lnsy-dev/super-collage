@@ -9,6 +9,7 @@ import { wireControls } from './events.js';
 import { showProjectDialog, loadEffectivePalette } from './project-manager.js';
 import { setBuildColorLut, rebuildColorSepLut, colorSepLut as exportedColorSepLut } from './color-lut.js';
 import { initGoogleFonts } from './google-fonts.js';
+import { initFontPicker } from './font-picker.js';
 
 export let blendSubtractive = null;
 export let separateColorsWithLut = null;
@@ -43,8 +44,10 @@ async function _doInit() {
 
   Renderer.init();
   wireControls();
-  // Populate the font selector from the Google Fonts metadata API in the
-  // background — never blocks startup, silently no-ops when offline.
+  // The searchable font picker wraps the font <select>; the Google families
+  // are then filled in from the metadata API in the background — neither
+  // blocks startup, and both silently no-op when offline.
+  initFontPicker();
   initGoogleFonts();
   await showProjectDialog();
   window.__appReady = true;

@@ -1,16 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { clearIndexedDB } from './helpers.js';
 
-// Fulfill the app's startup Google Fonts metadata fetch locally so that
+// Fulfill the app's startup font-catalogue fetch locally so that
 // zero-console-error assertions only see real page errors (the real
 // endpoint logs CORS/network noise when offline).
 async function mockFontsMetadata(page) {
-  await page.route('**/fonts.google.com/metadata/fonts*', route =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: ")]}'\n" + JSON.stringify({ familyMetadataList: [] }),
-    }));
+  await page.route('**/api.fontsource.org/v1/fonts*', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
 }
 
 test.beforeEach(async ({ page }) => {

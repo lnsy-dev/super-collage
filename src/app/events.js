@@ -19,6 +19,7 @@ import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
 import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
+import { isGoogleFont, ensurePreviewFont } from './google-fonts.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1052,14 +1053,24 @@ export function wireControls() {
   document.getElementById('prop-text')?.addEventListener('input', e => {
     updateTextField('text', e.target.value);
   });
-  document.getElementById('prop-text-font')?.addEventListener('change', e => {
+  document.getElementById('prop-text-font')?.addEventListener('change', async e => {
     const font = e.target.value;
     updateTextField('textFontFamily', font);
     const layer = selectedLayer();
+    // Snap weight/style to what the family publishes, synchronously, so the
+    // Variant dropdown is right before anything hits the network.
     populateVariantSelect(font, layer?.textFontWeight ?? 400, layer?.textFontStyle);
     const [weight, style] = document.getElementById('prop-text-variant').value.split(':');
     updateTextField('textFontWeight', weight, parseInt);
     updateTextField('textFontStyle', style);
+    // Then fetch the webfont (Google families) so the CSS-rendered text
+    // editor and the on-canvas caret use the real typeface.
+    if (isGoogleFont(font)) await ensurePreviewFont(font, layer?.textFontWeight ?? 400, layer?.textFontStyle);
+    if (TextEditor.isActive(layer)) {
+      await TextEditor.realign();   // re-aligns the caret to the new metrics
+    } else {
+      Renderer.schedule();
+    }
   });
   document.getElementById('prop-text-size-range')?.addEventListener('input', e => {
     document.getElementById('prop-text-size').value = e.target.value;

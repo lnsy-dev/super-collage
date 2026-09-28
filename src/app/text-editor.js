@@ -15,6 +15,7 @@ import { DB } from './db.js';
 import { UI } from './ui.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 import { TypeSetRenderer } from 'type-set';
+import { resolveRenderFont, isGoogleFont, ensurePreviewFont } from './google-fonts.js';
 
 const MIN_W_DOC = 40;   // minimum layer width, document px
 const MIN_H_DOC = 20;
@@ -49,6 +50,9 @@ export const TextEditor = {
 
     // Make sure the CSS font faces registered by type-set are ready so the
     // editing caret shows the real typeface.
+    if (isGoogleFont(layer.textFontFamily)) {
+      await ensurePreviewFont(layer.textFontFamily, layer.textFontWeight, layer.textFontStyle);
+    }
     try {
       await document.fonts.load(
         `${layer.textFontStyle} ${layer.textFontWeight} ${layer.textFontSize}px "${layer.textFontFamily}"`);
@@ -123,12 +127,16 @@ export const TextEditor = {
    */
   async _alignToLayout(layer) {
     const z = State.zoom;
+    // Shape with exactly what the rasterizer used, so the caret lands on
+    // the same baseline even for a fetched Google family.
+    const font = await resolveRenderFont(layer.textFontFamily, layer.textFontWeight, layer.textFontStyle);
     const renderer = new TypeSetRenderer({
       fontBase: './vendor/type-set/fonts/',
-      fontFamily: layer.textFontFamily,
+      fontFamily: font.family,
       fontSize: layer.textFontSize,
-      fontWeight: layer.textFontWeight,
-      fontStyle: layer.textFontStyle,
+      fontWeight: font.weight,
+      fontStyle: font.style,
+      weightSpecificFonts: font.weightSpecificFonts,
       letterSpacing: layer.textLetterSpacing,
       lineHeight: layer.textLineHeight,
       textAlign: layer.textAlign,
@@ -230,6 +238,22 @@ export const TextEditor = {
         layer._dirty = true;
       }
     }
+  },
+
+  /**
+   * Re-measure and re-align after a typography change (new family/weight)
+   * while the layer is being edited: the textarea's metrics change once the
+   * webfont arrives, so the box has to grow and the caret offset recompute.
+   */
+  async realign() {
+    const layer = this.editingLayer();
+    if (!layer) return;
+    this._textOffset = null;
+    this._autoSize(layer);
+    this._sync();
+    try {
+      await this._alignToLayout(layer);
+    } catch (_e) { /* keep the current offset on any layout failure */ }
   },
 
   measureWidth(layer) {

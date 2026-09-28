@@ -1142,3 +1142,92 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   margin-top: 0.2rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* ─── FONT PICKER ───────────────────────────────────────────────── */
+/* Searchable replacement for the font <select>: a button shows the current
+   family, a fixed-position popup holds the fuzzy-search results. The popup
+   lives on <body> so the scrollable properties panel can't clip it. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
+.font-picker { flex: 1; min-width: 0; position: relative; }
+.font-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 1.15rem;
+  cursor: pointer;
+  text-align: left;
+}
+.font-picker-button:hover { background: var(--hover-wash); }
+.font-picker-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-picker-caret { font-size: 0.9rem; opacity: 0.6; }
+.font-picker-pop {
+  position: fixed;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: var(--shadow-pop);
+}
+.font-picker-pop[hidden] { display: none; }
+.font-picker-search {
+  padding: 3px 5px;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 1.15rem;
+  outline: none;
+}
+.font-picker-list { overflow-y: auto; flex: 1; }
+.font-picker-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 5px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--rule);
+}
+.font-picker-row:hover, .font-picker-row.active { background: var(--ink); color: var(--paper); }
+.font-picker-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.4rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-picker-cat {
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.font-picker-empty {
+  padding: 6px 5px;
+  font-size: 1.1rem;
+  opacity: 0.6;
+}

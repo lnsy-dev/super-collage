@@ -9,6 +9,8 @@ import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 import { computeViewUnits } from './spread-manager.js';
 import { hasItalic } from 'type-set';
+import { fontVariants, snapToAvailableWeight } from './google-fonts.js';
+import { setFontPickerValue } from './font-picker.js';
 import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { isTwoToneShape } from './shape-utils.js';
 
@@ -29,13 +31,19 @@ const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular',
 export function populateVariantSelect(font, currentWeight, currentStyle) {
   const sel = document.getElementById('prop-text-variant');
   if (!sel) return;
-  const weights = FONT_WEIGHTS[font] ?? [100,200,300,400,500,600,700,800,900];
+  // Google families report the exact weights/styles they publish; bundled
+  // families use the static table above plus their italic flag.
+  const google = fontVariants(font);
+  const weights = google ? google.filter(v => v.style === 'normal').map(v => v.weight)
+                         : (FONT_WEIGHTS[font] ?? [100,200,300,400,500,600,700,800,900]);
+  const italicWeights = google ? google.filter(v => v.style === 'italic').map(v => v.weight)
+                               : (hasItalic(font) ? weights : []);
   const variants = [];
   weights.forEach(w => {
     variants.push({ weight: w, style: 'normal', label: `${w} – ${WEIGHT_NAMES[w]}` });
   });
-  if (hasItalic(font)) {
-    weights.forEach(w => {
+  if (italicWeights.length) {
+    italicWeights.forEach(w => {
       variants.push({ weight: w, style: 'italic', label: `${w} – ${WEIGHT_NAMES[w]} Italic` });
     });
   }
@@ -43,12 +51,16 @@ export function populateVariantSelect(font, currentWeight, currentStyle) {
     `<option value="${v.weight}:${v.style}">${v.label}</option>`
   ).join('');
 
-  const style = hasItalic(font) ? (currentStyle || 'normal') : 'normal';
+  const style = italicWeights.length ? (currentStyle || 'normal') : 'normal';
   let match = variants.find(v => v.weight === currentWeight && v.style === style);
   if (!match) {
-    match = variants.filter(v => v.style === 'normal').reduce((a, b) =>
-      Math.abs(b.weight - currentWeight) < Math.abs(a.weight - currentWeight) ? b : a
-    );
+    // Snap to the nearest weight the family actually ships.
+    const wanted = snapToAvailableWeight(font, currentWeight);
+    match = variants.find(v => v.weight === wanted && v.style === style)
+      || variants.find(v => v.style === 'normal' && v.weight === wanted)
+      || variants.filter(v => v.style === 'normal').reduce((a, b) =>
+        Math.abs(b.weight - currentWeight) < Math.abs(a.weight - currentWeight) ? b : a
+      );
   }
   sel.value = `${match.weight}:${match.style}`;
 }
@@ -564,6 +576,7 @@ export const UI = {
     if (layer.isText) {
       document.getElementById('prop-text').value = layer.text;
       document.getElementById('prop-text-font').value = layer.textFontFamily;
+      setFontPickerValue(layer.textFontFamily);
       document.getElementById('prop-text-size').value = layer.textFontSize;
       document.getElementById('prop-text-size-range').value = layer.textFontSize;
       populateVariantSelect(layer.textFontFamily, layer.textFontWeight, layer.textFontStyle);

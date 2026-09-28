@@ -8,6 +8,7 @@ import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
 import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
+import { resolveRenderFont } from './google-fonts.js';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
 export function generateGradientCanvas(width, height, gradient) {
@@ -602,18 +603,22 @@ export const ImageProcessor = {
       const perCharItalic = layer.textFontStyle === 'italic'
         ? new Set(layer.text.split('').map((_c, i) => i))
         : undefined;
+      // Google families have no bundled file — fetch the mirror's WOFF for
+      // the weight in use (and fall back to a bundled family if unreachable).
+      const font = await resolveRenderFont(layer.textFontFamily, layer.textFontWeight, layer.textFontStyle);
       const renderer = new TypeSetRenderer({
         fontBase: './vendor/type-set/fonts/',
-        fontFamily: layer.textFontFamily,
+        fontFamily: font.family,
         fontSize: layer.textFontSize,
-        fontWeight: layer.textFontWeight,
-        fontStyle: layer.textFontStyle,
+        fontWeight: font.weight,
+        fontStyle: font.style,
         perCharItalic,
         letterSpacing: layer.textLetterSpacing,
         lineHeight: layer.textLineHeight,
         textAlign: layer.textAlign,
         text: layer.text,
         color: '#000000',
+        weightSpecificFonts: font.weightSpecificFonts,
         useLigatures: true,
         useKerning: true,
         useHyphenation: false,
