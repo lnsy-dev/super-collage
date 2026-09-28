@@ -12,6 +12,7 @@ import { UI } from './ui.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, getProjectSizeLabel } from './constants.js';
 import { hexToRgb } from '../utils/color.js';
 import { renderShapeLayerBitmap } from './shape-utils.js';
+import { loadSvgImage } from './svg-utils.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 
 export const PageManager = {
@@ -335,13 +336,8 @@ export const PageManager = {
     const imgRec = await DB.get('imageBlobs', layer.id);
     if (imgRec?.blob) {
       if (layer.isSvg) {
-        const text = await imgRec.blob.text();
+        const { text, img } = await loadSvgImage(imgRec.blob);
         layer._svgText = text;
-        const svgBlob = new Blob([text], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(svgBlob);
-        const img = new Image();
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-        URL.revokeObjectURL(url);
         layer._svgImage = img;
       } else if (layer.isColorSeparation) {
         await this._rebuildSeparationPlates(layer, imgRec.blob);

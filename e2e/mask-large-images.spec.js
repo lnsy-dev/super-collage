@@ -652,6 +652,48 @@ test.describe('Downstream features on masked large layers', () => {
     expect(pageErrors.length).toBe(0);
   });
 
+  test('the copy keeps the mask at mask resolution, hole in the same place', async ({ page }) => {
+    await createProject(page, 'Duplicate Masked SVG Dims');
+    await addImageFromBuffer(page, Buffer.from(LARGE_SVG, 'utf8'), { name: 'dup.svg', mimeType: 'image/svg+xml' });
+
+    // Two holes, one of them well off-centre: a copy pasted 1:1 into a
+    // wrongly-sized mask canvas would land the second hole in the wrong
+    // place (or not at all).
+    await selectTool(page, 'mask-draw');
+    await paintAtLayerPoint(page, 0.5, 0.5);
+    await paintAtLayerPoint(page, 0.25, 0.25);
+    await expect.poll(() => maskProbe(page).then(p => p.centerAlpha), { timeout: 5000 }).toBe(0);
+
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    const masks = await page.evaluate(() => {
+      const src = State.layers.find(l => !l.name.includes(' copy'));
+      const dup = State.layers.find(l => l.name.includes(' copy'));
+      const alphaAt = (layer, fx, fy) => {
+        const mc = layer._maskCanvas;
+        const mx = Math.min(mc.width - 1, Math.floor(mc.width * fx));
+        const my = Math.min(mc.height - 1, Math.floor(mc.height * fy));
+        return mc.getContext('2d').getImageData(mx, my, 1, 1).data[3];
+      };
+      return {
+        srcDims: [src._maskCanvas.width, src._maskCanvas.height],
+        dupDims: [dup._maskCanvas.width, dup._maskCanvas.height],
+        natural: [src.naturalWidth, src.naturalHeight],
+        src: [[0.5, 0.5], [0.25, 0.25], [0.8, 0.8]].map(([fx, fy]) => alphaAt(src, fx, fy)),
+        dup: [[0.5, 0.5], [0.25, 0.25], [0.8, 0.8]].map(([fx, fy]) => alphaAt(dup, fx, fy)),
+      };
+    });
+
+    // Same resolution as the source mask — and not the layer's natural size.
+    expect(masks.dupDims).toEqual(masks.srcDims);
+    expect(masks.dupDims).not.toEqual(masks.natural);
+    // Both holes copied, untouched area still visible.
+    expect(masks.src).toEqual([0, 0, 255]);
+    expect(masks.dup).toEqual(masks.src);
+    expect(pageErrors.length).toBe(0);
+  });
+
   test('undo restores the mask state after painting on a large raster', async ({ page }) => {
     await createProject(page, 'Undo Mask Large');
     await addImageFromBuffer(page, createSolidPngBuffer('#000000', 3500, 2500), { name: 'undo.png' });
@@ -755,6 +797,34 @@ test.describe('IndexSizeError regression guards', () => {
       return err;
     });
     expect(gate).toContain('zero-byte PNG');
+    expect(pageErrors.length).toBe(0);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   8. Mask storage ordering
+   ══════════════════════════════════════════════════════════════════ */
+
+test.describe('Mask storage ordering', () => {
+  test('a save already in flight cannot resurrect a deleted mask', async ({ page }) => {
+    await createProject(page, 'Mask Save Race');
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 3000, 3000), { name: 'race.png' });
+
+    // The paint handler kicks off saveMask() without awaiting it, and
+    // converting a 3000×3000 mask to PNG takes long enough that a delete
+    // issued right after (flatten bakes the mask in, then drops the record)
+    // used to land first — leaving a mask record that never went away.
+    const result = await page.evaluate(async () => {
+      const { DB, State } = window;
+      const layer = State.layers[0];
+      if (!layer._maskCanvas) return { error: 'no mask canvas' };
+      const save = DB.saveMask(layer);        // deliberately not awaited
+      await DB.del('maskBlobs', layer.id);    // ... and deleted right after
+      await save;
+      const rec = await DB.get('maskBlobs', layer.id);
+      return { present: !!rec };
+    });
+    expect(result).toEqual({ present: false });
     expect(pageErrors.length).toBe(0);
   });
 });
