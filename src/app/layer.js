@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State } from './state.js';
+import { isAllocatable } from './canvas-limits.js';
 
 export class Layer {
   constructor(data = {}) {
@@ -16,8 +17,16 @@ export class Layer {
     this.y = data.y ?? 0;
     this.width = data.width || 100;
     this.height = data.height || 100;
+    // Clamp intrinsic size to the browser's canvas allocation envelope:
+    // oversized dimensions silently produce dead 0×0 mask/processed
+    // canvases whose every readback or encode throws IndexSizeError.
     this.naturalWidth = data.naturalWidth || data.width || 100;
     this.naturalHeight = data.naturalHeight || data.height || 100;
+    if (!isAllocatable(this.naturalWidth, this.naturalHeight)) {
+      const s = Math.sqrt(268435456 / (this.naturalWidth * this.naturalHeight));
+      this.naturalWidth = Math.max(1, Math.floor(this.naturalWidth * s));
+      this.naturalHeight = Math.max(1, Math.floor(this.naturalHeight * s));
+    }
     this.rotation = data.rotation ?? 0;
     this.flipH = data.flipH || false;
     this.flipV = data.flipV || false;

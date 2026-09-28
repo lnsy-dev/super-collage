@@ -4,6 +4,7 @@
 
 import { State } from './state.js';
 import { PAGE_SIZE_DIMS } from './constants.js';
+import { isAllocatable } from './canvas-limits.js';
 
 export const DB = {
   _db: null,
@@ -160,6 +161,14 @@ export const DB = {
   }),
 
   put: (store, obj) => new Promise((res, rej) => {
+    // Never persist PNGs encoded from dead (0×0) canvas backing stores: an
+    // over-limit canvas constructs silently but every convertToBlob throws
+    // IndexSizeError — guard so one bad canvas can't corrupt a record.
+    if (obj && typeof obj === 'object' && obj.blob instanceof Blob &&
+        obj.blob.type === 'image/png' && obj.blob.size === 0) {
+      rej(new Error(`Refusing to store zero-byte PNG for ${store}:${obj.layerId ?? '?'}`));
+      return;
+    }
     const req = DB._db.transaction(store, 'readwrite').objectStore(store).put(obj);
     req.onsuccess = e => res(e.target.result);
     req.onerror = e => rej(e.target.error);
@@ -199,6 +208,10 @@ export const DB = {
 
   async saveMask(layer) {
     if (!layer._maskCanvas) return;
+    // A mask canvas over the browser's allocation limit is a dead 0×0
+    // backing store: convertToBlob throws IndexSizeError on it. Drop the
+    // save instead of crashing the interaction that triggered it.
+    if (!isAllocatable(layer._maskCanvas.width, layer._maskCanvas.height)) return;
     const blob = await layer._maskCanvas.convertToBlob({ type: 'image/png' });
     await DB.put('maskBlobs', { layerId: layer.id, blob });
   },
