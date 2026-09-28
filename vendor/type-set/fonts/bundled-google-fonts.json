@@ -1,0 +1,623 @@
+{
+  "source": "Google Fonts, via the @fontsource mirror on jsDelivr",
+  "version": "5.2.5",
+  "note": "latin subset, static instances; regenerate with scripts/fetch-bundled-google-fonts.mjs",
+  "families": [
+    {
+      "family": "Playfair Display",
+      "slug": "playfair-display",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5/LICENSE",
+      "weights": [
+        400,
+        700
+      ],
+      "files": [
+        {
+          "name": "playfair-display-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5/files/playfair-display-latin-400-normal.woff"
+        },
+        {
+          "name": "playfair-display-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5/files/playfair-display-latin-700-normal.woff"
+        },
+        {
+          "name": "playfair-display-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5/files/playfair-display-latin-400-italic.woff"
+        },
+        {
+          "name": "playfair-display-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/playfair-display@5.2.5/files/playfair-display-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Bodoni Moda",
+      "slug": "bodoni-moda",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/LICENSE",
+      "weights": [
+        400,
+        700,
+        900
+      ],
+      "files": [
+        {
+          "name": "bodoni-moda-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/files/bodoni-moda-latin-400-normal.woff"
+        },
+        {
+          "name": "bodoni-moda-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/files/bodoni-moda-latin-700-normal.woff"
+        },
+        {
+          "name": "bodoni-moda-latin-900-normal.woff",
+          "weight": 900,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/files/bodoni-moda-latin-900-normal.woff"
+        },
+        {
+          "name": "bodoni-moda-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/files/bodoni-moda-latin-400-italic.woff"
+        },
+        {
+          "name": "bodoni-moda-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bodoni-moda@5.2.5/files/bodoni-moda-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Lora",
+      "slug": "lora",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/LICENSE",
+      "weights": [
+        400,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "name": "lora-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-400-normal.woff"
+        },
+        {
+          "name": "lora-latin-500-normal.woff",
+          "weight": 500,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-500-normal.woff"
+        },
+        {
+          "name": "lora-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-700-normal.woff"
+        },
+        {
+          "name": "lora-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-400-italic.woff"
+        },
+        {
+          "name": "lora-latin-500-italic.woff",
+          "weight": 500,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-500-italic.woff"
+        },
+        {
+          "name": "lora-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/lora@5.2.5/files/lora-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Libre Baskerville",
+      "slug": "libre-baskerville",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@5.2.5/LICENSE",
+      "weights": [
+        400,
+        700
+      ],
+      "files": [
+        {
+          "name": "libre-baskerville-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@5.2.5/files/libre-baskerville-latin-400-normal.woff"
+        },
+        {
+          "name": "libre-baskerville-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@5.2.5/files/libre-baskerville-latin-700-normal.woff"
+        },
+        {
+          "name": "libre-baskerville-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/libre-baskerville@5.2.5/files/libre-baskerville-latin-400-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Bitter",
+      "slug": "bitter",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/LICENSE",
+      "weights": [
+        300,
+        400,
+        700
+      ],
+      "files": [
+        {
+          "name": "bitter-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/files/bitter-latin-300-normal.woff"
+        },
+        {
+          "name": "bitter-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/files/bitter-latin-400-normal.woff"
+        },
+        {
+          "name": "bitter-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/files/bitter-latin-700-normal.woff"
+        },
+        {
+          "name": "bitter-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/files/bitter-latin-400-italic.woff"
+        },
+        {
+          "name": "bitter-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/bitter@5.2.5/files/bitter-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Inter",
+      "slug": "inter",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/LICENSE",
+      "weights": [
+        300,
+        400,
+        600,
+        700,
+        800
+      ],
+      "files": [
+        {
+          "name": "inter-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-300-normal.woff"
+        },
+        {
+          "name": "inter-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-normal.woff"
+        },
+        {
+          "name": "inter-latin-600-normal.woff",
+          "weight": 600,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-600-normal.woff"
+        },
+        {
+          "name": "inter-latin-800-normal.woff",
+          "weight": 800,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-800-normal.woff"
+        },
+        {
+          "name": "inter-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-italic.woff"
+        },
+        {
+          "name": "inter-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-normal.woff"
+        },
+        {
+          "name": "inter-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Public Sans",
+      "slug": "public-sans",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/LICENSE",
+      "weights": [
+        400,
+        600,
+        700,
+        800
+      ],
+      "files": [
+        {
+          "name": "public-sans-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-400-normal.woff"
+        },
+        {
+          "name": "public-sans-latin-600-normal.woff",
+          "weight": 600,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-600-normal.woff"
+        },
+        {
+          "name": "public-sans-latin-800-normal.woff",
+          "weight": 800,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-800-normal.woff"
+        },
+        {
+          "name": "public-sans-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-400-italic.woff"
+        },
+        {
+          "name": "public-sans-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-700-normal.woff"
+        },
+        {
+          "name": "public-sans-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/public-sans@5.2.5/files/public-sans-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Oswald",
+      "slug": "oswald",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/oswald@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/oswald@5.2.5/LICENSE",
+      "weights": [
+        300,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "name": "oswald-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/oswald@5.2.5/files/oswald-latin-300-normal.woff"
+        },
+        {
+          "name": "oswald-latin-500-normal.woff",
+          "weight": 500,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/oswald@5.2.5/files/oswald-latin-500-normal.woff"
+        },
+        {
+          "name": "oswald-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/oswald@5.2.5/files/oswald-latin-700-normal.woff"
+        }
+      ]
+    },
+    {
+      "family": "Space Grotesk",
+      "slug": "space-grotesk",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5/LICENSE",
+      "weights": [
+        300,
+        400,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "name": "space-grotesk-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5/files/space-grotesk-latin-300-normal.woff"
+        },
+        {
+          "name": "space-grotesk-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5/files/space-grotesk-latin-400-normal.woff"
+        },
+        {
+          "name": "space-grotesk-latin-500-normal.woff",
+          "weight": 500,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5/files/space-grotesk-latin-500-normal.woff"
+        },
+        {
+          "name": "space-grotesk-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/space-grotesk@5.2.5/files/space-grotesk-latin-700-normal.woff"
+        }
+      ]
+    },
+    {
+      "family": "Raleway",
+      "slug": "raleway",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/LICENSE",
+      "weights": [
+        300,
+        400,
+        700
+      ],
+      "files": [
+        {
+          "name": "raleway-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/files/raleway-latin-300-normal.woff"
+        },
+        {
+          "name": "raleway-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/files/raleway-latin-400-normal.woff"
+        },
+        {
+          "name": "raleway-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/files/raleway-latin-700-normal.woff"
+        },
+        {
+          "name": "raleway-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/files/raleway-latin-400-italic.woff"
+        },
+        {
+          "name": "raleway-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/raleway@5.2.5/files/raleway-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Zilla Slab",
+      "slug": "zilla-slab",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/LICENSE",
+      "weights": [
+        300,
+        400,
+        700
+      ],
+      "files": [
+        {
+          "name": "zilla-slab-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/files/zilla-slab-latin-300-normal.woff"
+        },
+        {
+          "name": "zilla-slab-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/files/zilla-slab-latin-400-normal.woff"
+        },
+        {
+          "name": "zilla-slab-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/files/zilla-slab-latin-700-normal.woff"
+        },
+        {
+          "name": "zilla-slab-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/files/zilla-slab-latin-400-italic.woff"
+        },
+        {
+          "name": "zilla-slab-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/zilla-slab@5.2.5/files/zilla-slab-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Roboto Slab",
+      "slug": "roboto-slab",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/LICENSE",
+      "weights": [
+        100,
+        300,
+        400,
+        700,
+        900
+      ],
+      "files": [
+        {
+          "name": "roboto-slab-latin-100-normal.woff",
+          "weight": 100,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/files/roboto-slab-latin-100-normal.woff"
+        },
+        {
+          "name": "roboto-slab-latin-300-normal.woff",
+          "weight": 300,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/files/roboto-slab-latin-300-normal.woff"
+        },
+        {
+          "name": "roboto-slab-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/files/roboto-slab-latin-400-normal.woff"
+        },
+        {
+          "name": "roboto-slab-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/files/roboto-slab-latin-700-normal.woff"
+        },
+        {
+          "name": "roboto-slab-latin-900-normal.woff",
+          "weight": 900,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/roboto-slab@5.2.5/files/roboto-slab-latin-900-normal.woff"
+        }
+      ]
+    },
+    {
+      "family": "Abril Fatface",
+      "slug": "abril-fatface",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/abril-fatface@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/abril-fatface@5.2.5/LICENSE",
+      "weights": [
+        400
+      ],
+      "files": [
+        {
+          "name": "abril-fatface-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/abril-fatface@5.2.5/files/abril-fatface-latin-400-normal.woff"
+        }
+      ]
+    },
+    {
+      "family": "Anton",
+      "slug": "anton",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/anton@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/anton@5.2.5/LICENSE",
+      "weights": [
+        400
+      ],
+      "files": [
+        {
+          "name": "anton-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/anton@5.2.5/files/anton-latin-400-normal.woff"
+        }
+      ]
+    },
+    {
+      "family": "IBM Plex Mono",
+      "slug": "ibm-plex-mono",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/LICENSE",
+      "weights": [
+        400,
+        600,
+        700
+      ],
+      "files": [
+        {
+          "name": "ibm-plex-mono-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/files/ibm-plex-mono-latin-400-normal.woff"
+        },
+        {
+          "name": "ibm-plex-mono-latin-600-normal.woff",
+          "weight": 600,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/files/ibm-plex-mono-latin-600-normal.woff"
+        },
+        {
+          "name": "ibm-plex-mono-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/files/ibm-plex-mono-latin-700-normal.woff"
+        },
+        {
+          "name": "ibm-plex-mono-latin-400-italic.woff",
+          "weight": 400,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/files/ibm-plex-mono-latin-400-italic.woff"
+        },
+        {
+          "name": "ibm-plex-mono-latin-700-italic.woff",
+          "weight": 700,
+          "style": "italic",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.2.5/files/ibm-plex-mono-latin-700-italic.woff"
+        }
+      ]
+    },
+    {
+      "family": "Caveat",
+      "slug": "caveat",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.5",
+      "licence": "https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.5/LICENSE",
+      "weights": [
+        400,
+        600,
+        700
+      ],
+      "files": [
+        {
+          "name": "caveat-latin-400-normal.woff",
+          "weight": 400,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.5/files/caveat-latin-400-normal.woff"
+        },
+        {
+          "name": "caveat-latin-600-normal.woff",
+          "weight": 600,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.5/files/caveat-latin-600-normal.woff"
+        },
+        {
+          "name": "caveat-latin-700-normal.woff",
+          "weight": 700,
+          "style": "normal",
+          "url": "https://cdn.jsdelivr.net/npm/@fontsource/caveat@5.2.5/files/caveat-latin-700-normal.woff"
+        }
+      ]
+    }
+  ]
+}

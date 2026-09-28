@@ -11,6 +11,7 @@ import { getFont, loadFont, loadCustomFont } from './type-engine.js';
 import {
   FONT_WEIGHTS,
   hasItalic,
+  italicWeights,
   snapWeight,
   getFontUrl,
 } from './font-data.js';
@@ -798,7 +799,7 @@ export class TypeSetElement extends HTMLElement {
 }
 
 // Expose font data for UI consumers
-export { FONT_WEIGHTS, hasItalic, snapWeight };
+export { FONT_WEIGHTS, hasItalic, italicWeights, snapWeight };
 
 if (typeof window !== 'undefined' && !customElements.get('type-set')) {
   customElements.define('type-set', TypeSetElement);
