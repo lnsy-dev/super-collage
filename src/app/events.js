@@ -17,7 +17,7 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
-import { getLinkedLayers, getLinkGroup } from './layer-link-utils.js';
+import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
@@ -125,11 +125,13 @@ export function getExtraSnaps(primaryId) {
     .filter(Boolean);
 }
 
-// Returns snapshots of layers linked to the primary layer (excluding selected layers).
+// Returns snapshots of everything that must scale with the primary layer
+// (excluding selected layers): its full link chain, the chain's image-mask
+// layers, and any layers linked to those masks (diff copies).
 function getLinkedSnaps(primaryId) {
   const primary = State.layers.find(l => l.id === primaryId);
   if (!primary) return [];
-  return getLinkedLayers(primary)
+  return getScaleGroup(primary)
     .filter(l => !State.selectedIds.includes(l.id))
     .map(l => ({ id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation }));
 }
@@ -291,8 +293,13 @@ async function onPointerDown(e) {
     const handle = Renderer.hitTestHandle(x, y, layer, tol);
     if (handle) {
       pushUndo(snapshotLayer(layer));
-      // Linked layers transform together with the primary layer.
-      const extraSnaps = [...getExtraSnaps(layer.id), ...getLinkedSnaps(layer.id)];
+      // Linked layers transform together with the primary layer. Snaps are
+      // tagged so the resize branch can scale linked siblings about the group
+      // anchor instead of copying the primary's own translation.
+      const extraSnaps = [
+        ...getExtraSnaps(layer.id).map(es => ({ ...es, kind: 'selected' })),
+        ...getLinkedSnaps(layer.id).map(es => ({ ...es, kind: 'linked' })),
+      ];
       extraSnaps.forEach(es => {
         const el = State.layers.find(l => l.id === es.id);
         if (el) pushUndo(snapshotLayer(el));
@@ -306,10 +313,26 @@ async function onPointerDown(e) {
       };
       if (dragState.type === 'resize') {
         dragState.resizeMeta = buildResizeMeta(layer, handle.id, x, y, State.zoom);
+        // Image-mask layers of the group must scale along with it, or every
+        // resize would knock the mask out of alignment with its base. They
+        // are kept out of extraSnaps so plain moves still behave as before.
+        const maskLayers = getScaleGroup(layer)
+          .filter(m => !extraSnaps.some(es => es.id === m.id));
+        dragState.maskSnaps = maskLayers.map(m => ({
+          id: m.id, x: m.x, y: m.y, width: m.width, height: m.height, rotation: m.rotation,
+        }));
+        dragState.maskSnaps.forEach(es => {
+          const el = State.layers.find(l => l.id === es.id);
+          if (el) pushUndo(snapshotLayer(el));
+        });
       }
       if (handle.id === 'rotate') {
-        const cx = (layer.x + layer.width / 2) * State.zoom;
-        const cy = (layer.y + layer.height / 2) * State.zoom;
+        // Pointer coordinates are overlay-relative (origin at the padded
+        // canvas edge), so the rotation pivot must include CANVAS_PAD too —
+        // otherwise the measured angle is distorted and the layer snaps to a
+        // wrong rotation on the first pointer move.
+        const cx = (layer.x + layer.width / 2 + CANVAS_PAD) * State.zoom;
+        const cy = (layer.y + layer.height / 2 + CANVAS_PAD) * State.zoom;
         dragState.startAngle = Math.atan2(y - cy, x - cx) * 180 / Math.PI + 90;
         dragState.extraSnapRotations = extraSnaps.map(es => es.rotation);
       }
@@ -447,8 +470,9 @@ function onPointerMove(e) {
       if (el) { el.x = es.x + dx / z; el.y = es.y + dy / z; }
     }
   } else if (State.drag.type === 'rotate') {
-    const cx = (layer.x + layer.width / 2) * z;
-    const cy = (layer.y + layer.height / 2) * z;
+    // Same padded pivot as the drag start (see onPointerDown).
+    const cx = (layer.x + layer.width / 2 + CANVAS_PAD) * z;
+    const cy = (layer.y + layer.height / 2 + CANVAS_PAD) * z;
     const angle = Math.atan2(y - cy, x - cx) * 180 / Math.PI + 90;
     layer.rotation = e.shiftKey ? Math.round(angle / 15) * 15 : angle;
     // Apply the same rotation delta to all other selected layers
@@ -466,18 +490,38 @@ function onPointerMove(e) {
       layer.naturalWidth = layer.width;
       layer.naturalHeight = layer.height;
     }
-    // Apply same scale factor and position delta to all other selected layers
+    // Multi-selected layers follow the primary's own motion: same scale
+    // factor and the same position delta.
     const scaleX = layer.width / snap.width;
     const scaleY = layer.height / snap.height;
     const posDx = layer.x - snap.x;
     const posDy = layer.y - snap.y;
     for (const es of (State.drag.extraSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
-      if (!el) continue;
+      if (!el || es.kind === 'linked') continue;
       el.width  = Math.max(10, es.width  * scaleX);
       el.height = Math.max(10, es.height * scaleY);
       el.x = es.x + posDx;
       el.y = es.y + posDy;
+      if (el.isText) {
+        el.naturalWidth = el.width;
+        el.naturalHeight = el.height;
+      }
+    }
+    // Linked siblings and the group's image-mask layers scale about the group
+    // anchor — the primary's stationary fixed corner — so the group's relative
+    // arrangement (and mask alignment) is preserved exactly, instead of every
+    // member sliding by the primary's own translation.
+    const anchor = overlayToPage(State.drag.resizeMeta.fixedPos.x, State.drag.resizeMeta.fixedPos.y, z);
+    const groupEs = [...(State.drag.extraSnaps || []), ...(State.drag.maskSnaps || [])];
+    for (const es of groupEs) {
+      if (es.kind === 'selected') continue;
+      const el = State.layers.find(l => l.id === es.id);
+      if (!el) continue;
+      el.width  = Math.max(10, es.width  * scaleX);
+      el.height = Math.max(10, es.height * scaleY);
+      el.x = anchor.x + scaleX * (es.x + es.width / 2 - anchor.x) - el.width / 2;
+      el.y = anchor.y + scaleY * (es.y + es.height / 2 - anchor.y) - el.height / 2;
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
@@ -568,6 +612,10 @@ async function onPointerUp(e) {
     const layer = selectedLayer();
     if (layer) DB.saveLayer(layer);
     for (const es of (State.drag.extraSnaps || [])) {
+      const el = State.layers.find(l => l.id === es.id);
+      if (el) DB.saveLayer(el);
+    }
+    for (const es of (State.drag.maskSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
       if (el) DB.saveLayer(el);
     }
@@ -858,11 +906,20 @@ export function wireControls() {
         l._dirty = true;
       }
       // Linked layers resize together: scale them by the same factor,
-      // keeping each linked layer's center fixed.
+      // keeping each layer's center fixed. The primary keeps its center too —
+      // otherwise an aligned group (e.g. a base layer and its image mask)
+      // would slide out of alignment on every numeric resize, since only the
+      // siblings grew about their centers. Image-mask layers of the group
+      // follow their base so mask alignment survives the resize.
       if ((field === 'width' || field === 'height') && prev > 0 && l[field] > 0) {
         const factor = l[field] / prev;
         if (Math.abs(factor - 1) > 1e-9) {
-          for (const el of getLinkedLayers(l)) {
+          const group = getScaleGroup(l);
+          if (group.length) {
+            if (field === 'width') l.x = (l.x + prev / 2) - l.width / 2;
+            else l.y = (l.y + prev / 2) - l.height / 2;
+          }
+          for (const el of group) {
             pushUndo(snapshotLayer(el));
             const cx = el.x + el.width / 2;
             const cy = el.y + el.height / 2;
@@ -870,6 +927,11 @@ export function wireControls() {
             else el.height = Math.max(10, el.height * factor);
             el.x = cx - el.width / 2;
             el.y = cy - el.height / 2;
+            if (el.isText) {
+              el.naturalWidth = el.width;
+              el.naturalHeight = el.height;
+              el._dirty = true;
+            }
             DB.saveLayer(el);
           }
         }

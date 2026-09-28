@@ -351,7 +351,10 @@ export const PageManager = {
         const ctx = orig.getContext('2d');
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-        ctx.drawImage(bmp, 0, 0);
+        // Draw with explicit destination dims: legacy records may store a blob
+        // larger than the (canvas-limit-clamped) natural size, which must be
+        // downscaled rather than cropped.
+        ctx.drawImage(bmp, 0, 0, layer.naturalWidth, layer.naturalHeight);
         bmp.close();
         layer._originalCanvas = orig;
       }

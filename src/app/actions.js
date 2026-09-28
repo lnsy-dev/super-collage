@@ -475,8 +475,7 @@ export async function handleAction(action, value = null) {
         await DB.put('imageBlobs', { layerId: dup.id, blob });
       }
       if (dup._maskCanvas) {
-        const blob = await dup._maskCanvas.convertToBlob({ type: 'image/png' });
-        await DB.put('maskBlobs', { layerId: dup.id, blob });
+        await DB.saveMask(dup);
       }
 
       await DB.saveLayer(baseLayer);
