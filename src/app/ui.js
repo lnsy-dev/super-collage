@@ -8,47 +8,43 @@ import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 import { pushUndo, snapshotLayer } from './undo.js';
 import { computeViewUnits } from './spread-manager.js';
-import { hasItalic } from 'type-set';
+import { FONT_WEIGHTS, italicWeights, snapWeight } from 'type-set';
 import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { isTwoToneShape } from './shape-utils.js';
 
-const FONT_WEIGHTS = {
-  'IBM Plex Serif':        [100, 200, 300, 400, 500, 600, 700],
-  'IBM Plex Sans':         [100, 200, 300, 400, 500, 600, 700],
-  'Crimson Text':          [400, 600, 700],
-  'Fira Code':             [300, 400, 500, 600, 700],
-  'League Gothic':         [400],
-  'Atkinson Hyperlegible': [400, 700],
-  'Cormorant Garamond':    [300, 400, 500, 600, 700],
-  'EB Garamond':           [400, 500, 600, 700, 800],
-  'Spectral':              [200, 300, 400, 500, 600, 700, 800],
-  'UnifrakturMaguntia':    [400],
-};
+const ALL_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium', 600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black' };
 
+/**
+ * Fill the Variant dropdown with the weights a family really has files for,
+ * plus an italic entry for each weight that has one. The tables come from
+ * type-set (the same source the renderer loads from), so a family added by
+ * scripts/fetch-bundled-google-fonts.mjs shows up here automatically.
+ */
 export function populateVariantSelect(font, currentWeight, currentStyle) {
   const sel = document.getElementById('prop-text-variant');
   if (!sel) return;
-  const weights = FONT_WEIGHTS[font] ?? [100,200,300,400,500,600,700,800,900];
-  const variants = [];
-  weights.forEach(w => {
-    variants.push({ weight: w, style: 'normal', label: `${w} – ${WEIGHT_NAMES[w]}` });
-  });
-  if (hasItalic(font)) {
-    weights.forEach(w => {
-      variants.push({ weight: w, style: 'italic', label: `${w} – ${WEIGHT_NAMES[w]} Italic` });
-    });
+  const weights = FONT_WEIGHTS[font] ?? ALL_WEIGHTS;
+  const italics = italicWeights(font);
+  const variants = weights.map(w => ({ weight: w, style: 'normal', label: `${w} – ${WEIGHT_NAMES[w]}` }));
+  for (const w of italics) {
+    variants.push({ weight: w, style: 'italic', label: `${w} – ${WEIGHT_NAMES[w]} Italic` });
   }
   sel.innerHTML = variants.map(v =>
     `<option value="${v.weight}:${v.style}">${v.label}</option>`
   ).join('');
 
-  const style = hasItalic(font) ? (currentStyle || 'normal') : 'normal';
+  const style = italics.length ? (currentStyle || 'normal') : 'normal';
   let match = variants.find(v => v.weight === currentWeight && v.style === style);
   if (!match) {
-    match = variants.filter(v => v.style === 'normal').reduce((a, b) =>
-      Math.abs(b.weight - currentWeight) < Math.abs(a.weight - currentWeight) ? b : a
-    );
+    // The layer asks for a weight/style this family doesn't have: land on
+    // the closest upright weight it does have.
+    const wanted = snapWeight(font, currentWeight);
+    match = variants.find(v => v.weight === wanted && v.style === style)
+      || variants.find(v => v.style === 'normal' && v.weight === wanted)
+      || variants.filter(v => v.style === 'normal').reduce((a, b) =>
+        Math.abs(b.weight - currentWeight) < Math.abs(a.weight - currentWeight) ? b : a
+      );
   }
   sel.value = `${match.weight}:${match.style}`;
 }

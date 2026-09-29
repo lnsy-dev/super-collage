@@ -29,6 +29,7 @@ export {
   FONT_FILES,
   FONT_WEIGHTS,
   hasItalic,
+  italicWeights,
   snapWeight,
   getFontUrl,
 } from './font-data.js';
