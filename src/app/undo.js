@@ -8,6 +8,7 @@ import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
 import { PageManager } from './page-manager.js';
 import { rerenderShapeLayer } from './shape-utils.js';
+import { restoreSvgLayer } from './svg-utils.js';
 
 
 export function snapshotLayer(layer) { return layer.toRecord(); }
@@ -20,6 +21,10 @@ export function pushUndo(snap) {
 
 export function pushUndoWithMask(layer) {
   const snap = snapshotLayer(layer);
+  // An SVG layer's vector source is not part of its record (it lives in the
+  // imageBlobs blob, which flatten overwrites with the rasterised artwork),
+  // so carry it in the snapshot for undo to put back.
+  if (layer.isSvg && layer._svgText) snap._svgText = layer._svgText;
   if (layer._maskCanvas) {
     try {
       const ctx = layer._maskCanvas.getContext('2d');
@@ -103,6 +108,12 @@ export async function applySnapshot(layer, snap) {
   }
   if (layer.isShape) {
     await rerenderShapeLayer(layer);
+  }
+  if (layer.isSvg) {
+    // Undoing a flatten flips isSvg back on. The <img> has to be rebuilt and
+    // the SVG source put back in storage, or the layer would render as
+    // nothing now and break again on the next open.
+    await restoreSvgLayer(layer, snap._svgText);
   }
   layer._dirty = true;
   UI.refreshProperties();

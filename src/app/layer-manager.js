@@ -18,6 +18,10 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { ProjectIO } from './project-io.js';
 
+// Long-edge cap for flatten's mask/bbox working resolution. Matches
+// MaskEngine's mask cap so a painted mask can be read back 1:1.
+const FLATTEN_MAX_DIM = 4096;
+
 export const LayerManager = {
   async addText(defaultText, x, y, w, h, { textMode = 'box' } = {}) {
     pushUndoState();
@@ -1040,11 +1044,13 @@ export const LayerManager = {
     // wouldn't help here: flatten mutates the layer instance in place.
     pushUndoWithMask(baseLayer);
 
-    // Text layers are flattened by converting them to standard pixel layers:
-    // their rendered output is baked into an _originalCanvas first.
+    // Text and SVG layers are flattened by baking their live content into a
+    // raster _originalCanvas first; after that they are ordinary pixel layers.
     if (baseLayer.isText) {
       if (!await this._bakeTextToRaster(baseLayer)) return;
-    } else if (baseLayer.isSvg || baseLayer.isColorSeparation || !baseLayer._originalCanvas) {
+    } else if (baseLayer.isSvg) {
+      if (!await this._bakeSvgToRaster(baseLayer)) return;
+    } else if (baseLayer.isColorSeparation || !baseLayer._originalCanvas) {
       // Only raster image/shape layers can be flattened.
       return;
     }
@@ -1053,12 +1059,21 @@ export const LayerManager = {
     const nh = baseLayer.naturalHeight;
     if (!nw || !nh) return;
 
-    // Build visibility map (0 = hidden, 255 = visible) in base natural space.
-    const visibility = new Uint8Array(nw * nh).fill(255);
+    // Visibility map (0 = hidden, 255 = visible).
+    //
+    // This runs at a *working* resolution, not at natural size: a painted
+    // mask bitmap is capped near 4K on its long edge (MaskEngine), so
+    // reading a mask canvas at natural size yields transparent-black pixels
+    // for everything beyond it (wiping the layer), and a natural-size
+    // Uint8Array is hundreds of MB on an oversized layer. Working pixels
+    // are mapped back to natural space for the crop and the geometry.
+    const { w: ww, h: wh } = this._flattenWorkSize(baseLayer);
+    const visibility = new Uint8Array(ww * wh).fill(255);
 
-    // Manual mask
+    // Manual mask. The mask canvas *is* the working resolution when there is
+    // one, so this is an exact readback.
     if (baseLayer._maskCanvas) {
-      const maskData = baseLayer._maskCanvas.getContext('2d').getImageData(0, 0, nw, nh).data;
+      const maskData = baseLayer._maskCanvas.getContext('2d').getImageData(0, 0, ww, wh).data;
       for (let i = 0; i < visibility.length; i++) {
         visibility[i] = maskData[i * 4 + 3];
       }
@@ -1074,19 +1089,19 @@ export const LayerManager = {
         await ImageProcessor.processLayer(maskLayer, { forExport: true });
         if (!maskLayer._processedCanvas) continue;
 
-        const maskMap = new OffscreenCanvas(nw, nh);
+        const maskMap = new OffscreenCanvas(ww, wh);
         const mCtx = maskMap.getContext('2d');
         mCtx.save();
         mCtx.setTransform(1, 0, 0, 1, 0, 0);
 
-        // Map page coordinates into the base layer's natural coordinate space.
+        // Map page coordinates into the base layer's working coordinate space.
         const cx = baseLayer.x + baseLayer.width / 2;
         const cy = baseLayer.y + baseLayer.height / 2;
         mCtx.translate(-cx, -cy);
         mCtx.rotate(-baseLayer.rotation * Math.PI / 180);
         mCtx.scale(baseLayer.flipH ? -1 : 1, baseLayer.flipV ? -1 : 1);
         mCtx.translate(baseLayer.width / 2, baseLayer.height / 2);
-        mCtx.scale(nw / baseLayer.width, nh / baseLayer.height);
+        mCtx.scale(ww / baseLayer.width, wh / baseLayer.height);
 
         // Draw the mask layer at its page position and size.
         mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
@@ -1102,33 +1117,57 @@ export const LayerManager = {
         }
         mCtx.restore();
 
-        const maskData = mCtx.getImageData(0, 0, nw, nh).data;
+        const maskData = mCtx.getImageData(0, 0, ww, wh).data;
         for (let i = 0; i < visibility.length; i++) {
           if (maskData[i * 4 + 3] > 128) visibility[i] = 0;
         }
       }
     }
 
-    // Apply visibility map to the original canvas: hidden pixels become white.
+    // Apply the visibility map: hidden pixels become white. Done at working
+    // resolution, then written back onto the natural-size original (which is
+    // what gets cropped) so the flattened artwork really has the mask baked
+    // in. At equal resolutions this is a straight putImageData — exact, as
+    // before — and for a downscaled mask the re-blit is the same resampling
+    // the mask itself already went through.
     const orig = new OffscreenCanvas(nw, nh);
     const oCtx = orig.getContext('2d');
     oCtx.drawImage(baseLayer._originalCanvas, 0, 0);
-    const origData = oCtx.getImageData(0, 0, nw, nh);
+    const work = new OffscreenCanvas(ww, wh);
+    const wCtx = work.getContext('2d');
+    wCtx.drawImage(orig, 0, 0, ww, wh);
+    const origData = wCtx.getImageData(0, 0, ww, wh);
     for (let i = 0; i < visibility.length; i++) {
       if (visibility[i] < 128) {
         const idx = i * 4;
         origData.data[idx] = origData.data[idx + 1] = origData.data[idx + 2] = 255;
       }
     }
-    oCtx.putImageData(origData, 0, 0);
+    if (ww === nw && wh === nh) {
+      oCtx.putImageData(origData, 0, 0);
+    } else {
+      wCtx.putImageData(origData, 0, 0);
+      oCtx.drawImage(work, 0, 0, nw, nh);
+    }
 
-    // Compute bounding box of visible (non-white) pixels.
-    const bbox = this._computeBoundingBox(origData.data, nw, nh, 128);
-    if (!bbox) return; // Fully transparent after flattening; leave unchanged for safety.
+    // Compute the bounding box of visible (non-white) pixels at working
+    // resolution, then round *outward* into natural pixels so a downsampled
+    // box can never shave ink off the edge of the artwork.
+    const wbox = this._computeBoundingBox(origData.data, ww, wh, 128);
+    if (!wbox) return; // Fully transparent after flattening; leave unchanged for safety.
+    const scaleX = nw / ww, scaleY = nh / wh;
+    const bbox = {
+      x: Math.max(0, Math.floor(wbox.x * scaleX)),
+      y: Math.max(0, Math.floor(wbox.y * scaleY)),
+      w: 0, h: 0,
+    };
+    bbox.w = Math.min(nw, Math.ceil((wbox.x + wbox.w) * scaleX)) - bbox.x;
+    bbox.h = Math.min(nh, Math.ceil((wbox.y + wbox.h) * scaleY)) - bbox.y;
+    if (bbox.w <= 0 || bbox.h <= 0) return;
 
     // Crop the original canvas to the visible bounding box.
     const cropped = new OffscreenCanvas(bbox.w, bbox.h);
-    cropped.getContext('2d').drawImage(orig, -bbox.x, -bbox.y);
+    cropped.getContext('2d').drawImage(orig, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, bbox.w, bbox.h);
 
     // Update layer geometry so the cropped content stays in the same place on the page.
     const oldCx = baseLayer.x + baseLayer.width / 2;
@@ -1196,6 +1235,53 @@ export const LayerManager = {
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
+  },
+
+  /**
+   * Resolution at which flatten evaluates masks and finds the visible
+   * bounding box. Kept in step with MaskEngine's mask cap so a layer's mask
+   * bitmap can be read back exactly; flatten then maps the result back to
+   * natural pixels for the crop and the geometry.
+   */
+  _flattenWorkSize(layer) {
+    const mask = layer._maskCanvas;
+    if (mask) return { w: mask.width, h: mask.height };
+    const nw = layer.naturalWidth, nh = layer.naturalHeight;
+    const long = Math.max(nw, nh);
+    if (long <= FLATTEN_MAX_DIM) return { w: nw, h: nh };
+    const s = FLATTEN_MAX_DIM / long;
+    return { w: Math.max(1, Math.round(nw * s)), h: Math.max(1, Math.round(nh * s)) };
+  },
+
+  /**
+   * Bake a live SVG layer's vector content into a raster _originalCanvas and
+   * turn it into a standard pixel layer. Returns true on success.
+   *
+   * Flatten means "bake the mask in and crop to what you can see" — for a
+   * vector layer that necessarily means rasterising it, so the copy keeps
+   * the artwork's own proportions at the layer's natural size and loses
+   * nothing else.
+   */
+  async _bakeSvgToRaster(layer) {
+    const nw = layer.naturalWidth;
+    const nh = layer.naturalHeight;
+    if (!nw || !nh || !layer._svgImage) return false;
+
+    const orig = new OffscreenCanvas(nw, nh);
+    const ctx = orig.getContext('2d');
+    // Composite onto white so the canvas matches how raster image layers
+    // store their artwork (flatten's bbox detection relies on this).
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, nw, nh);
+    ctx.drawImage(layer._svgImage, 0, 0, nw, nh);
+
+    layer._originalCanvas = orig;
+    layer._exportOriginalCanvas = null;
+    layer.isSvg = false;
+    layer._svgImage = null;
+    layer._svgText = null;
+    layer._dirty = true;
+    return true;
   },
 
   /**
@@ -1359,12 +1445,21 @@ export const LayerManager = {
     Renderer.schedule();
   },
 
+  /**
+   * Bounding box of the visible (non-white) content in an RGBA buffer.
+   *
+   * "Visible" is measured per channel, not as "darker than the threshold":
+   * a single saturated channel is enough to be ink. Testing the red channel
+   * alone made every colour artwork (a red logo, a blue swatch, a vector
+   * with a coloured shape) look like a blank canvas, which is how flatten
+   * used to end up doing nothing at all on anything but near-black pixels.
+   */
   _computeBoundingBox(data, w, h, threshold = 128) {
     let minX = w, minY = h, maxX = -1, maxY = -1;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4;
-        if (data[i] < threshold) {
+        if (data[i] < threshold || data[i + 1] < threshold || data[i + 2] < threshold) {
           if (x < minX) minX = x;
           if (y < minY) minY = y;
           if (x > maxX) maxX = x;
