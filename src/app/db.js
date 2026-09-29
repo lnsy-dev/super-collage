@@ -174,11 +174,12 @@ export const DB = {
     req.onerror = e => rej(e.target.error);
   }),
 
-  del: (store, key) => new Promise((res, rej) => {
-    const req = DB._db.transaction(store, 'readwrite').objectStore(store).delete(key);
-    req.onsuccess = () => res();
-    req.onerror = e => rej(e.target.error);
-  }),
+  del: (store, key) => {
+    // Mask deletes queue behind any in-flight mask save for the same layer
+    // (see queueMaskOp); everything else deletes straight away.
+    if (store === 'maskBlobs') return queueMaskOp(key, () => delNow(store, key));
+    return delNow(store, key);
+  },
 
   getSetting(key) {
     return DB.get('settings', key);
@@ -212,7 +213,40 @@ export const DB = {
     // backing store: convertToBlob throws IndexSizeError on it. Drop the
     // save instead of crashing the interaction that triggered it.
     if (!isAllocatable(layer._maskCanvas.width, layer._maskCanvas.height)) return;
-    const blob = await layer._maskCanvas.convertToBlob({ type: 'image/png' });
-    await DB.put('maskBlobs', { layerId: layer.id, blob });
+    await queueMaskOp(layer.id, async () => {
+      // Queued behind earlier work: the layer may have lost its mask in the
+      // meantime (flatten bakes the mask in and drops it).
+      if (!layer._maskCanvas) return;
+      const blob = await layer._maskCanvas.convertToBlob({ type: 'image/png' });
+      await DB.put('maskBlobs', { layerId: layer.id, blob });
+    });
   },
 };
+
+/**
+ * Serialise mask writes per layer.
+ *
+ * saveMask() is fire-and-forget from the paint handler and spends real time
+ * in convertToBlob() before it touches IndexedDB, while delete/flatten
+ * await a plain DB.del(). Without a queue the ordering is decided by which
+ * call reaches the store first, so a save that started earlier can land
+ * *after* a delete and resurrect a mask the app has already baked away —
+ * which shows up as a mask record that never goes away.
+ */
+const maskOps = new Map();
+
+function delNow(store, key) {
+  return new Promise((res, rej) => {
+    const req = DB._db.transaction(store, 'readwrite').objectStore(store).delete(key);
+    req.onsuccess = () => res();
+    req.onerror = e => rej(e.target.error);
+  });
+}
+
+function queueMaskOp(layerId, op) {
+  const prev = maskOps.get(layerId) || Promise.resolve();
+  const next = prev.then(op, op);
+  // Keep the chain going even if this op rejected, and don't leak the entry.
+  maskOps.set(layerId, next.then(() => {}, () => {}));
+  return next;
+}

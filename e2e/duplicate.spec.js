@@ -199,3 +199,88 @@ test.describe('Duplicate – color separation layer', () => {
     expect(platesSize).toBeGreaterThan(0);
   });
 });
+
+// ── SVG layer ──────────────────────────────────────────────────────
+
+// A plain (small) vector shape: the bug this covers is about SVG layers in
+// general — createImageBitmap() cannot decode an SVG blob, so the copy used
+// to abort with "The source image could not be decoded" and no second layer
+// was ever added, at any size.
+const SIMPLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" fill="#00a95c"/><circle cx="60" cy="40" r="25" fill="#ffffff"/></svg>';
+
+async function addSvgLayer(page, name = 'shape.svg') {
+  await page.setInputFiles('#file-input', {
+    name,
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(SIMPLE_SVG, 'utf8'),
+  });
+  await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+}
+
+test.describe('Duplicate – SVG layer', () => {
+  test('creates a second SVG layer named "copy"', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await createProject(page, 'Dup SVG');
+    await addSvgLayer(page);
+
+    await clickDuplicate(page);
+
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+    const dup = await page.evaluate(() => {
+      // @ts-ignore
+      const d = State.layers.find(l => l.name.includes('copy'));
+      return { isSvg: d?.isSvg, hasImage: !!d?._svgImage, hasText: !!d?._svgText, nw: d?.naturalWidth };
+    });
+    // Still vector: the copy keeps the SVG source and a live <img>.
+    expect(dup.isSvg).toBe(true);
+    expect(dup.hasImage).toBe(true);
+    expect(dup.hasText).toBe(true);
+    expect(dup.nw).toBeGreaterThan(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('the copy renders the vector artwork', async ({ page }) => {
+    await createProject(page, 'Dup SVG Render');
+    await addSvgLayer(page);
+
+    await clickDuplicate(page);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    await expect.poll(() => page.evaluate(async () => {
+      // @ts-ignore
+      const { ImageProcessor } = await import('/src/app/image-processor.js');
+      // @ts-ignore
+      const d = State.layers.find(l => l.name.includes('copy'));
+      const canvas = await ImageProcessor.processLayer(d, { forExport: true });
+      if (!canvas) return 0;
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      let ink = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 8) ink++;
+      return ink;
+    }), { timeout: 10000 }).toBeGreaterThan(50);
+  });
+
+  test('the copy is still a working vector after a reload', async ({ page }) => {
+    await createProject(page, 'Dup SVG Reload');
+    await addSvgLayer(page);
+    await clickDuplicate(page);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    await page.reload();
+    await page.locator('.project-entry', { hasText: 'Dup SVG Reload' }).click();
+    await page.click('#btn-open-project');
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    const state = await page.evaluate(() => {
+      // @ts-ignore
+      const layers = State.layers;
+      return layers.map(l => ({ name: l.name, isSvg: l.isSvg, hasImage: !!l._svgImage }));
+    });
+    expect(state).toHaveLength(2);
+    for (const l of state) {
+      expect(l.isSvg).toBe(true);
+      expect(l.hasImage).toBe(true);
+    }
+  });
+});

@@ -11,6 +11,7 @@ import { hexToRgb } from '../utils/color.js';
 import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
+import { loadSvgImage } from './svg-utils.js';
 import { renderShapeLayerBitmap, isTwoToneShape, effectiveShapeColor, rerenderShapeLayer } from './shape-utils.js';
 import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
@@ -95,11 +96,7 @@ export const LayerManager = {
     const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
     if (isSvg) {
       const text = await file.text();
-      const svgBlob = new Blob([text], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(svgBlob);
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-      URL.revokeObjectURL(url);
+      const { img } = await loadSvgImage(text);
       // Browser intrinsic size is at 96 DPI; scale to document 600 DPI
       const dpiScale = 600 / 96;
       const nw = Math.round(img.naturalWidth * dpiScale);
@@ -468,13 +465,8 @@ export const LayerManager = {
 
         if (!layer.isText && e.imageBlob) {
           if (layer.isSvg) {
-            const text = await e.imageBlob.text();
+            const { text, img } = await loadSvgImage(e.imageBlob);
             layer._svgText = text;
-            const svgBlob = new Blob([text], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(svgBlob);
-            const img = new Image();
-            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-            URL.revokeObjectURL(url);
             layer._svgImage = img;
           } else {
             layer._originalCanvas = await this._originalCanvasFromBlob(e.imageBlob, layer);
@@ -589,37 +581,46 @@ export const LayerManager = {
       const imgRec = await DB.get('imageBlobs', layerId);
       if (!imgRec) return;
 
-      const bmp = await createImageBitmap(imgRec.blob);
-      const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-      const ctx = orig.getContext('2d');
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, layer.naturalWidth, layer.naturalHeight);
-      ctx.drawImage(bmp, 0, 0);
-      bmp.close();
-      layer._originalCanvas = orig;
+      if (src.isSvg) {
+        // SVG layers stay vector: the stored blob is the source file and
+        // drawing goes through a live <img>. createImageBitmap() cannot
+        // decode an SVG blob at all, so rehydrate the image the same way
+        // opening/importing a project does instead of rasterizing.
+        const { text, img } = await loadSvgImage(imgRec.blob);
+        layer._svgText = text;
+        layer._svgImage = img;
+        layer._dirty = true;
+      } else {
+        layer._originalCanvas = await this._originalCanvasFromBlob(imgRec.blob, layer);
 
-      // Rebuild separation plates for color separation layers
-      if (src.isColorSeparation) {
-        const imageData = orig.getContext('2d').getImageData(0, 0, layer.naturalWidth, layer.naturalHeight);
-        const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
-        const plateBuffer = window.separateColorsWithLut(imageData.data, layer.naturalWidth, layer.naturalHeight, window.colorSepLut, 16, numColors);
-        const pixelCount = layer.naturalWidth * layer.naturalHeight;
-        const numPlates = numColors;
-        const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
-        for (let i = 0; i < numPlates; i++) {
-          const plateCanvas = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-          const pCtx = plateCanvas.getContext('2d');
-          pCtx.putImageData(new ImageData(
-            new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-            layer.naturalWidth, layer.naturalHeight
-          ), 0, 0);
-          layer.separationPlates.set(separationColors[i], plateCanvas);
+        // Rebuild separation plates for color separation layers
+        if (src.isColorSeparation) {
+          const imageData = layer._originalCanvas.getContext('2d').getImageData(0, 0, layer.naturalWidth, layer.naturalHeight);
+          const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
+          const plateBuffer = window.separateColorsWithLut(imageData.data, layer.naturalWidth, layer.naturalHeight, window.colorSepLut, 16, numColors);
+          const pixelCount = layer.naturalWidth * layer.naturalHeight;
+          const numPlates = numColors;
+          const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+          for (let i = 0; i < numPlates; i++) {
+            const plateCanvas = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
+            const pCtx = plateCanvas.getContext('2d');
+            pCtx.putImageData(new ImageData(
+              new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
+              layer.naturalWidth, layer.naturalHeight
+            ), 0, 0);
+            layer.separationPlates.set(separationColors[i], plateCanvas);
+          }
         }
       }
 
       if (src._maskCanvas) {
-        const mc = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-        mc.getContext('2d').drawImage(src._maskCanvas, 0, 0);
+        // Copy at *mask* resolution: the source mask is capped at 4096 on
+        // its long edge, so allocating at natural size both mis-places the
+        // copy and, for oversized layers, builds the dead 0x0 canvas whose
+        // convertToBlob() throws.
+        const { w, h } = MaskEngine.maskDims(layer);
+        const mc = new OffscreenCanvas(w, h);
+        mc.getContext('2d').drawImage(src._maskCanvas, 0, 0, w, h);
         layer._maskCanvas = mc;
       } else {
         MaskEngine.initMask(layer);
