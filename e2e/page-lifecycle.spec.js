@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import {
   clearIndexedDB, createProject, addTextLayer,
   addBlankPage, removePage, getProjectPageIds, getStoredPages, reopenProject,
+  addImageFromBuffer, createSolidPngBuffer, createMultiColorPngBuffer,
+  setLayerColorDirect, loadPageById, runExportSinglePlate,
 } from './helpers.js';
 
 /* ─── PAGE LIFECYCLE ─────────────────────────────────────────────
@@ -298,6 +300,143 @@ test.describe('Page lifecycle', () => {
       // A fifth page makes the folio removable again.
       await addBlankPage(page);
       await expect(page.locator('[data-action="remove-folio"]')).toBeEnabled();
+    });
+  });
+
+  test.describe('page data integrity', () => {
+    test('a removed page takes its art with it; a new page starts clean', async ({ page }) => {
+      await createProject(page, 'Integrity Test');
+
+      // ── Page 1: a plain layer, a hole-punched mask, a colour separation ──
+      await addImageFromBuffer(page, createSolidPngBuffer('#000000', 220, 220), { name: 'keep.png' });
+      await setLayerColorDirect(page, '#8a8a8a');
+      const keepId = await page.evaluate(() => window.State.selectedId);
+
+      await addImageFromBuffer(page, createSolidPngBuffer('#000000', 200, 200), { name: 'masked.png' });
+      const maskedId = await page.evaluate(() => window.State.selectedId);
+      await setLayerColorDirect(page, '#5ec8e5');
+      await page.evaluate(async () => {
+        const l = window.State.layers.find(x => x.id === window.State.selectedId);
+        window.MaskEngine._paint(l, l.naturalWidth / 2, l.naturalHeight / 2, l.naturalWidth / 3, false);
+        l._dirty = true;
+        await window.DB.saveLayer(l);
+        await window.DB.saveMask(l);
+      });
+
+      await page.click('.menu-item[data-menu="file"]');
+      await page.click('.menu-entry[data-action="import-color-separation"]');
+      await page.setInputFiles('#color-sep-input', {
+        name: 'sep.png', mimeType: 'image/png', buffer: createMultiColorPngBuffer(120, 120),
+      });
+      await page.waitForFunction(() => window.State.layers.some(l => l.isColorSeparation), null, { timeout: 20000 });
+      const sepId = await page.evaluate(() => window.State.layers.find(l => l.isColorSeparation)?.id);
+      const sepColors = await page.evaluate(() =>
+        window.State.layers.find(l => l.isColorSeparation)?.separationColors);
+      expect(sepColors.length).toBeGreaterThan(1);
+
+      const pageOneIds = await page.evaluate(() => window.State.layers.map(l => l.id));
+      expect(pageOneIds).toEqual([keepId, maskedId, sepId]);
+      await page.evaluate(() => window.PageManager.saveActivePage());
+
+      // ── Page 2: art that must not survive ──
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(2);
+      await loadPageById(page, ids[1]);
+      await addImageFromBuffer(page, createSolidPngBuffer('#000000', 300, 300), { name: 'doomed.png' });
+      const doomedId = await page.evaluate(() => window.State.selectedId);
+      await setLayerColorDirect(page, '#ff48b0');
+      await page.evaluate(() => window.PageManager.saveActivePage());
+
+      // The inks each page exports on its own, before anything is removed.
+      const platesPageTwoRaw = await runExportSinglePlate(page);
+      const platesPageTwo = Object.keys(platesPageTwoRaw).sort();
+      await loadPageById(page, ids[0]);
+      const platesPageOneRaw = await runExportSinglePlate(page);
+      const platesPageOne = Object.keys(platesPageOneRaw).sort();
+      await loadPageById(page, ids[1]);
+      expect(platesPageOne.length).toBeGreaterThan(0);
+      expect(JSON.stringify(platesPageTwoRaw)).not.toBe(JSON.stringify(platesPageOneRaw));
+
+      // ── Delete page 2, then add a page of its own ──
+      await removePage(page, ids[1]);
+      await addBlankPage(page);
+      const newIds = await getProjectPageIds(page);
+      expect(newIds).toHaveLength(2);
+      expect(newIds[0]).toBe(ids[0]);
+
+      // Page 1 still has exactly its own layers.
+      await loadPageById(page, newIds[0]);
+      expect(await page.evaluate(() => window.State.layers.map(l => l.id))).toEqual(pageOneIds);
+
+      const storedOnOne = await page.evaluate(async (pageId) => {
+        const { DB } = await import('/src/app/db.js');
+        const recs = await DB.getByIndex('layers', 'by-page', pageId);
+        const out = [];
+        for (const rec of recs) {
+          const mask = await DB.get('maskBlobs', rec.id);
+          const image = await DB.get('imageBlobs', rec.id);
+          out.push({
+            id: rec.id, pageId: rec.pageId, color: rec.color,
+            separationColors: rec.separationColors || null,
+            hasMask: !!mask, hasImage: !!image,
+          });
+        }
+        return out.sort((a, b) => a.id.localeCompare(b.id));
+      }, newIds[0]);
+      const byId = Object.fromEntries(storedOnOne.map(l => [l.id, l]));
+      for (const id of pageOneIds) expect(byId[id].pageId).toBe(newIds[0]);
+      expect(byId[keepId].color).toBe('#8a8a8a');
+      expect(byId[keepId].hasImage).toBe(true);
+      expect(byId[maskedId].hasMask).toBe(true); // the drawn mask stayed with its layer
+      expect(byId[sepId].separationColors).toEqual(sepColors);
+
+      // The deleted page's layer and its blobs are gone.
+      const leftovers = await page.evaluate(async ({ doomedId, doomedPageId }) => {
+        const { DB } = await import('/src/app/db.js');
+        return {
+          record: await DB.get('layers', doomedId),
+          image: await DB.get('imageBlobs', doomedId),
+          mask: await DB.get('maskBlobs', doomedId),
+          layersOnPage: (await DB.getByIndex('layers', 'by-page', doomedPageId)).length,
+        };
+      }, { doomedId, doomedPageId: ids[1] });
+      expect(leftovers.record).toBeUndefined();
+      expect(leftovers.image).toBeUndefined();
+      expect(leftovers.mask).toBeUndefined();
+      expect(leftovers.layersOnPage).toBe(0);
+
+      // The new page is genuinely empty — no stale content from the removed one.
+      await loadPageById(page, newIds[1]);
+      await expect(page.locator('#layer-list .layer-row')).toHaveCount(0);
+      expect(await page.evaluate(() => window.State.layers.length)).toBe(0);
+
+      // Exporting page 1 gives exactly the inks it gave before the removal —
+      // the removed page contributes nothing.
+      await loadPageById(page, newIds[0]);
+      const platesAfterRaw = await runExportSinglePlate(page);
+      expect(Object.keys(platesAfterRaw).sort()).toEqual(platesPageOne);
+      expect(JSON.stringify(platesAfterRaw)).toBe(JSON.stringify(platesPageOneRaw));
+
+      // ── Everything above still holds after a reload ──
+      await reopenProject(page, 'Integrity Test');
+      expect(await getProjectPageIds(page)).toEqual(newIds);
+
+      await loadPageById(page, newIds[0]);
+      expect(await page.evaluate(() => window.State.layers.map(l => l.id))).toEqual(pageOneIds);
+      const afterReload = await page.evaluate(async ({ pageId, maskedId }) => {
+        const { DB } = await import('/src/app/db.js');
+        const recs = await DB.getByIndex('layers', 'by-page', pageId);
+        const sep = recs.find(r => r.isColorSeparation);
+        const masked = recs.find(r => r.id === maskedId);
+        return { count: recs.length, sepColors: sep?.separationColors || [], hasMask: !!masked };
+      }, { pageId: newIds[0], maskedId });
+      expect(afterReload.count).toBe(3);
+      expect(afterReload.sepColors).toEqual(sepColors);
+      expect(afterReload.hasMask).toBe(true);
+
+      await loadPageById(page, newIds[1]);
+      expect(await page.evaluate(() => window.State.layers.length)).toBe(0);
     });
   });
 });
