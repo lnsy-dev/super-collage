@@ -119,10 +119,27 @@ export const PageManager = {
     UI.refreshPageList();
   },
 
+  /**
+   * True when the page or spread currently on screen includes any of
+   * `pageIds`. Resolved against the units that existed *before* the
+   * removal — afterwards the open unit's id no longer matches anything,
+   * which is exactly the stale editor that must be moved off.
+   */
+  _openUnitIsGone(pageIds, unitsBefore) {
+    const activeUnit = State.unitId ? unitsBefore.find(u => u.id === State.unitId) : null;
+    const unitPages = activeUnit
+      ? (activeUnit.pageIds || [activeUnit.pageId]).filter(Boolean)
+      : [];
+    if (State.pageId && pageIds.includes(State.pageId)) return true;
+    return unitPages.some(id => pageIds.includes(id));
+  },
+
   async removeFolio(pageIds) {
     if (!State.project || !Array.isArray(pageIds) || pageIds.length !== 4) return;
     const order = [...State.project.pageOrder];
     const firstRemovedIdx = order.indexOf(pageIds[0]);
+    const unitsBefore = computeViewUnits(order, State.project.booklet?.binding);
+    const openUnitIsGone = this._openUnitIsGone(pageIds, unitsBefore);
 
     for (const pageId of pageIds) {
       const layers = await DB.getByIndex('layers', 'by-page', pageId);
@@ -138,10 +155,8 @@ export const PageManager = {
     State.project.pageOrder = newOrder;
 
     const units = computeViewUnits(newOrder, State.project.booklet?.binding);
-    const currentUnit = State.unitId ? units.find(u => u.id === State.unitId) : null;
-    const inCurrentUnit = currentUnit && pageIds.some(id => currentUnit.pageId === id || currentUnit.pageIds?.includes(id));
 
-    if ((State.pageId && pageIds.includes(State.pageId)) || inCurrentUnit) {
+    if (openUnitIsGone) {
       State.spreadView = false;
       State.unitId = null;
       const newIdx = Math.max(0, Math.min(firstRemovedIdx, newOrder.length - 1));
@@ -498,6 +513,10 @@ export const PageManager = {
 
   async deletePage(pageId) {
     if (!State.project) return;
+    const oldOrder = [...State.project.pageOrder];
+    const unitsBefore = computeViewUnits(oldOrder, State.project.booklet?.binding);
+    const openUnitIsGone = this._openUnitIsGone([pageId], unitsBefore);
+
     const layers = await DB.getByIndex('layers', 'by-page', pageId);
     for (const l of layers) {
       await DB.del('imageBlobs', l.id);
@@ -506,21 +525,17 @@ export const PageManager = {
     }
     await DB.del('pages', pageId);
 
-    const idx = State.project.pageOrder.indexOf(pageId);
-    State.project.pageOrder = State.project.pageOrder.filter(id => id !== pageId);
+    const idx = oldOrder.indexOf(pageId);
+    State.project.pageOrder = oldOrder.filter(id => id !== pageId);
 
     const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
-    const currentUnit = State.unitId ? units.find(u => u.id === State.unitId) : null;
-    const inCurrentUnit = currentUnit &&
-      (currentUnit.pageId === pageId || currentUnit.pageIds?.includes(pageId));
-    if (State.pageId === pageId || inCurrentUnit) {
+    if (openUnitIsGone) {
       // Switch to nearest remaining unit.
       State.spreadView = false;
       State.unitId = null;
       const newIdx = Math.max(0, Math.min(idx, State.project.pageOrder.length - 1));
       const nextId = State.project.pageOrder[newIdx];
       if (nextId) {
-        const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
         const unit = findUnitForPage(units, nextId);
         if (unit) await this.loadUnit(unit.id);
       } else {
@@ -531,6 +546,10 @@ export const PageManager = {
       }
     }
     await this.saveProjectMeta();
+    // The Pages panel renders names from the cached page metadata — refresh it
+    // so a deleted page stops being listed.
+    await this._refreshPageCache();
+    UI.refreshPageList();
     return State.project.pageOrder;
   },
 

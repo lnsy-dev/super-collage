@@ -168,4 +168,65 @@ test.describe('Page lifecycle', () => {
       expect(await listedPages(page)).toEqual(['Page 1', 'Page 3']);
     });
   });
+
+  test.describe('removing the active page', () => {
+    test('the editor moves to a remaining page and shows that page’s art', async ({ page }) => {
+      await createProject(page, 'Remove Active Test');
+      await addTextLayer(page, 'Art on page one');
+      await addBlankPage(page);
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(3);
+
+      // Page 1 is the open unit.
+      await expect(page.locator('#canvas-title')).toContainText('Page 1');
+      await expect.poll(() => currentPageText(page)).toEqual(['Art on page one']);
+
+      await removePage(page, ids[0]);
+
+      // A valid page is still selected — never the one that was deleted.
+      expect(await getProjectPageIds(page)).toEqual([ids[1], ids[2]]);
+      const activeId = await page.evaluate(() => window.State.pageId);
+      expect(ids).toContain(activeId);
+      expect(activeId).toBe(ids[1]);
+      await expect(page.locator('#canvas-title')).not.toContainText('Page 1');
+      await expect(page.locator('#canvas-title')).toContainText('Page 2');
+      // Page 1’s art is gone with the page; page 2 shows its own (empty) content.
+      await expect.poll(() => currentPageText(page)).toEqual([]);
+      expect(await listedPages(page)).toEqual(['Page 2', 'Page 3']);
+    });
+
+    test('removing the other page of the open spread keeps the editor valid', async ({ page }) => {
+      await createProject(page, 'Remove Spread Page Test');
+      await addBlankPage(page);
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(3);
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 2 + Page 3']);
+
+      // Open the spread; art lands on its left page.
+      await page.locator('#page-list .page-row').filter({ hasText: 'Page 2 + Page 3' }).click();
+      await expect(page.locator('#canvas-title')).toContainText('Page 2 + Page 3');
+      await addTextLayer(page, 'Art on page two');
+      await expect.poll(() => currentPageText(page)).toEqual(['Art on page two']);
+
+      // Delete the right-hand page out from under the open spread.
+      await removePage(page, ids[2]);
+
+      expect(await getProjectPageIds(page)).toEqual([ids[0], ids[1]]);
+      expect(await page.evaluate(() => window.State.pageId)).toBe(ids[1]);
+      await expect(page.locator('#canvas-title')).toContainText('Page 2');
+      await expect(page.locator('#canvas-title')).not.toContainText('Page 3');
+      // The surviving page keeps its own art, and nothing of the deleted page.
+      await expect.poll(() => currentPageText(page)).toEqual(['Art on page two']);
+
+      // The selection survives a reload and still shows that same page.
+      await reopenProject(page, 'Remove Spread Page Test');
+      expect(await getProjectPageIds(page)).toEqual([ids[0], ids[1]]);
+      expect(await page.evaluate(() => window.State.pageId)).toBe(ids[1]);
+      await expect(page.locator('#canvas-title')).toContainText('Page 2');
+      await expect.poll(() => currentPageText(page)).toEqual(['Art on page two']);
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 2']);
+    });
+  });
 });
