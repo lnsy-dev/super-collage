@@ -159,6 +159,18 @@ export async function addBlankPage(page) {
 }
 
 /**
+ * Delete a page through the app's own PageManager API and refresh the panel.
+ * The Pages panel only removes whole folios, so single pages go through here.
+ */
+export async function removePage(page, pageId) {
+  await page.evaluate(async (id) => {
+    await window.PageManager.deletePage(id);
+    window.UI.refreshPageList();
+  }, pageId);
+  await page.waitForTimeout(50);
+}
+
+/**
  * Page records of the current project as stored in IndexedDB, in pageOrder.
  */
 export async function getStoredPages(page) {

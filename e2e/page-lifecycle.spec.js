@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   clearIndexedDB, createProject, addTextLayer,
-  addBlankPage, getProjectPageIds, getStoredPages, reopenProject,
+  addBlankPage, removePage, getProjectPageIds, getStoredPages, reopenProject,
 } from './helpers.js';
 
 /* ─── PAGE LIFECYCLE ─────────────────────────────────────────────
@@ -103,6 +103,69 @@ test.describe('Page lifecycle', () => {
       // Still looking at page 2 after the reload.
       await expect(page.locator('#canvas-title')).toContainText('Page 2');
       expect(await page.evaluate(() => window.State.pageId)).toBe(ids[1]);
+    });
+  });
+
+  test.describe('removing a non-active page', () => {
+    test('the page disappears while the open page keeps its art', async ({ page }) => {
+      await createProject(page, 'Remove Inactive Test');
+      await addTextLayer(page, 'Art one');
+      await addBlankPage(page);
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(3);
+
+      await page.locator('#page-list .page-row').filter({ hasText: 'Page 2 + Page 3' }).click();
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 2 + Page 3']);
+      // Back to page 1 — the page we will delete sits in the other unit.
+      await page.locator('#page-list .page-row').filter({ hasText: 'Page 1' }).click();
+      await expect(page.locator('#canvas-title')).toContainText('Page 1');
+      expect(await page.evaluate(() => window.State.pageId)).toBe(ids[0]);
+
+      // Delete the page we are not looking at.
+      await removePage(page, ids[2]);
+
+      expect(await getProjectPageIds(page)).toEqual([ids[0], ids[1]]);
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 2']);
+
+      // The stored page is gone, blobs and all; the survivors are untouched.
+      const stored = await getStoredPages(page);
+      expect(stored.map(p => p.id)).toEqual([ids[0], ids[1]]);
+      expect(stored.map(p => p.name)).toEqual(['Page 1', 'Page 2']);
+      const deletedLayers = await page.evaluate(async (id) => {
+        const { DB } = await import('/src/app/db.js');
+        return (await DB.getByIndex('layers', 'by-page', id)).length;
+      }, ids[2]);
+      expect(deletedLayers).toBe(0);
+
+      // Still on page 1 with its own art — removing a page never jumps away.
+      await expect(page.locator('#canvas-title')).toContainText('Page 1');
+      await expect.poll(() => currentPageText(page)).toEqual(['Art one']);
+
+      // The neighbours keep their order and their content.
+      await page.locator('#page-list .page-row').nth(1).click();
+      await expect(page.locator('#canvas-title')).toContainText('Page 2');
+      await expect.poll(() => currentPageText(page)).toEqual([]);
+      await page.locator('#page-list .page-row').nth(0).click();
+      await expect.poll(() => currentPageText(page)).toEqual(['Art one']);
+    });
+
+    test('the removed page does not come back after a reload', async ({ page }) => {
+      await createProject(page, 'Remove Inactive Reload Test');
+      await addBlankPage(page);
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(3);
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 2 + Page 3']);
+
+      await removePage(page, ids[1]);
+
+      await reopenProject(page, 'Remove Inactive Reload Test');
+
+      expect(await getProjectPageIds(page)).toEqual([ids[0], ids[2]]);
+      const stored = await getStoredPages(page);
+      expect(stored.map(p => p.name)).toEqual(['Page 1', 'Page 3']);
+      expect(await listedPages(page)).toEqual(['Page 1', 'Page 3']);
     });
   });
 });
