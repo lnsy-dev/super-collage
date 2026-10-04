@@ -449,7 +449,12 @@ export const UI = {
     if (addFolioBtn) addFolioBtn.style.display = isBooklet ? '' : 'none';
     if (removeFolioBtn) {
       removeFolioBtn.style.display = isBooklet ? '' : 'none';
-      removeFolioBtn.disabled = !isBooklet || (State.project?.pageOrder?.length || 0) < 4;
+      // A folio is four pages: it can only go when the project would keep
+      // at least one page behind.
+      removeFolioBtn.disabled = !isBooklet || (State.project?.pageOrder?.length || 0) <= 4;
+      removeFolioBtn.title = removeFolioBtn.disabled
+        ? 'A folio needs 4 pages, and one page must remain'
+        : 'Remove folio (4 pages)';
     }
   },
 

@@ -229,4 +229,75 @@ test.describe('Page lifecycle', () => {
       expect(await listedPages(page)).toEqual(['Page 1', 'Page 2']);
     });
   });
+
+  test.describe('the one-page minimum', () => {
+    test('the last page cannot be removed and stays valid after a reload', async ({ page }) => {
+      await createProject(page, 'Last Page Test');
+      await addTextLayer(page, 'Only art');
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(1);
+
+      // The panel offers no way to take a folio away from one page.
+      await expect(page.locator('[data-action="remove-folio"]')).toBeDisabled();
+
+      // Even the direct page delete leaves the project alone.
+      await removePage(page, ids[0]);
+      expect(await getProjectPageIds(page)).toEqual(ids);
+      expect(await listedPages(page)).toEqual(['Page 1']);
+      await expect(page.locator('#canvas-title')).toContainText('Page 1');
+      await expect.poll(() => currentPageText(page)).toEqual(['Only art']);
+      await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+
+      await reopenProject(page, 'Last Page Test');
+
+      expect(await getProjectPageIds(page)).toEqual(ids);
+      expect(await listedPages(page)).toEqual(['Page 1']);
+      await expect(page.locator('#canvas-title')).toContainText('Page 1');
+      await expect.poll(() => currentPageText(page)).toEqual(['Only art']);
+    });
+
+    test('removing down to one page keeps that page usable', async ({ page }) => {
+      await createProject(page, 'Down To One Test');
+      await addTextLayer(page, 'Keeper');
+      for (let i = 0; i < 3; i++) await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(4);
+      // Four pages are exactly one folio — not removable without emptying the project.
+      await expect(page.locator('[data-action="remove-folio"]')).toBeDisabled();
+
+      for (const id of ids.slice(1)) await removePage(page, id);
+
+      expect(await getProjectPageIds(page)).toEqual([ids[0]]);
+      expect(await listedPages(page)).toEqual(['Page 1']);
+      await expect(page.locator('[data-action="remove-folio"]')).toBeDisabled();
+      await expect.poll(() => currentPageText(page)).toEqual(['Keeper']);
+
+      await reopenProject(page, 'Down To One Test');
+
+      expect(await getProjectPageIds(page)).toEqual([ids[0]]);
+      expect(await listedPages(page)).toEqual(['Page 1']);
+      await expect.poll(() => currentPageText(page)).toEqual(['Keeper']);
+    });
+
+    test('a four-page folio cannot be removed out from under the project', async ({ page }) => {
+      await createProject(page, 'Folio Floor Test', { pageCount: 4 });
+      const ids = await getProjectPageIds(page);
+      expect(ids).toHaveLength(4);
+
+      // Removing the only folio would leave the project with no pages at all.
+      await expect(page.locator('[data-action="remove-folio"]')).toBeDisabled();
+
+      await page.evaluate(async (pageIds) => {
+        await window.PageManager.removeFolio(pageIds);
+      }, ids);
+
+      expect(await getProjectPageIds(page)).toEqual(ids);
+      expect((await getStoredPages(page)).map(p => p.name))
+        .toEqual(['Page 1', 'Page 2', 'Page 3', 'Page 4']);
+
+      // A fifth page makes the folio removable again.
+      await addBlankPage(page);
+      await expect(page.locator('[data-action="remove-folio"]')).toBeEnabled();
+    });
+  });
 });

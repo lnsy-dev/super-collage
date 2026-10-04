@@ -137,6 +137,8 @@ export const PageManager = {
   async removeFolio(pageIds) {
     if (!State.project || !Array.isArray(pageIds) || pageIds.length !== 4) return;
     const order = [...State.project.pageOrder];
+    // A project always keeps at least one page — refuse to strip it bare.
+    if (order.length - pageIds.length < 1) return;
     const firstRemovedIdx = order.indexOf(pageIds[0]);
     const unitsBefore = computeViewUnits(order, State.project.booklet?.binding);
     const openUnitIsGone = this._openUnitIsGone(pageIds, unitsBefore);
@@ -513,6 +515,9 @@ export const PageManager = {
 
   async deletePage(pageId) {
     if (!State.project) return;
+    // A project always keeps at least one page; deleting the last one is a
+    // no-op rather than leaving the editor with no page at all.
+    if (State.project.pageOrder.length <= 1) return State.project.pageOrder;
     const oldOrder = [...State.project.pageOrder];
     const unitsBefore = computeViewUnits(oldOrder, State.project.booklet?.binding);
     const openUnitIsGone = this._openUnitIsGone([pageId], unitsBefore);
