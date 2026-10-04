@@ -19,6 +19,7 @@ import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
 import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
+import { TypeSetRenderer } from 'type-set';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -120,7 +121,12 @@ export function getExtraSnaps(primaryId) {
     .filter(id => id !== primaryId)
     .map(id => {
       const l = State.layers.find(x => x.id === id);
-      return l ? { id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation } : null;
+      return l ? {
+        id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation,
+        // Text metrics are snapshotted too: a resize must scale the type
+        // from its size at drag start, not from a size that keeps moving.
+        textFontSize: l.textFontSize, textLetterSpacing: l.textLetterSpacing,
+      } : null;
     })
     .filter(Boolean);
 }
@@ -133,7 +139,10 @@ function getLinkedSnaps(primaryId) {
   if (!primary) return [];
   return getScaleGroup(primary)
     .filter(l => !State.selectedIds.includes(l.id))
-    .map(l => ({ id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation }));
+    .map(l => ({
+      id: l.id, x: l.x, y: l.y, width: l.width, height: l.height, rotation: l.rotation,
+      textFontSize: l.textFontSize, textLetterSpacing: l.textLetterSpacing,
+    }));
 }
 
 /* ─── RESIZE HANDLE MATH ───────────────────────────────────────────
@@ -212,6 +221,101 @@ function applyResize(layer, snap, meta, pointerX, pointerY, zoom) {
   layer.y = center.y - newH / 2;
   layer.width = newW;
   layer.height = newH;
+}
+
+/* ─── TEXT RESIZE SCALING ───────────────────────────────────────
+   Text layers are re-rasterized from their font metrics once a resize
+   commits, so the font has to scale along with the block — otherwise
+   the type snaps back to its old size inside the enlarged box (the
+   stretched preview during the drag then a jump on release).
+
+   The uniform font scale is sqrt(sx·sy): for the aspect-preserving
+   corner handles it is exactly the block's own scale, and for edge
+   handles it is the scale whose *area* matches the block's, which
+   leaves wrapped paragraph text exactly filling the resized box.
+
+   `base` is the snapshot the resize started from, so pointermove can
+   re-apply the scale every event without compounding it. */
+const MIN_TEXT_FONT_SIZE = 8; // matches the properties-panel size input
+
+function scaleTextMetrics(layer, base, sx, sy) {
+  if (!layer || !layer.isText) return;
+  if (!(sx > 0) || !(sy > 0)) return;
+  const k = Math.sqrt(sx * sy);
+  if (Math.abs(k - 1) < 1e-9) return;
+  const baseSize = base && Number.isFinite(base.textFontSize)
+    ? base.textFontSize : layer.textFontSize;
+  const baseSpacing = base && Number.isFinite(base.textLetterSpacing)
+    ? base.textLetterSpacing : layer.textLetterSpacing;
+  layer.textFontSize = Math.max(MIN_TEXT_FONT_SIZE, baseSize * k);
+  layer.textLetterSpacing = baseSpacing * k;
+  // The font changed: drop the base-render caches so the commit-time
+  // re-render actually re-shapes the type (box dimensions alone may not
+  // change enough to invalidate them).
+  layer._originalCanvas = null;
+  layer._exportOriginalCanvas = null;
+}
+
+/**
+ * Grow a just-resized text box so it never clips the (re)scaled type.
+ * Grow-only: the dragged size is the floor, so the box can never snap
+ * back below what the user just dragged. Point type ('line') also hugs
+ * its single line horizontally — it is measured unwrapped, and the same
+ * measurement sets a width the renderer will not wrap at.
+ */
+async function refitTextLayer(layer) {
+  if (!layer || !layer.isText) return;
+  try {
+    const renderer = new TypeSetRenderer({
+      fontBase: './vendor/type-set/fonts/',
+      fontFamily: layer.textFontFamily,
+      fontSize: layer.textFontSize,
+      fontWeight: layer.textFontWeight,
+      fontStyle: layer.textFontStyle,
+      perCharItalic: layer.textFontStyle === 'italic'
+        ? new Set(layer.text.split('').map((_c, i) => i))
+        : undefined,
+      letterSpacing: layer.textLetterSpacing,
+      lineHeight: layer.textLineHeight,
+      // Line mode measures the raw run width, so ignore alignment here —
+      // right/center offsets would land glyphs at a huge x with measureW.
+      textAlign: layer.textMode === 'line' ? 'left' : layer.textAlign,
+      text: layer.text,
+      color: '#000000',
+      useLigatures: true,
+      useKerning: true,
+      useHyphenation: false,
+    });
+    await renderer.loadFonts();
+    const measureW = layer.textMode === 'line' ? 1e9 : Math.max(1, layer.naturalWidth);
+    const { glyphs } = await renderer.shapeAndLayout(measureW);
+    let lastBaseline = -Infinity;
+    let maxX = 0;
+    for (const g of glyphs) {
+      if (g.char === '\n') continue;
+      lastBaseline = Math.max(lastBaseline, g.y);
+      maxX = Math.max(maxX, g.x + g.advanceWidth + g.spacingOffset);
+    }
+    if (!Number.isFinite(lastBaseline)) return; // empty text: nothing to clip
+    let changed = false;
+    const needH = Math.ceil(lastBaseline + layer.textFontSize * 0.35);
+    if (needH > layer.height) {
+      layer.height = layer.naturalHeight = needH;
+      changed = true;
+    }
+    if (layer.textMode === 'line') {
+      const needW = Math.ceil(maxX + layer.textFontSize * 0.05);
+      if (needW > layer.width) {
+        layer.width = layer.naturalWidth = needW;
+        changed = true;
+      }
+    }
+    if (changed) {
+      layer._originalCanvas = null;
+      layer._exportOriginalCanvas = null;
+      layer._dirty = true;
+    }
+  } catch (_e) { /* keep the dragged size if layout measurement fails */ }
 }
 
 async function onPointerDown(e) {
@@ -320,6 +424,7 @@ async function onPointerDown(e) {
           .filter(m => !extraSnaps.some(es => es.id === m.id));
         dragState.maskSnaps = maskLayers.map(m => ({
           id: m.id, x: m.x, y: m.y, width: m.width, height: m.height, rotation: m.rotation,
+          textFontSize: m.textFontSize, textLetterSpacing: m.textLetterSpacing,
         }));
         dragState.maskSnaps.forEach(es => {
           const el = State.layers.find(l => l.id === es.id);
@@ -494,6 +599,10 @@ function onPointerMove(e) {
     // factor and the same position delta.
     const scaleX = layer.width / snap.width;
     const scaleY = layer.height / snap.height;
+    // Text keeps pace with the block: the font is scaled from its
+    // drag-start value every event (no compounding), and re-rendered on
+    // release, so the type never snaps back inside the resized box.
+    scaleTextMetrics(layer, snap, scaleX, scaleY);
     const posDx = layer.x - snap.x;
     const posDy = layer.y - snap.y;
     for (const es of (State.drag.extraSnaps || [])) {
@@ -507,6 +616,7 @@ function onPointerMove(e) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
       }
+      scaleTextMetrics(el, es, scaleX, scaleY);
     }
     // Linked siblings and the group's image-mask layers scale about the group
     // anchor — the primary's stationary fixed corner — so the group's relative
@@ -526,6 +636,7 @@ function onPointerMove(e) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
       }
+      scaleTextMetrics(el, es, scaleX, scaleY);
     }
   }
 
@@ -610,6 +721,28 @@ async function onPointerUp(e) {
   }
   if (State.drag) {
     const layer = selectedLayer();
+    if (State.drag.type === 'resize') {
+      // Re-render text layers only after the user releases the handle,
+      // keeping drag interactions fast on large pages. The font already
+      // scaled with the block during the drag; now sync the natural size,
+      // give the box room for the scaled type (it can need more space than
+      // the dragged box), then re-render.
+      const textLayers = [];
+      const addTextLayer = l => { if (l && l.isText && !textLayers.includes(l)) textLayers.push(l); };
+      addTextLayer(layer);
+      for (const es of (State.drag.extraSnaps || [])) addTextLayer(State.layers.find(l => l.id === es.id));
+      for (const es of (State.drag.maskSnaps || [])) addTextLayer(State.layers.find(l => l.id === es.id));
+      for (const tl of textLayers) {
+        tl.naturalWidth = tl.width;
+        tl.naturalHeight = tl.height;
+      }
+      await Promise.all(textLayers.map(tl => refitTextLayer(tl)));
+      for (const tl of textLayers) {
+        tl.naturalWidth = tl.width;
+        tl.naturalHeight = tl.height;
+        tl._dirty = true;
+      }
+    }
     if (layer) DB.saveLayer(layer);
     for (const es of (State.drag.extraSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
@@ -620,21 +753,6 @@ async function onPointerUp(e) {
       if (el) DB.saveLayer(el);
     }
     if (State.drag.type === 'resize') {
-      // Re-render text layers only after the user releases the handle,
-      // keeping drag interactions fast on large pages.
-      if (layer && layer.isText) {
-        layer.naturalWidth = layer.width;
-        layer.naturalHeight = layer.height;
-        layer._dirty = true;
-      }
-      for (const es of (State.drag.extraSnaps || [])) {
-        const el = State.layers.find(l => l.id === es.id);
-        if (el && el.isText) {
-          el.naturalWidth = el.width;
-          el.naturalHeight = el.height;
-          el._dirty = true;
-        }
-      }
       Renderer.schedule();
     }
   }
@@ -895,25 +1013,32 @@ export function wireControls() {
   });
 
   function numField(id, field) {
-    document.getElementById(id).addEventListener('change', e => {
+    document.getElementById(id).addEventListener('change', async e => {
       const l = selectedLayer(); if (!l) return;
       pushUndo(snapshotLayer(l));
       const prev = l[field];
       l[field] = parseFloat(e.target.value) || 0;
-      if (l.isText && (field === 'width' || field === 'height')) {
+      const isSizeField = field === 'width' || field === 'height';
+      if (l.isText && isSizeField) {
         l.naturalWidth = l.width;
         l.naturalHeight = l.height;
         l._dirty = true;
       }
+      // Text layers whose box is changing: font scales with the block,
+      // then the box is grown to hold the scaled type (never clipped).
+      const textLayers = (l.isText && isSizeField) ? [l] : [];
       // Linked layers resize together: scale them by the same factor,
       // keeping each layer's center fixed. The primary keeps its center too —
       // otherwise an aligned group (e.g. a base layer and its image mask)
       // would slide out of alignment on every numeric resize, since only the
       // siblings grew about their centers. Image-mask layers of the group
       // follow their base so mask alignment survives the resize.
-      if ((field === 'width' || field === 'height') && prev > 0 && l[field] > 0) {
+      if (isSizeField && prev > 0 && l[field] > 0) {
         const factor = l[field] / prev;
         if (Math.abs(factor - 1) > 1e-9) {
+          const sx = field === 'width' ? factor : 1;
+          const sy = field === 'height' ? factor : 1;
+          scaleTextMetrics(l, l, sx, sy);
           const group = getScaleGroup(l);
           if (group.length) {
             if (field === 'width') l.x = (l.x + prev / 2) - l.width / 2;
@@ -931,10 +1056,17 @@ export function wireControls() {
               el.naturalWidth = el.width;
               el.naturalHeight = el.height;
               el._dirty = true;
+              textLayers.push(el);
             }
             DB.saveLayer(el);
           }
         }
+      }
+      await Promise.all(textLayers.map(tl => refitTextLayer(tl)));
+      // Refit may have grown a text box after its save above — persist the
+      // final size for every group member.
+      for (const tl of textLayers) {
+        if (tl !== l) DB.saveLayer(tl);
       }
       DB.saveLayer(l);
       Renderer.schedule();
