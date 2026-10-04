@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
+import fs from 'fs/promises';
+import sharp from 'sharp';
 import {
-  clearIndexedDB, createProject, addTextLayer,
+  clearIndexedDB, createProject, addTextLayer, addSolidColorImage,
   addBlankPage, removePage, getProjectPageIds, getStoredPages, reopenProject,
   addImageFromBuffer, createSolidPngBuffer, createMultiColorPngBuffer,
   setLayerColorDirect, loadPageById, runExportSinglePlate,
@@ -23,6 +25,46 @@ function listedPages(page) {
 /** The text content of the layers on the page currently open. */
 function currentPageText(page) {
   return page.evaluate(() => window.State.layers.map(l => l.text));
+}
+
+/** Size and ink position of a downloaded plate, read from the PNG itself. */
+async function plateSignature(download) {
+  const buf = await fs.readFile(await download.path());
+  const { data, info } = await sharp(buf).greyscale().raw().toBuffer({ resolveWithObject: true });
+  let ink = 0, minX = Infinity, minY = Infinity, maxX = -1, maxY = -1;
+  for (let y = 0; y < info.height; y++) {
+    const row = y * info.width;
+    for (let x = 0; x < info.width; x++) {
+      if (data[row + x] < 128) {
+        ink++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  return { width: info.width, height: info.height, ink, minX, minY, maxX, maxY };
+}
+
+/**
+ * Run the user-facing export flow and collect every plate it downloads,
+ * however many that is — a plate that should not be there has to show up
+ * as an extra entry, so the run is followed to its Done! report.
+ */
+async function exportPlatesViaDialog(page) {
+  await page.click('.menu-item[data-menu="file"]');
+  await page.click('[data-action="export"]');
+  await expect(page.locator('#export-dialog')).toBeVisible();
+  await page.selectOption('#export-target-size', 'letter');
+
+  const downloads = [];
+  page.on('download', d => downloads.push(d));
+  await page.click('#btn-export-go');
+  await expect(page.locator('#export-progress .export-progress-label'))
+    .toContainText('Done!', { timeout: 30000 });
+
+  return { names: downloads.map(d => d.suggestedFilename()), downloads };
 }
 
 test.describe('Page lifecycle', () => {
@@ -438,5 +480,122 @@ test.describe('Page lifecycle', () => {
       await loadPageById(page, newIds[1]);
       expect(await page.evaluate(() => window.State.layers.length)).toBe(0);
     });
+  });
+});
+
+/* ─── ADD / REMOVE / EXPORT REGRESSION ─────────────────────────────
+   One run through the whole workflow a user performs: build pages with
+   different plate content, strip pages away with the Pages panel, then
+   export what is left through the real export dialog and look at the
+   downloaded PNGs. */
+
+test.describe('add / remove / export regression', () => {
+  test('export carries the surviving page only, before and after a reload', async ({ page }) => {
+    await createProject(page, 'Export Regression', { pageSize: 'half-letter', pageCount: 1 });
+
+    /** Append a page and fill it with full-bleed art in its own ink. */
+    const addFullBleedPage = async (color) => {
+      await addBlankPage(page);
+      const ids = await getProjectPageIds(page);
+      await loadPageById(page, ids[ids.length - 1]);
+      await addSolidColorImage(page, '#000000', { width: 3300, height: 5100 });
+      await setLayerColorDirect(page, color);
+      await page.evaluate(() => window.PageManager.saveActivePage());
+    };
+
+    // Pages 2–4 hold full-bleed art; page 5's colour separation comes next.
+    await addSolidColorImage(page, '#000000', { width: 3300, height: 5100 });
+    await setLayerColorDirect(page, '#0078bf');
+    await page.evaluate(() => window.PageManager.saveActivePage());
+    await addFullBleedPage('#f65058');
+    await addBlankPage(page);
+    const sepPageId = (await getProjectPageIds(page))[2];
+    await loadPageById(page, sepPageId);
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('.menu-entry[data-action="import-color-separation"]');
+    await page.setInputFiles('#color-sep-input', {
+      name: 'sep.png', mimeType: 'image/png', buffer: createMultiColorPngBuffer(120, 120),
+    });
+    await page.waitForFunction(() => window.State.layers.some(l => l.isColorSeparation), null, { timeout: 20000 });
+    await page.evaluate(() => window.PageManager.saveActivePage());
+    await addFullBleedPage('#00a95c');
+
+    // The page that survives: a single small square, well inside the page.
+    await addBlankPage(page);
+    const survivorId = (await getProjectPageIds(page))[4];
+    await loadPageById(page, survivorId);
+    await addSolidColorImage(page, '#000000', { width: 600, height: 600 });
+    await setLayerColorDirect(page, '#5ec8e5');
+    await page.evaluate(async () => {
+      const l = window.State.layers.find(x => x.id === window.State.selectedId);
+      l.x = 1200; l.y = 2000;
+      l._dirty = true;
+      await window.DB.saveLayer(l);
+      await window.PageManager.saveActivePage();
+    });
+    expect(await getProjectPageIds(page)).toHaveLength(5);
+    const doomedIds = (await getProjectPageIds(page)).slice(0, 4);
+
+    // ── Strip the first folio through the Pages panel ──
+    await page.click('[data-action="remove-folio"]');
+    await expect(page.locator('#remove-folio-dialog')).toBeVisible();
+    await page.locator('.folio-row').first().click();
+    await page.click('#btn-confirm-remove-folio');
+    await expect(page.locator('#remove-folio-dialog')).toBeHidden();
+
+    // The dialog closes before the records are swept, so wait for the
+    // removal to land rather than assuming it already has.
+    await expect.poll(() => getProjectPageIds(page), { timeout: 15000 }).toEqual([survivorId]);
+    await expect.poll(() => listedPages(page)).toEqual(['Page 5']);
+    expect(await page.evaluate(() => window.State.pageId)).toBe(survivorId);
+    const leftover = await page.evaluate(async ({ pageId, doomed }) => {
+      const { DB } = await import('/src/app/db.js');
+      const recs = await DB.getByIndex('layers', 'by-page', pageId);
+      const doomedLayers = [];
+      for (const id of doomed) {
+        doomedLayers.push((await DB.getByIndex('layers', 'by-page', id)).length);
+      }
+      return {
+        layers: recs.length,
+        doomedPages: await Promise.all(doomed.map(id => DB.get('pages', id))),
+        doomedLayers,
+      };
+    }, { pageId: survivorId, doomed: doomedIds });
+    expect(leftover.layers).toBe(1);
+    expect(leftover.doomedPages.every(p => p === undefined)).toBe(true);
+    expect(leftover.doomedLayers).toEqual([0, 0, 0, 0]);
+
+    // ── Export what is left, through the real dialog ──
+    // A 3300×5100 page centred on a 5100×6600 letter sheet, so the square
+    // at page (1200, 2000)–(1800, 2600) lands at (2100, 2750)–(2700, 3350).
+    const first = await exportPlatesViaDialog(page);
+    expect(first.names.length).toBeGreaterThan(0);
+    for (const n of first.names) expect(n).toMatch(/^export-regression-.*\.png$/);
+    for (const d of first.downloads) {
+      const sig = await plateSignature(d);
+      expect(sig.width).toBe(5100);
+      expect(sig.height).toBe(6600);
+      expect(sig.ink).toBeGreaterThan(0);
+      // Only the small square — no full-bleed ink from a removed page.
+      expect(sig.ink / (sig.width * sig.height)).toBeLessThan(0.02);
+      expect(Math.abs(sig.minX - 2100)).toBeLessThan(20);
+      expect(Math.abs(sig.minY - 2750)).toBeLessThan(20);
+      expect(Math.abs(sig.maxX - 2700)).toBeLessThan(20);
+      expect(Math.abs(sig.maxY - 3350)).toBeLessThan(20);
+    }
+
+    // ── Same again after a reload ──
+    await reopenProject(page, 'Export Regression');
+    expect(await getProjectPageIds(page)).toEqual([survivorId]);
+    expect(await page.evaluate(() => window.State.pageId)).toBe(survivorId);
+
+    const second = await exportPlatesViaDialog(page);
+    expect(second.names).toEqual(first.names);
+    for (const d of second.downloads) {
+      const sig = await plateSignature(d);
+      expect(sig.ink).toBeGreaterThan(0);
+      expect(sig.ink / (sig.width * sig.height)).toBeLessThan(0.02);
+      expect(Math.abs(sig.minY - 2750)).toBeLessThan(20);
+    }
   });
 });
