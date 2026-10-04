@@ -69,7 +69,22 @@ export const PageManager = {
     State.project.pageOrder.push(page.id);
     await DB.put('projects', { ...State.project, updatedAt: Date.now() });
     await this.recomputeSpreadMeta();
+    // The Pages panel renders names from the cached page metadata, so the new
+    // page has to land in that cache or it lists as a blank row.
+    await this._refreshPageCache();
+    UI.refreshPageList();
     return page;
+  },
+
+  /** Re-read the project's page records into State.pages, in pageOrder. */
+  async _refreshPageCache() {
+    if (!State.project) return;
+    const order = State.project.pageOrder || [];
+    const pages = await DB.getByIndex('pages', 'by-project', State.project.id);
+    State.pages = pages.sort((a, b) => {
+      const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
   },
 
   async addFolio() {
@@ -604,7 +619,21 @@ export const PageManager = {
     UI.refreshLayerList();
     UI.refreshProperties();
     if (typeof UI.refreshPageList === 'function') UI.refreshPageList();
+    this._rememberActiveUnit();
     Renderer.schedule();
+  },
+
+  /**
+   * Remember which page or spread the editor is on, so reopening the project
+   * lands back there instead of always jumping to the first page. Stored on
+   * the project record, and ignored on open if that page is gone.
+   */
+  _rememberActiveUnit() {
+    if (!State.project) return;
+    const unitId = State.spreadView ? State.unitId : State.pageId;
+    if (!unitId || State.project.activeUnitId === unitId) return;
+    State.project.activeUnitId = unitId;
+    this.saveProjectMeta();
   },
 
 };
