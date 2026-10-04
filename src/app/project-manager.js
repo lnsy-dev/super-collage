@@ -143,11 +143,13 @@ export async function openProject(projectId) {
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
-  // Load the first editor unit (spread or single page).
+  // Load the editor unit the project was last on (spread or single page),
+  // falling back to the first one if that page has since been removed.
   const units = computeViewUnits(project.pageOrder, project.booklet?.binding);
-  const firstUnit = units[0];
-  if (firstUnit) {
-    await PageManager.loadUnit(firstUnit.id);
+  const startUnit = (project.activeUnitId && units.find(u => u.id === project.activeUnitId))
+    || units[0];
+  if (startUnit) {
+    await PageManager.loadUnit(startUnit.id);
   } else {
     _setProjectCanvasSize(project);
     document.getElementById('canvas-title').textContent = `${project.name} @ 600dpi`;

@@ -145,6 +145,44 @@ export async function loadPageById(page, pageId) {
 }
 
 /**
+ * Append a blank page sized like the project's first page and refresh the
+ * page list. The Pages panel only offers folio-sized adds, so single pages
+ * go through the same PageManager call the app uses internally.
+ */
+export async function addBlankPage(page) {
+  await page.evaluate(async () => {
+    const p0 = window.State.pages[0];
+    await window.PageManager.addBlankPageToProject(window.State.project.id, p0.width, p0.height);
+    window.UI.refreshPageList();
+  });
+  await page.waitForTimeout(50);
+}
+
+/**
+ * Page records of the current project as stored in IndexedDB, in pageOrder.
+ */
+export async function getStoredPages(page) {
+  return page.evaluate(async () => {
+    const { DB } = await import('/src/app/db.js');
+    const order = window.State.project?.pageOrder || [];
+    const records = await Promise.all(order.map(id => DB.get('pages', id)));
+    return records.map(r => ({
+      id: r.id, name: r.name, index: r.index, width: r.width, height: r.height,
+    }));
+  });
+}
+
+/**
+ * Reload the app and re-open the named project from the library dialog.
+ */
+export async function reopenProject(page, name) {
+  await page.reload();
+  await page.locator('.project-entry', { hasText: name }).click();
+  await page.click('#btn-open-project');
+  await expect(page.locator('#main-app')).toBeVisible();
+}
+
+/**
  * Set the selected layer's solid color by clicking a color swatch.
  */
 export async function setLayerColor(page, colorHex) {
@@ -653,10 +691,7 @@ export async function buildComplexProject(page) {
   await createProject(page, 'Complex Doc', { pageSize: 'half-letter' });
   // Add a second page (the dialog only offers booklet multiples, so add one
   // matching the first page's dimensions here for an exact 2-page document).
-  await page.evaluate(async () => {
-    const p0 = window.State.pages[0];
-    await window.PageManager.addBlankPageToProject(window.State.project.id, p0.width, p0.height);
-  });
+  await addBlankPage(page);
   const pageIds = await getProjectPageIds(page);
   expect(pageIds.length).toBe(2);
 
