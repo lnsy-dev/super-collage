@@ -1142,3 +1142,11 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   margin-top: 0.2rem;
   font-variant-numeric: tabular-nums;
 }
+/* Fine-grained "right now" line: page being read, layer rendering, encoding. */
+.export-progress-stage {
+  font-size: 1rem;
+  opacity: 0.75;
+  margin-top: 0.15rem;
+  min-height: 1.2em;
+  font-variant-numeric: tabular-nums;
+}

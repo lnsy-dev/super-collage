@@ -9,23 +9,29 @@ import { DB } from './db.js';
 import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
 import { appendKofiNotice, closeWindowAfterExport } from './ui.js';
-import { calculateLayout, computeSheetPlan, renderSheetSide, buildSheets, buildSingleImageSheet } from './imposition.js';
+import { calculateLayout, computeSheetPlan, newSheetCanvas, drawPageInCell, buildSingleImageSheet } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
 import { isTwoToneShape } from './shape-utils.js';
 import { createExportProgress, formatBytes, formatDuration } from './export-progress.js';
 
 export const ExportEngine = {
+  // Put a context into the layer's own coordinate space: origin at its
+  // top-left corner, with rotation and flips applied.
+  _applyLayerTransform(ctx, layer) {
+    ctx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
+    ctx.rotate(layer.rotation * Math.PI / 180);
+    ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
+    ctx.translate(-layer.width / 2, -layer.height / 2);
+  },
+
   // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
   // OffscreenCanvas, applying both painted mask (_maskCanvas) and image masks (imageMaskIds).
   async _renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet = State.layers) {
     const buf = new OffscreenCanvas(width, height);
     const bCtx = buf.getContext('2d');
     bCtx.save();
-    bCtx.translate(layer.x + layer.width / 2, layer.y + layer.height / 2);
-    bCtx.rotate(layer.rotation * Math.PI / 180);
-    bCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
-    bCtx.translate(-layer.width / 2, -layer.height / 2);
+    this._applyLayerTransform(bCtx, layer);
     if (layer._maskCanvas) {
       const tmp = new OffscreenCanvas(layer.width, layer.height);
       const tCtx = tmp.getContext('2d');
@@ -65,6 +71,36 @@ export const ExportEngine = {
       bCtx.drawImage(maskBuf, 0, 0);
     }
     return buf;
+  },
+
+  // Paint one prepared layer onto a plate canvas. A page-sized intermediate is
+  // only built when an image mask has to be composited in page space; an
+  // unmasked layer (or one with just a painted mask) goes straight through the
+  // layer transform, so no full-page copy is allocated per layer per plate.
+  async _drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet) {
+    const imageMaskIds = layer.imageMaskIds || [];
+    if (!layer._maskCanvas && !imageMaskIds.length) {
+      ctx.save();
+      this._applyLayerTransform(ctx, layer);
+      ctx.drawImage(sourceCanvas, 0, 0, layer.width, layer.height);
+      ctx.restore();
+      return;
+    }
+    if (!imageMaskIds.length) {
+      // Painted mask: isolate it in a layer-sized buffer first, so
+      // destination-in cannot clear the plate outside the layer.
+      const tmp = new OffscreenCanvas(layer.width, layer.height);
+      const tCtx = tmp.getContext('2d');
+      tCtx.drawImage(sourceCanvas, 0, 0, layer.width, layer.height);
+      tCtx.globalCompositeOperation = 'destination-in';
+      tCtx.drawImage(layer._maskCanvas, 0, 0, layer.width, layer.height);
+      ctx.save();
+      this._applyLayerTransform(ctx, layer);
+      ctx.drawImage(tmp, 0, 0);
+      ctx.restore();
+      return;
+    }
+    ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
   },
 
   _tileCanvas(src, layout, pageWidth, pageHeight) {
@@ -138,29 +174,45 @@ export const ExportEngine = {
 
   // Renders one color plate for a given layer set and dimensions.
   // Returns an OffscreenCanvas (greyscale ink on white).
-  async _renderPlate(color, plate, width, height, layerSet) {
+  // `progress`, when given, is awaited with a stage string before every
+  // contribution: "rendering layer 3 of 7 · grunge.png".
+  async _renderPlate(color, plate, width, height, layerSet, progress = null) {
     const ec = new OffscreenCanvas(width, height);
     const ctx = ec.getContext('2d');
+
+    const totalSteps =
+      plate.solidLayers.length +
+      (plate.shapeParts || []).length +
+      (plate.separationLayers || []).length +
+      plate.gradContributions.length;
+    let step = 0;
+    const tick = async layer => {
+      step += 1;
+      if (progress) await progress(`rendering layer ${step} of ${totalSteps} · ${layer?.name || 'layer'}`);
+    };
 
     // Solid layers
     for (const layer of plate.solidLayers) {
       if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+      await tick(layer);
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
-      ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
+      await this._drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet);
     }
 
     // Two-tone shape contributions: each part is processed through the same
     // render chain as the screen (per-ink colorized canvas), so plates match
     // exactly what you see. Only alpha matters after _renderLayerToBuffer.
     for (const { layer, part } of (plate.shapeParts || [])) {
+      await tick(layer);
       const sourceCanvas = ImageProcessor.processShapePart(layer, part, layer.naturalWidth, layer.naturalHeight);
       if (!sourceCanvas) continue;
-      ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
+      await this._drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet);
     }
 
     // Color separation layer contributions
     for (const { layer, color: plateColor } of (plate.separationLayers || [])) {
+      await tick(layer);
       const plateCanvas = layer.separationPlates.get(plateColor);
       if (!plateCanvas) continue;
       const scaled = new OffscreenCanvas(layer.width, layer.height);
@@ -187,12 +239,13 @@ export const ExportEngine = {
         const colored = ImageProcessor.colorize(sCtx.getImageData(0, 0, layer.width, layer.height), plateColor, null);
         sCtx.putImageData(colored, 0, 0);
       }
-      ctx.drawImage(await this._renderLayerToBuffer(layer, scaled, width, height, layerSet), 0, 0);
+      await this._drawLayerOnPlate(ctx, layer, scaled, width, height, layerSet);
     }
 
     // Gradient / pattern layer contributions (weighted by color dominance)
     for (const { layer, stopIdx } of plate.gradContributions) {
       if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+      await tick(layer);
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
       const nw = layer.naturalWidth, nh = layer.naturalHeight;
@@ -208,10 +261,11 @@ export const ExportEngine = {
         d[i*4 + 3] = Math.round(d[i*4 + 3] * weightMap[i]);
       }
       wCtx.putImageData(imgData, 0, 0);
-      ctx.drawImage(await this._renderLayerToBuffer(layer, weightedCanvas, width, height, layerSet), 0, 0);
+      await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
     }
 
     // Remap to greyscale ink on white
+    if (progress) await progress(`flattening ${color} ink on white…`);
     const imgData = ctx.getImageData(0, 0, width, height);
     const d = imgData.data;
     for (let i = 0; i < d.length; i += 4) {
@@ -235,6 +289,242 @@ export const ExportEngine = {
       result.set(color, canvas);
     }
     return result;
+  },
+
+  // ── Streaming primitives ───────────────────────────────────────
+  // The exporters walk ONE page and ONE ink at a time: each step decides
+  // what to render from layer RECORDS, hydrates only that ink's layers, draws
+  // the finished plate onto the sheet and lets it go. Peak memory is one
+  // sheet plus one page plate, no matter how many pages or inks the book has.
+
+  // Report the export's current sub-step. The progress widget shows it on its
+  // own stage line under the label; a plain element (the composite dialog)
+  // gets it as its text, exactly as before. The yield lets the browser paint
+  // the update before the next chunk of work starts.
+  async _stage(prog, text) {
+    if (!prog) return;
+    if (typeof prog.stage === 'function') prog.stage(text);
+    else prog.textContent = text;
+    await new Promise(r => setTimeout(r, 0));
+  },
+
+  // Drop the bitmaps a hydration pass decoded. The layer objects are thrown
+  // away right after, so this only exists to stop the backing stores from
+  // pinning memory until the next GC.
+  _releaseLayers(layers) {
+    for (const l of layers) {
+      l._originalCanvas = null;
+      l._exportOriginalCanvas = null;
+      l._processedCanvas = null;
+      l._maskCanvas = null;
+      l._svgImage = null;
+      l.separationPlates?.clear();
+    }
+  },
+
+  // Reader page index → the printer spread half it belongs to.
+  _spreadIndexOfPages(pageOrder, spreads) {
+    const spreadOfPage = new Map();
+    spreads.forEach((sp, i) => {
+      const li = sp.leftPageId ? pageOrder.indexOf(sp.leftPageId) : -1;
+      const ri = sp.rightPageId ? pageOrder.indexOf(sp.rightPageId) : -1;
+      if (li !== -1) spreadOfPage.set(li, { index: i, role: 'left' });
+      if (ri !== -1) spreadOfPage.set(ri, { index: i, role: 'right' });
+    });
+    return spreadOfPage;
+  },
+
+  // Work out how one reader page has to be rendered for a single pass:
+  // alone (content cropped at its own edges) or as one half of a reader
+  // spread, where layers crossing the fold are composited across both pages
+  // and the result cropped back to this page's half. Returns null when the
+  // page has no layer records at all.
+  // Reads layer records only — no bitmap is decoded to make this decision.
+  async _resolveInkTarget(pageOrder, pageIndex, spreads, spreadOfPage, readerSpreadIds) {
+    const pid = pageOrder[pageIndex];
+    if (!pid) return null;
+    const spInfo = spreadOfPage.get(pageIndex);
+    if (!spInfo) {
+      const page = await DB.get('pages', pid);
+      const recs = await PageManager.loadPageLayerRecords(pid);
+      if (!page || !recs.length) return null;
+      return { recs, width: page.width, height: page.height, xOffsets: null, src: null };
+    }
+
+    const spread = spreads[spInfo.index];
+    const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
+    const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
+    if (!leftPage && !rightPage) return null;
+    const leftWidth = leftPage?.width || 0;
+    const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
+
+    const leftRecs = leftPage ? await PageManager.loadPageLayerRecords(leftPage.id) : [];
+    const rightRecs = rightPage ? await PageManager.loadPageLayerRecords(rightPage.id) : [];
+    const isLeft = spInfo.role === 'left';
+    const sidePage = isLeft ? leftPage : rightPage;
+    if (!sidePage) return null;
+
+    const spanning = readerSpreadIds.has(spread.id)
+      && this._hasSpanningLayers(leftRecs, rightRecs, leftWidth);
+
+    if (!spanning) {
+      const recs = isLeft ? leftRecs : rightRecs;
+      if (!recs.length) return null;
+      return { recs, width: sidePage.width, height: pageHeight, xOffsets: null, src: null };
+    }
+
+    // Spanning: both pages share one canvas, the right page shifted across the
+    // fold, and this page's half is cropped out of it when drawing.
+    const recs = [...leftRecs, ...rightRecs];
+    if (!recs.length) return null;
+    const xOffsets = new Map();
+    if (rightPage) for (const r of rightRecs) xOffsets.set(r.id, leftWidth);
+    return {
+      recs,
+      width: leftWidth + (rightPage?.width || 0),
+      height: pageHeight,
+      xOffsets,
+      src: {
+        x: isLeft ? 0 : leftWidth,
+        y: 0,
+        w: isLeft ? leftWidth : (rightPage?.width || 0),
+        h: pageHeight,
+      },
+    };
+  },
+
+  // Hydrate exactly the layers one plate draws (plus any image-mask layers
+  // they reference), and point the plate at the hydrated objects.
+  async _hydratePlate(recs, plate, progress = null) {
+    const byId = new Map(recs.map(r => [r.id, r]));
+    const wanted = [];
+    const seen = new Set();
+    const want = rec => {
+      if (!rec || seen.has(rec.id)) return;
+      seen.add(rec.id);
+      wanted.push(rec);
+    };
+    for (const l of plate.solidLayers) want(l);
+    for (const { layer } of plate.shapeParts) want(layer);
+    for (const { layer } of plate.separationLayers) want(layer);
+    for (const { layer } of plate.gradContributions) want(layer);
+    for (const rec of [...wanted]) {
+      for (const maskId of (rec.imageMaskIds || [])) want(byId.get(maskId));
+    }
+
+    if (progress) await progress(`loading ${wanted.length} layer${wanted.length === 1 ? '' : 's'}…`);
+
+    const byHydratedId = new Map();
+    for (const rec of wanted) {
+      const layer = await PageManager.hydrateLayer(rec);
+      if (layer) byHydratedId.set(rec.id, layer);
+    }
+    // Swap each plate entry from its layer record to the hydrated layer.
+    const live = rec => byHydratedId.get(rec?.id);
+    return {
+      layers: [...byHydratedId.values()],
+      plate: {
+        solidLayers: plate.solidLayers.map(live).filter(Boolean),
+        shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part })).filter(p => p.layer),
+        separationLayers: plate.separationLayers.map(p => ({ layer: live(p.layer), color: p.color })).filter(p => p.layer),
+        gradContributions: plate.gradContributions.map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx })).filter(p => p.layer),
+      },
+    };
+  },
+
+  // Render one ink for the layer records of one page (or of one reader
+  // spread). Returns a plate canvas, or null when this page prints nothing in
+  // this ink — nothing is decoded in that case. Every bitmap the pass touched
+  // is released before returning.
+  async _renderInkPlate(target, color, progress = null) {
+    const visible = target.recs.filter(r => r.visible && !r.isMaskFor);
+    if (!visible.length) return null;
+    const plate = this._buildPlateMap(visible).get(color);
+    if (!plate) return null;
+
+    const { layers, plate: livePlate } = await this._hydratePlate(target.recs, plate, progress);
+    try {
+      if (target.xOffsets) {
+        for (const l of layers) {
+          const dx = target.xOffsets.get(l.id) || 0;
+          if (dx) l.x += dx;
+        }
+      }
+      return await this._renderPlate(color, livePlate, target.width, target.height, layers, progress);
+    } finally {
+      this._releaseLayers(layers);
+    }
+  },
+
+  // One plate for one resolved target and one ink, ready to draw into a sheet
+  // cell. Returns { canvas, src } or null. Only the returned canvas is alive:
+  // the caller draws it and drops it before asking for the next one.
+  async _renderInkForTarget(target, color, progress = null) {
+    if (!target) return null;
+    const canvas = await this._renderInkPlate(target, color, progress);
+    if (!canvas) return null;
+    this._plateHeld();
+    return { canvas, src: target.src };
+  },
+
+  // Same, for callers that have not resolved the target yet. The exporters
+  // resolve once per sheet side and reuse the target across inks.
+  async _renderInkForPage(pageOrder, pageIndex, color, spreads, spreadOfPage, readerSpreadIds, progress = null) {
+    const target = await this._resolveInkTarget(pageOrder, pageIndex, spreads, spreadOfPage, readerSpreadIds);
+    return this._renderInkForTarget(target, color, progress);
+  },
+
+  // Resolve every cell a sheet side needs, once. Targets are layer RECORDS
+  // only — no bitmaps — so the whole side costs nothing to keep around while
+  // each ink is rendered in turn.
+  async _resolveSideTargets(side, pageOrder, spreads, spreadOfPage, readerSpreadIds, prog = null) {
+    const targets = [];
+    for (const cell of side.cells) {
+      const pageIndex = cell.pageIndex;
+      if (pageIndex === null || pageIndex === undefined) continue;
+      await this._stage(prog, `reading page ${pageIndex + 1} of ${pageOrder.length}…`);
+      const target = await this._resolveInkTarget(pageOrder, pageIndex, spreads, spreadOfPage, readerSpreadIds);
+      if (target) targets.push({ cell, pageIndex, target });
+    }
+    return targets;
+  },
+
+  // Same walk, but blending every ink into one full-colour composite.
+  async _renderCompositeForPage(pageOrder, pageIndex, spreads, spreadOfPage, readerSpreadIds, prog = null) {
+    const target = await this._resolveInkTarget(pageOrder, pageIndex, spreads, spreadOfPage, readerSpreadIds);
+    return this._renderCompositeForTarget(target, pageIndex, prog);
+  },
+
+  async _renderCompositeForTarget(target, pageIndex, prog = null) {
+    if (!target) return null;
+    const layers = [];
+    for (const rec of target.recs) {
+      const layer = await PageManager.hydrateLayer(rec);
+      if (!layer) continue;
+      const dx = target.xOffsets?.get(rec.id) || 0;
+      if (dx) layer.x += dx;
+      layers.push(layer);
+    }
+    try {
+      if (!layers.length) return null;
+      const canvas = await this._renderComposite(layers, target.width, target.height, prog, `Page ${pageIndex + 1}`);
+      this._plateHeld();
+      return { canvas, src: target.src };
+    } finally {
+      this._releaseLayers(layers);
+    }
+  },
+
+  // Instrumentation for the streaming invariant: plates alive at once. The
+  // exporters must never exceed 1 — a larger value means a plate is being
+  // held across pages instead of being drawn and released.
+  _plateHeld() {
+    this._livePlates = (this._livePlates || 0) + 1;
+    this._peakLivePlates = Math.max(this._peakLivePlates || 0, this._livePlates);
+  },
+
+  _plateDrawn() {
+    this._livePlates = Math.max(0, (this._livePlates || 0) - 1);
   },
 
   async export() {
@@ -288,26 +578,42 @@ export const ExportEngine = {
       };
 
       const startedAt = performance.now();
-      prog.begin(colors.length);
+      // One progress unit per downloadable file — a spread view splits every
+      // ink into a left and a right sheet.
+      const filesPerPlate = spreadInfo ? 2 : 1;
+      const totalFiles = colors.length * filesPerPlate;
+      prog.begin(totalFiles);
       let bytes = 0;
+      let files = 0;
 
       for (let ci = 0; ci < colors.length; ci++) {
         const color = colors[ci];
         const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
-        prog.textContent = `Rendering ${colorName} (${ci + 1}/${colors.length})…`;
-        await new Promise(r => setTimeout(r, 0));
+        const plate = plateMap.get(color);
+        const stageFor = text => this._stage(prog, `${colorName} — ${text}`);
+        const layerCount = plate
+          ? plate.solidLayers.length + plate.shapeParts.length + plate.separationLayers.length + plate.gradContributions.length
+          : 0;
 
-        const canvas = await this._renderPlate(color, plateMap.get(color), CANVAS_W, CANVAS_H, State.layers);
+        prog.textContent = `Plate ${files + 1} of ${totalFiles} · ${colorName} ink`;
+        await stageFor(`rendering ${layerCount} layer${layerCount === 1 ? '' : 's'}…`);
+
+        const canvas = await this._renderPlate(color, plate, CANVAS_W, CANVAS_H, State.layers, stageFor);
 
         const download = async (sideCanvas, name) => {
+          await stageFor(`encoding ${name}…`);
           const blob = await sideCanvas.convertToBlob({ type: 'image/png' });
           bytes += blob.size;
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url; a.download = name;
+          await stageFor(`saving ${name}…`);
           a.click();
           setTimeout(() => URL.revokeObjectURL(url), 5000);
           await new Promise(r => setTimeout(r, 400));
+          files += 1;
+          prog.advance(1, { bytes: blob.size });
+          if (files < totalFiles) prog.textContent = `Plate ${files + 1} of ${totalFiles} · ${colorName} ink`;
         };
 
         const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -317,19 +623,19 @@ export const ExportEngine = {
           const { left, right } = this._splitCanvasByWidth(canvas, spreadInfo.leftWidth);
           const leftSlug = spreadInfo.leftPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           const rightSlug = spreadInfo.rightPage.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          await stageFor('splitting spread…');
           await download(buildSingleImageSheet(left, singleImageOptions), `${projectSlug}-${leftSlug}-${colorSlug}${layoutSuffix}.png`);
           await download(buildSingleImageSheet(right, singleImageOptions), `${projectSlug}-${rightSlug}-${colorSlug}${layoutSuffix}.png`);
         } else {
+          await stageFor(`imposing ${copies}-up sheet…`);
           await download(buildSingleImageSheet(canvas, singleImageOptions), `${projectSlug}-${colorSlug}${layoutSuffix}.png`);
         }
-
-        prog.advance(1, { bytes });
       }
 
       for (const l of State.layers) { l._dirty = true; }
       Renderer.schedule();
 
-      prog.finish(`Done! ${colors.length} plate(s) exported.`);
+      prog.finish(`Done! ${files} plate${files === 1 ? '' : 's'} exported · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
       appendKofiNotice(progEl);
       closeWindowAfterExport();
     } catch (err) {
@@ -367,12 +673,13 @@ export const ExportEngine = {
 
   // Build per-color page plates in reader order for a saddle-stitch booklet.
   // Returns Map<colorHex, Array(pageOrder.length) of canvas|null>. Missing
-  // pages stay null so buildSheets renders them as blank white sheets. Used by
-  // the e2e harness so the spanning/crop behaviour is exercised in one place
-  // with the streaming exporter (which shares _renderSpreadPlates).
+  // pages stay null so buildSheets renders them as blank white sheets. Kept
+  // for the e2e harness, which needs every plate in memory at once; the real
+  // exporters never call it and stream one plate at a time instead.
   async _buildBookletPagePlates(pageOrder, prog = null) {
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
+    const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);
     const colorPages = new Map();
 
     const ensurePagePlate = color => {
@@ -382,93 +689,36 @@ export const ExportEngine = {
       return colorPages.get(color);
     };
 
-    for (let si = 0; si < spreads.length; si++) {
+    for (let pi = 0; pi < pageOrder.length; pi++) {
       if (prog) {
-        prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
+        prog.textContent = `Loading page ${pi + 1} / ${pageOrder.length}…`;
         await new Promise(r => setTimeout(r, 0));
       }
-
-      const spread = spreads[si];
-      const { left, right } = await this._renderSpreadPlates(spread, readerSpreadIds);
-
-      if (spread.leftPageId && left) {
-        const leftIdx = pageOrder.indexOf(spread.leftPageId);
-        for (const [color, canvas] of left.entries()) {
-          if (leftIdx !== -1) ensurePagePlate(color)[leftIdx] = canvas;
-        }
-      }
-      if (spread.rightPageId && right) {
-        const rightIdx = pageOrder.indexOf(spread.rightPageId);
-        for (const [color, canvas] of right.entries()) {
-          if (rightIdx !== -1) ensurePagePlate(color)[rightIdx] = canvas;
-        }
+      const target = await this._resolveInkTarget(pageOrder, pi, spreads, spreadOfPage, readerSpreadIds);
+      if (!target) continue;
+      for (const color of this._inkColorsOf(target.recs)) {
+        const canvas = await this._renderInkPlate(target, color);
+        if (canvas) ensurePagePlate(color)[pi] = canvas;
       }
     }
 
     return colorPages;
   },
 
-  // Render both halves of one printer spread. Spreads that are genuine reader
-  // spreads with layers crossing the fold render combined and split (so the
-  // content bleeds across the fold); every other pairing renders each page
-  // into its own page-sized canvas so content crops at the page edge.
-  // Returns { left: Map<color,canvas>|null, right: Map<color,canvas>|null }.
-  // All hydrated layer bitmaps are released before returning.
-  async _renderSpreadPlates(spread, readerSpreadIds) {
-    const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
-    const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
-    const leftWidth = leftPage?.width || 0;
-    const rightWidth = rightPage?.width || 0;
-    const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
-
-    const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
-    const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-    const spanning = readerSpreadIds.has(spread.id)
-      && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
-
-    let left = null;
-    let right = null;
-
-    if (!spanning) {
-      if (leftPage) left = await this.exportLayers(leftLayers, leftWidth, pageHeight);
-      if (rightPage) right = await this.exportLayers(rightLayers, rightWidth, pageHeight);
-    } else {
-      // Genuine reader spread: render combined and split so layers bleed
-      // across the fold.
-      const spreadWidth = leftWidth + rightWidth;
-      const layers = [...leftLayers];
-      for (const l of rightLayers) {
-        l.x += leftWidth;
-        layers.push(l);
-      }
-
-      const spreadPlateMap = await this.exportLayers(layers, spreadWidth, pageHeight);
-      left = new Map();
-      right = new Map();
-      for (const [color, spreadCanvas] of spreadPlateMap.entries()) {
-        if (leftPage) {
-          const leftPlate = new OffscreenCanvas(leftWidth, pageHeight);
-          leftPlate.getContext('2d').drawImage(spreadCanvas, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
-          left.set(color, leftPlate);
-        }
-        if (rightPage) {
-          const rightPlate = new OffscreenCanvas(rightWidth, pageHeight);
-          rightPlate.getContext('2d').drawImage(spreadCanvas, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
-          right.set(color, rightPlate);
-        }
+  // Every ink the given layer records print in, white excluded, in
+  // first-seen order. Same derivation as _buildPlateMap, without decoding.
+  _inkColorsOf(recs) {
+    const seen = new Set();
+    const out = [];
+    for (const rec of recs) {
+      if (!rec.visible || rec.isMaskFor) continue;
+      for (const c of this._plateColorsOfRecord(rec)) {
+        if (!c || c === '#FFFFFF' || seen.has(c)) continue;
+        seen.add(c);
+        out.push(c);
       }
     }
-
-    // Release bitmaps so streamed exports keep memory low.
-    for (const l of [...leftLayers, ...rightLayers]) {
-      l._originalCanvas = null;
-      l._processedCanvas = null;
-      l._maskCanvas = null;
-      l._svgImage = null;
-      l.separationPlates?.clear();
-    }
-
-    return { left, right };
+    return out;
   },
 
   async exportBooklet({ prog, projectSlug, layout, binding, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
@@ -494,87 +744,73 @@ export const ExportEngine = {
     );
     const plan = computeSheetPlan(pageCount, sheetLayout, binding, bookletLayout, 0);
 
-    prog.begin(plan.length * colors.length);
+    const totalPlates = plan.length * colors.length;
+    prog.begin(totalPlates);
     const startedAt = performance.now();
 
     // Saddle-stitch pairing: reader page index → the spread it belongs to.
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
-    const spreadOfPage = new Map();
-    spreads.forEach((sp, i) => {
-      const li = sp.leftPageId ? pageOrder.indexOf(sp.leftPageId) : -1;
-      const ri = sp.rightPageId ? pageOrder.indexOf(sp.rightPageId) : -1;
-      if (li !== -1) spreadOfPage.set(li, { index: i, role: 'left' });
-      if (ri !== -1) spreadOfPage.set(ri, { index: i, role: 'right' });
-    });
+    const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);
 
     let bytes = 0;
     let done = 0;
-
-    // Spread halves cache. Booklet imposition always places a reader spread's
-    // two halves on adjacent sides of the same physical sheet, so keeping the
-    // last side's spreads is enough to render every spread exactly once while
-    // bounding memory to roughly one sheet's worth of page plates.
-    const spreadCache = new Map();    // spreadIndex → { halves, lastSide }
+    this._peakLivePlates = 0;
+    this._livePlates = 0;
 
     for (let si = 0; si < plan.length; si++) {
       const side = plan[si];
-
-      // Render the pages this side needs, one page at a time. Spanning
-      // spreads render combined and split into cached halves.
-      const pagePlates = new Map();     // pageIndex → Map(color → canvas)
-      const neededPages = [...new Set(side.cells.map(c => c.pageIndex))]
-        .filter(pi => pi !== null && pi !== undefined);
-
-      for (const pi of neededPages) {
-        if (this._cancelRequested) return this._reportCancelled(prog, done, bytes);
-        prog.textContent = `Sheet ${si + 1} of ${plan.length} — rendering page ${pi + 1} of ${pageCount}…`;
-        await new Promise(r => setTimeout(r, 0));
-
-        const spInfo = spreadOfPage.get(pi);
-        let half;
-        if (spInfo) {
-          let entry = spreadCache.get(spInfo.index);
-          if (!entry) {
-            const halves = await this._renderSpreadPlates(spreads[spInfo.index], readerSpreadIds);
-            entry = { halves, lastSide: si };
-            spreadCache.set(spInfo.index, entry);
-          }
-          entry.lastSide = si;
-          half = entry.halves[spInfo.role];
-        } else {
-          half = await this._renderPagePlates(pageOrder, pi);
-        }
-        if (half) pagePlates.set(pi, half);
-      }
+      prog.textContent = `Sheet ${si + 1} of ${plan.length} · preparing`;
+      // Resolve this side's pages once; the targets hold layer records only,
+      // so every ink below reuses them without decoding anything twice. The
+      // stage line names each page as its records are read.
+      const sideTargets = await this._resolveSideTargets(side, pageOrder, spreads, spreadOfPage, readerSpreadIds, prog);
 
       // Compose, encode and download each ink for this side. Inks with no
       // content on this side still download as blank white sheets, keeping
       // the per-ink file set complete for print shops.
       for (const color of colors) {
-        if (this._cancelRequested) return this._reportCancelled(prog, done, bytes);
+        if (this._cancelRequested) return this._reportCancelled(prog, { done, total: totalPlates, bytes, startedAt });
         const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
-        prog.textContent = `Sheet ${si + 1} of ${plan.length} — ${colorName} ink…`;
+        const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const fileName = `${projectSlug}-${colorSlug}-sheet-${si + 1}.png`;
+        prog.textContent = `Sheet ${si + 1} of ${plan.length} · ${colorName} ink · plate ${done + 1} of ${totalPlates}`;
+        await new Promise(r => setTimeout(r, 0));
 
-        const sideCanvas = renderSheetSide(side, i => pagePlates.get(i)?.get(color) || null);
+        const sideCanvas = newSheetCanvas(side);
+        const sideCtx = sideCanvas.getContext('2d');
+
+        // One page, one plate: draw it into its cell and drop it before the
+        // next page is touched. Nothing but this sheet survives the loop. The
+        // stage line follows each page through content check → layer load →
+        // layer render → draw.
+        for (const { cell, pageIndex: pi, target } of sideTargets) {
+          if (this._cancelRequested) return this._reportCancelled(prog, { done, total: totalPlates, bytes, startedAt });
+          const pageOf = text => this._stage(prog, `${colorName} · page ${pi + 1} of ${pageCount} — ${text}`);
+
+          await pageOf('checking content…');
+          const plate = await this._renderInkForTarget(target, color, pageOf);
+          if (!plate) {
+            await pageOf('nothing printed in this ink');
+            continue;
+          }
+          drawPageInCell(sideCtx, plate.canvas, cell, side.pageRotated, side.bleed, cell.extraRotation, plate.src);
+          plate.canvas = null;
+          this._plateDrawn();
+        }
+
+        await this._stage(prog, `encoding ${fileName}…`);
         const blob = await sideCanvas.convertToBlob({ type: 'image/png' });
         bytes += blob.size;
-        const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `${projectSlug}-${colorSlug}-sheet-${si + 1}.png`;
+        a.href = url; a.download = fileName;
+        await this._stage(prog, `saving ${fileName}…`);
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
         await new Promise(r => setTimeout(r, 400));
         done += 1;
-        prog.advance(1, { bytes });
-      }
-
-      // Release this side's page plates, and spread halves that were last
-      // used on a previous side (a spread never reaches later sheets).
-      pagePlates.clear();
-      for (const [k, entry] of spreadCache) {
-        if (entry.lastSide < si) spreadCache.delete(k);
+        prog.advance(1, { bytes: blob.size });
       }
     }
 
@@ -584,23 +820,6 @@ export const ExportEngine = {
     prog.finish(`Done! ${done} sheets — ${plan.length} sides × ${colors.length} inks · ${pageCount} pages · ${scan.totalLayers} layers · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
     appendKofiNotice(prog.element || prog);
     closeWindowAfterExport();
-  },
-
-  // Render one reader page's plates (every ink) from its own layers,
-  // releasing the hydrated layer bitmaps before returning.
-  async _renderPagePlates(pageOrder, pageIndex) {
-    const pid = pageOrder[pageIndex];
-    const page = await DB.get('pages', pid);
-    const layers = await PageManager.loadPageLayers(pid);
-    const plates = await this.exportLayers(layers, page?.width || CANVAS_W, page?.height || CANVAS_H);
-    for (const l of layers) {
-      l._originalCanvas = null;
-      l._processedCanvas = null;
-      l._maskCanvas = null;
-      l._svgImage = null;
-      l.separationPlates?.clear();
-    }
-    return plates;
   },
 
   // Cheap pre-flight over layer RECORDS only — no bitmap decoding. Collects
@@ -618,15 +837,10 @@ export const ExportEngine = {
       if (recs.length && !firstContentPage) {
         firstContentPage = await DB.get('pages', pid);
       }
-      for (const rec of recs) {
-        // Mirror exportLayers' filters: invisible layers and mask layers
-        // (rendered as part of their base layer) contribute no ink.
-        if (!rec.visible || rec.isMaskFor) continue;
-        for (const c of this._plateColorsOfRecord(rec)) {
-          if (!c || c === '#FFFFFF' || seen.has(c)) continue;
-          seen.add(c);
-          colors.push(c);
-        }
+      for (const c of this._inkColorsOf(recs)) {
+        if (seen.has(c)) continue;
+        seen.add(c);
+        colors.push(c);
       }
     }
     return { colors, totalLayers, firstContentPage };
@@ -651,10 +865,13 @@ export const ExportEngine = {
     return rec.color ? [rec.color] : [];
   },
 
-  _reportCancelled(prog, done, bytes) {
+  _reportCancelled(prog, { done, total = 0, bytes = 0, startedAt = 0 }) {
     for (const l of State.layers) { l._dirty = true; }
     Renderer.schedule();
-    prog.finish(`Export cancelled — ${done} sheet${done === 1 ? '' : 's'} saved${bytes ? ` (${formatBytes(bytes)})` : ''}.`);
+    const parts = [`Export cancelled — ${done}${total ? ` of ${total}` : ''} plate${done === 1 ? '' : 's'} saved`];
+    if (bytes) parts.push(formatBytes(bytes));
+    if (startedAt) parts.push(formatDuration(performance.now() - startedAt));
+    prog.finish(`${parts.join(' · ')}.`);
   },
 
   // Ask the active export to stop after the current plate. Checked between
@@ -671,10 +888,9 @@ export const ExportEngine = {
     for (let li = 0; li < visibleLayers.length; li++) {
       const layer = visibleLayers[li];
       if (prog) {
-        prog.textContent = label
+        await this._stage(prog, label
           ? `${label}: blending layer ${li + 1} / ${visibleLayers.length}…`
-          : `Blending layer ${li + 1} / ${visibleLayers.length}…`;
-        await new Promise(r => setTimeout(r, 0));
+          : `Blending layer ${li + 1} / ${visibleLayers.length}…`);
       }
 
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
@@ -768,103 +984,67 @@ export const ExportEngine = {
 
   // Build per-page full-colour composites in reader order for a saddle-stitch
   // booklet. Returns Array(pageOrder.length) of canvas|null. Same spanning/crop
-  // rule as _buildBookletPagePlates. Shared by _exportCompositeBooklet and the
-  // e2e harness.
+  // rule as _buildBookletPagePlates. Kept for the e2e harness, which needs every
+  // composite in memory at once; the exporter streams them instead.
   async _buildBookletPageComposites(pageOrder, prog = null) {
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
+    const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);
     const pageComposites = Array(pageOrder.length).fill(null);
 
-    for (let si = 0; si < spreads.length; si++) {
-      const spread = spreads[si];
-      const leftPage = spread.leftPageId ? await DB.get('pages', spread.leftPageId) : null;
-      const rightPage = spread.rightPageId ? await DB.get('pages', spread.rightPageId) : null;
-      const leftWidth = leftPage?.width || 0;
-      const rightWidth = rightPage?.width || 0;
-      const pageHeight = Math.max(leftPage?.height || 0, rightPage?.height || 0);
-
+    for (let pi = 0; pi < pageOrder.length; pi++) {
       if (prog) {
-        prog.textContent = `Loading spread ${si + 1} / ${spreads.length}…`;
+        prog.textContent = `Loading page ${pi + 1} / ${pageOrder.length}…`;
         await new Promise(r => setTimeout(r, 0));
       }
-
-      const leftLayers = leftPage ? await PageManager.loadPageLayers(leftPage.id) : [];
-      const rightLayers = rightPage ? await PageManager.loadPageLayers(rightPage.id) : [];
-      const spanning = readerSpreadIds.has(spread.id)
-        && this._hasSpanningLayers(leftLayers, rightLayers, leftWidth);
-
-      if (!spanning) {
-        // Single pages: render each into its own page-sized canvas (cropped).
-        if (leftPage) {
-          const composite = await this._renderComposite(leftLayers, leftWidth, pageHeight, prog, `Page ${pageOrder.indexOf(leftPage.id) + 1}`);
-          pageComposites[pageOrder.indexOf(leftPage.id)] = composite;
-        }
-        if (rightPage) {
-          const composite = await this._renderComposite(rightLayers, rightWidth, pageHeight, prog, `Page ${pageOrder.indexOf(rightPage.id) + 1}`);
-          pageComposites[pageOrder.indexOf(rightPage.id)] = composite;
-        }
-      } else {
-        // Genuine reader spread: render combined and split across the fold.
-        const spreadWidth = leftWidth + rightWidth;
-        const layers = [...leftLayers];
-        for (const l of rightLayers) {
-          l.x += leftWidth;
-          layers.push(l);
-        }
-
-        const spreadComposite = await this._renderComposite(layers, spreadWidth, pageHeight, prog, `Spread ${si + 1}`);
-        if (leftPage) {
-          const leftIdx = pageOrder.indexOf(leftPage.id);
-          if (leftIdx !== -1) {
-            const leftComposite = new OffscreenCanvas(leftWidth, pageHeight);
-            leftComposite.getContext('2d').drawImage(spreadComposite, 0, 0, leftWidth, pageHeight, 0, 0, leftWidth, pageHeight);
-            pageComposites[leftIdx] = leftComposite;
-          }
-        }
-        if (rightPage) {
-          const rightIdx = pageOrder.indexOf(rightPage.id);
-          if (rightIdx !== -1) {
-            const rightComposite = new OffscreenCanvas(rightWidth, pageHeight);
-            rightComposite.getContext('2d').drawImage(spreadComposite, leftWidth, 0, rightWidth, pageHeight, 0, 0, rightWidth, pageHeight);
-            pageComposites[rightIdx] = rightComposite;
-          }
-        }
-      }
-
-      // Release bitmaps for this spread to keep memory low.
-      for (const l of [...leftLayers, ...rightLayers]) {
-        l._originalCanvas = null;
-        l._processedCanvas = null;
-        l._maskCanvas = null;
-        l._svgImage = null;
-        l.separationPlates?.clear();
-      }
+      const { canvas } = await this._renderCompositeForPage(pageOrder, pi, spreads, spreadOfPage, readerSpreadIds, prog) || {};
+      if (canvas) pageComposites[pi] = canvas;
     }
 
     return pageComposites;
   },
 
   async _exportCompositeBooklet({ prog, projectSlug, bookletLayout, targetSheetSize, customTargetW, customTargetH }) {
-    // Render spreads rather than individual pages so layers that span the
-    // center fold are preserved on both sides of the imposition.
+    // Rendered and imposed ONE SHEET SIDE at a time: pages are composited one
+    // at a time into the sheet and released, so a booklet never holds every
+    // page composite (and every finished sheet) at once. Spreads render
+    // combined so layers crossing the centre fold survive the imposition.
     const pageOrder = State.project.pageOrder;
-    const pageComposites = await this._buildBookletPageComposites(pageOrder, prog);
+    const scan = await this._scanPages(pageOrder);
+    const refPage = scan.firstContentPage;
+    const sheetLayout = calculateLayout(
+      refPage?.width || CANVAS_W,
+      refPage?.height || CANVAS_H,
+      targetSheetSize, customTargetW, customTargetH
+    );
+    const plan = computeSheetPlan(pageOrder.length, sheetLayout, 'saddle-stitch', bookletLayout, 0);
 
-    prog.textContent = 'Imposing sheets…';
-    await new Promise(r => setTimeout(r, 0));
+    const spreads = computeSpreads(pageOrder, 'saddle-stitch');
+    const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
+    const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);
+    this._peakLivePlates = 0;
+    this._livePlates = 0;
 
-    const outputCanvases = buildSheets(pageComposites, {
-      binding: 'saddle-stitch',
-      bookletLayout,
-      targetSheetSize,
-      customTargetW,
-      customTargetH,
-    });
+    for (let si = 0; si < plan.length; si++) {
+      const side = plan[si];
+      const sideTargets = await this._resolveSideTargets(side, pageOrder, spreads, spreadOfPage, readerSpreadIds, prog);
+      const sheet = newSheetCanvas(side);
+      const ctx = sheet.getContext('2d');
 
-    for (let si = 0; si < outputCanvases.length; si++) {
-      prog.textContent = `Encoding sheet ${si + 1} / ${outputCanvases.length}…`;
+      for (const { cell, pageIndex: pi, target } of sideTargets) {
+        prog.textContent = `Sheet ${si + 1} / ${plan.length} — page ${pi + 1} / ${pageOrder.length}…`;
+        await new Promise(r => setTimeout(r, 0));
+
+        const composite = await this._renderCompositeForTarget(target, pi, prog);
+        if (!composite) continue;
+        drawPageInCell(ctx, composite.canvas, cell, side.pageRotated, side.bleed, cell.extraRotation, composite.src);
+        composite.canvas = null;
+        this._plateDrawn();
+      }
+
+      prog.textContent = `Encoding sheet ${si + 1} / ${plan.length}…`;
       await new Promise(r => setTimeout(r, 0));
-      const blob = await outputCanvases[si].convertToBlob({ type: 'image/png' });
+      const blob = await sheet.convertToBlob({ type: 'image/png' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

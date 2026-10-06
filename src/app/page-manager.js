@@ -341,7 +341,10 @@ export const PageManager = {
     this._refreshAfterPageSwitch(leftPage, rightPage);
   },
 
-  async loadPageLayers(pageId) {
+  // A page's layer RECORDS in draw order, without decoding any bitmaps.
+  // The exporter builds its ink plan from these, so it can decide what to
+  // hydrate for one plate instead of hydrating every layer on the page.
+  async loadPageLayerRecords(pageId) {
     const layerRecords = await DB.getByIndex('layers', 'by-page', pageId);
     const page = await DB.get('pages', pageId);
     const order = page?.layerOrder || [];
@@ -349,6 +352,11 @@ export const PageManager = {
       const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
+    return layerRecords;
+  },
+
+  async loadPageLayers(pageId) {
+    const layerRecords = await this.loadPageLayerRecords(pageId);
     const layers = [];
     for (const rec of layerRecords) {
       const layer = await this.hydrateLayer(rec);

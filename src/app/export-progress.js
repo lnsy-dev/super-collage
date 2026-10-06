@@ -1,11 +1,16 @@
-/* ═══════════════════════════════════════════════════════════════════
-   Export progress: a small metrics readout for long-running exports.
+/* ═════════════════════════════════════════════════════════════════════
+   Export progress: a metrics readout plus a live stage line for long exports.
 
-   Wraps the export dialog's progress container with a determinate bar,
-   a status label and a live metrics line (elapsed / ETA / output size).
+   Wraps the export dialog's progress container with:
+   - a determinate bar,
+   - a status LABEL — which unit is in flight (sheet, ink, plate N of M),
+   - a STAGE line — what the exporter is doing right now (reading a page,
+     loading layers, rendering layer i of n, encoding, saving a file),
+   - a metrics line (plates done/total / elapsed / ETA / output size).
+
    `textContent` stays a working property so existing
    `prog.textContent = …` status updates keep working unchanged.
-   ═══════════════════════════════════════════════════════════════════ */
+   ═════════════════════════════════════════════════════════════════════ */
 
 export function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return '0 MB';
@@ -34,12 +39,16 @@ export function createExportProgress(container) {
   const label = document.createElement('div');
   label.className = 'export-progress-label';
 
+  const stageEl = document.createElement('div');
+  stageEl.className = 'export-progress-stage';
+
   const metrics = document.createElement('div');
   metrics.className = 'export-progress-metrics';
 
   container.textContent = '';
   container.appendChild(bar);
   container.appendChild(label);
+  container.appendChild(stageEl);
   container.appendChild(metrics);
 
   let totalUnits = 0;
@@ -72,6 +81,7 @@ export function createExportProgress(container) {
       startTime = performance.now();
       fill.style.width = totalUnits ? '0%' : '100%';
       label.textContent = 'Preparing export…';
+      stageEl.textContent = '';
       renderMetrics();
     },
 
@@ -83,6 +93,17 @@ export function createExportProgress(container) {
       renderMetrics();
     },
 
+    /**
+     * The fine-grained "right now" line under the label: which page is being
+     * read, which layer is rendering, whether we are encoding or saving.
+     * Pass '' to clear it.
+     */
+    stage(text) {
+      stageEl.textContent = text || '';
+    },
+
+    get stageText() { return stageEl.textContent; },
+
     /** Reset the counter for a fresh phase (e.g. per-page loop). */
     reset(total) {
       this.begin(total);
@@ -91,14 +112,18 @@ export function createExportProgress(container) {
     finish(summaryText) {
       fill.style.width = '100%';
       label.textContent = summaryText;
+      stageEl.textContent = '';
       const elapsed = performance.now() - startTime;
-      const parts = [`⏱ ${formatDuration(elapsed)}`];
+      const parts = [];
+      if (totalUnits) parts.push(`${doneUnits} / ${totalUnits} plates`);
+      parts.push(`⏱ ${formatDuration(elapsed)}`);
       if (bytes > 0) parts.push(formatBytes(bytes));
       metrics.textContent = parts.join(' · ');
     },
 
     fail(text) {
       label.textContent = text;
+      stageEl.textContent = '';
     },
 
     get textContent() { return label.textContent; },

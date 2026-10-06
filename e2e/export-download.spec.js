@@ -11,7 +11,10 @@ async function addBlackImageToPage(page, pageId, colorHex) {
   await setLayerColorDirect(page, colorHex);
 }
 
+// Heavy fixture (four 3300×5100 source images + eight letter-size PNG
+// sheets): the default 30s test timeout leaves no room under suite load.
 test('export all pages as booklet downloads sheets', async ({ page }) => {
+  test.setTimeout(60000);
   await createProject(page, 'Booklet Download', { pageSize: 'half-letter', pageCount: 4 });
   const pageIds = await getProjectPageIds(page);
   const colors = ['#f65058', '#0078bf', '#ffe800', '#5ec8e5'];

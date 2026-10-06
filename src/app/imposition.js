@@ -283,21 +283,71 @@ function _gridSheetPlan(pageCount, layout, bleed) {
 }
 
 /**
+ * Allocate one white sheet-side canvas for a planned side. The streaming
+ * exporter draws plates onto this one cell at a time, so no page plates have
+ * to be held at the same time.
+ */
+export function newSheetCanvas(side) {
+  const sheet = new OffscreenCanvas(side.sheetW, side.sheetH);
+  const ctx = sheet.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, side.sheetW, side.sheetH);
+  return sheet;
+}
+
+/**
  * Render one planned sheet side to an OffscreenCanvas. `getPage(pageIndex)`
  * supplies each cell's plate canvas (or null/undefined for a blank cell).
  */
 export function renderSheetSide(side, getPage) {
-  const { sheetW, sheetH, pageRotated, bleed, cells } = side;
-  const sheet = new OffscreenCanvas(sheetW, sheetH);
+  const { pageRotated, bleed, cells } = side;
+  const sheet = newSheetCanvas(side);
   const ctx = sheet.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, sheetW, sheetH);
   for (const cell of cells) {
     const page = getPage(cell.pageIndex);
     if (!page) continue;
-    _drawPageInCell(ctx, page, cell.cellX, cell.cellY, cell.cellW, cell.cellH, pageRotated, bleed, cell.extraRotation);
+    drawPageInCell(ctx, page, cell, pageRotated, bleed, cell.extraRotation);
   }
   return sheet;
+}
+
+/**
+ * Draw a page (or one half of a spread) into a sheet cell: fitted, centered,
+ * scaled down only when it cannot fit. `src` optionally restricts drawing to a
+ * source rectangle, which is how a spread plate is cropped back to one page
+ * without allocating an intermediate canvas.
+ */
+export function drawPageInCell(ctx, page, cell, pageRotated, bleed = 0, extraRotation = 0, src = null) {
+  const { cellX, cellY, cellW, cellH } = cell;
+  let srcW = src ? src.w : (pageRotated ? page.height : page.width);
+  let srcH = src ? src.h : (pageRotated ? page.width : page.height);
+
+  // Account for extra cell rotation: 90°/270° swaps the fitted width/height.
+  if (Math.abs(Math.sin(extraRotation)) > 0.5) {
+    [srcW, srcH] = [srcH, srcW];
+  }
+
+  // Reserve bleed gutters proportionally.
+  const gutterX = (cellW > 0 && bleed > 0 ? bleed : 0);
+  const gutterY = (cellH > 0 && bleed > 0 ? bleed : 0);
+  const availW = Math.max(1, cellW - gutterX);
+  const availH = Math.max(1, cellH - gutterY);
+
+  // Scale down only if the page cannot fit; never upscale.
+  const scale = Math.min(1, availW / srcW, availH / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+
+  const x = cellX + (cellW - drawW) / 2;
+  const y = cellY + (cellH - drawH) / 2;
+
+  ctx.save();
+  ctx.translate(x + drawW / 2, y + drawH / 2);
+  ctx.rotate(extraRotation);
+  if (pageRotated) ctx.rotate(Math.PI / 2);
+  if (src) ctx.drawImage(page, src.x, src.y, src.w, src.h, -drawW / 2, -drawH / 2, drawW, drawH);
+  else ctx.drawImage(page, -drawW / 2, -drawH / 2, drawW, drawH);
+  ctx.restore();
 }
 
 /**
@@ -371,41 +421,10 @@ export function buildSingleImageSheet(image, options = {}) {
   const cellH = layout.sheetH / layout.rows;
   for (let r = 0; r < layout.rows; r++) {
     for (let c = 0; c < layout.cols; c++) {
-      _drawPageInCell(ctx, image, c * cellW, r * cellH, cellW, cellH, layout.imageRotated, 0);
+      drawPageInCell(ctx, image, { cellX: c * cellW, cellY: r * cellH, cellW, cellH }, layout.imageRotated, 0);
     }
   }
   return sheet;
-}
-
-function _drawPageInCell(ctx, page, cellX, cellY, cellW, cellH, pageRotated, bleed, extraRotation = 0) {
-  let srcW = pageRotated ? page.height : page.width;
-  let srcH = pageRotated ? page.width : page.height;
-
-  // Account for extra cell rotation: 90°/270° swaps the fitted width/height.
-  if (Math.abs(Math.sin(extraRotation)) > 0.5) {
-    [srcW, srcH] = [srcH, srcW];
-  }
-
-  // Reserve bleed gutters proportionally.
-  const gutterX = (cellW > 0 && bleed > 0 ? bleed : 0);
-  const gutterY = (cellH > 0 && bleed > 0 ? bleed : 0);
-  const availW = Math.max(1, cellW - gutterX);
-  const availH = Math.max(1, cellH - gutterY);
-
-  // Scale down only if the page cannot fit; never upscale.
-  const scale = Math.min(1, availW / srcW, availH / srcH);
-  const drawW = srcW * scale;
-  const drawH = srcH * scale;
-
-  const x = cellX + (cellW - drawW) / 2;
-  const y = cellY + (cellH - drawH) / 2;
-
-  ctx.save();
-  ctx.translate(x + drawW / 2, y + drawH / 2);
-  ctx.rotate(extraRotation);
-  if (pageRotated) ctx.rotate(Math.PI / 2);
-  ctx.drawImage(page, -drawW / 2, -drawH / 2, drawW, drawH);
-  ctx.restore();
 }
 
 
