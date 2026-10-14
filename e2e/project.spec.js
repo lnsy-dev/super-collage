@@ -91,6 +91,7 @@ test.describe('Project Management', () => {
       { value: 'half-letter', label: 'Half Letter (5.5" × 8.5")' },
       { value: '4x6', label: '4 × 6 (4" × 6")' },
       { value: '4.25x7', label: '4.25 × 7 (4.25" × 7")' },
+      { value: 'notebook-cover', label: 'Notebook Cover 3.5 × 5.5 (7" × 5.5")' },
       { value: 'manga', label: 'Manga (5.04" × 7.17")' },
       { value: 'business-card', label: 'Business Card (3.5" × 2")' },
     ];

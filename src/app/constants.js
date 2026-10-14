@@ -19,6 +19,8 @@ export const PAGE_SIZE_DIMS = {
   'tabloid':      { w: 6600, h: 10200, name: 'Tabloid',       unit: 'imperial', wIn: 11,   hIn: 17 },
   '4x6':          { w: 2400, h: 3600,  name: '4 × 6',         unit: 'imperial', wIn: 4,    hIn: 6 },
   '4.25x7':       { w: 2550, h: 4200,  name: '4.25 × 7',      unit: 'imperial', wIn: 4.25, hIn: 7 },
+  // Wrap cover for a 3.5 × 5.5 notebook: back and front cover side by side.
+  'notebook-cover':{ w: 4200, h: 3300,  name: 'Notebook Cover 3.5 × 5.5', unit: 'imperial', wIn: 7, hIn: 5.5 },
   'manga':        { w: 3024, h: 4302,  name: 'Manga',         unit: 'imperial', wIn: 5.04, hIn: 7.17 },
   'business-card':{ w: 2100, h: 1200,  name: 'Business Card', unit: 'imperial', wIn: 3.5,  hIn: 2 },
   // Metric

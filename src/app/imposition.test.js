@@ -7,6 +7,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { saddleStitchOrder, calculateLayout, calculateSingleImageLayout } from './imposition.js';
 
+// Notebook cover: 7" × 5.5" wrap cover (4200 × 3300 px @ 600 dpi).
+const COVER_W = 4200, COVER_H = 3300;
+
 describe('saddleStitchOrder', () => {
   it('returns classic zine order for 8 pages', () => {
     // Reader page numbers are 1-indexed; expected outside-inside pairs:
@@ -42,6 +45,16 @@ describe('calculateLayout', () => {
     assert.equal(layout.pagesPerSheet, 4);
     assert.equal(layout.sheetW, 6600);
     assert.equal(layout.sheetH, 10200);
+    assert.equal(layout.pageRotated, false);
+  });
+
+  it('fits two notebook covers per portrait letter side, stacked vertically', () => {
+    const layout = calculateLayout(COVER_W, COVER_H, 'letter');
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 2);
+    assert.equal(layout.pagesPerSheet, 2);
+    assert.equal(layout.sheetW, 5100);
+    assert.equal(layout.sheetH, 6600);
     assert.equal(layout.pageRotated, false);
   });
 });
@@ -99,5 +112,14 @@ describe('calculateSingleImageLayout', () => {
     assert.equal(layout.sheetH, 6600);
     assert.equal(layout.cols, 1);
     assert.equal(layout.rows, 2);
+  });
+
+  it('stacks notebook cover copies vertically for 2-up on portrait letter', () => {
+    const layout = calculateSingleImageLayout(COVER_W, COVER_H, 2, 'letter');
+    assert.equal(layout.sheetW, 5100);
+    assert.equal(layout.sheetH, 6600);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 2);
+    assert.equal(layout.imageRotated, false);
   });
 });

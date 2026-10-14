@@ -149,4 +149,32 @@ test.describe('Export', () => {
     // White gap between the vertically stacked copies at the sheet midpoint.
     expect(sheet.midGapGrey).toBeGreaterThan(250);
   });
+
+  test('notebook cover 2up plate export stacks copies vertically on portrait letter', async ({ page }) => {
+    // 7" × 5.5" wrap cover (4200×3300 px @600dpi) with a black image
+    // 3000×2000 centered on it.
+    await createProject(page, 'Notebook Cover 2up', { pageSize: 'notebook-cover' });
+    await addSolidColorImage(page, '#000000', { width: 3000, height: 2000 });
+    await page.evaluate(() => {
+      const l = window.State.layers[0];
+      l.x = 600; l.y = 650;
+    });
+
+    const result = await runExportSinglePlate(page, { layout: '2up', targetSheetSize: 'letter' });
+    const plates = Object.values(result);
+    expect(plates.length).toBe(1);
+    const sheet = plates[0];
+
+    // Two covers fill a portrait letter sheet exactly, stacked vertically.
+    expect(sheet.width).toBe(5100);
+    expect(sheet.height).toBe(6600);
+    // Page lands at offset (450, 0) and (450, 3300); its ink sits at
+    // (1050, 650)-(4050, 2650) and (1050, 3950)-(4050, 5950).
+    expect(sheet.ink.minX).toBeGreaterThanOrEqual(1048);
+    expect(sheet.ink.maxX).toBeLessThanOrEqual(4051);
+    expect(sheet.ink.minY).toBeGreaterThanOrEqual(648);
+    expect(sheet.ink.maxY).toBeLessThanOrEqual(5951);
+    // White gap between the stacked covers at the sheet midpoint.
+    expect(sheet.midGapGrey).toBeGreaterThan(250);
+  });
 });
