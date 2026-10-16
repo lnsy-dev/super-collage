@@ -639,6 +639,25 @@ function onPointerMove(e) {
         if (el.textMode === 'line') scaleTextMetrics(el, es, scaleX, scaleY);
       }
     }
+    // Linked siblings and the group's image-mask layers scale about the group
+    // anchor — the primary's stationary fixed corner — so the group's relative
+    // arrangement (and mask alignment) is preserved exactly, instead of every
+    // member sliding by the primary's own translation.
+    const anchor = overlayToPage(State.drag.resizeMeta.fixedPos.x, State.drag.resizeMeta.fixedPos.y, z);
+    const groupEs = [...(State.drag.extraSnaps || []), ...(State.drag.maskSnaps || [])];
+    for (const es of groupEs) {
+      if (es.kind === 'selected') continue;
+      const el = State.layers.find(l => l.id === es.id);
+      if (!el) continue;
+      el.width  = Math.max(10, es.width  * scaleX);
+      el.height = Math.max(10, es.height * scaleY);
+      el.x = anchor.x + scaleX * (es.x + es.width / 2 - anchor.x) - el.width / 2;
+      el.y = anchor.y + scaleY * (es.y + es.height / 2 - anchor.y) - el.height / 2;
+      if (el.isText) {
+        el.naturalWidth = el.width;
+        el.naturalHeight = el.height;
+      }
+    }
   }
 
   UI.refreshProperties();
