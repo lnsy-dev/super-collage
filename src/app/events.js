@@ -599,10 +599,11 @@ function onPointerMove(e) {
     // factor and the same position delta.
     const scaleX = layer.width / snap.width;
     const scaleY = layer.height / snap.height;
-    // Text keeps pace with the block: the font is scaled from its
-    // drag-start value every event (no compounding), and re-rendered on
-    // release, so the type never snaps back inside the resized box.
-    scaleTextMetrics(layer, snap, scaleX, scaleY);
+    // Point type ('line') scales the font with the block. Paragraph boxes
+    // ('box') only reflow: the field changes but the type size stays.
+    if (layer.isText && layer.textMode === 'line') {
+      scaleTextMetrics(layer, snap, scaleX, scaleY);
+    }
     const posDx = layer.x - snap.x;
     const posDy = layer.y - snap.y;
     for (const es of (State.drag.extraSnaps || [])) {
@@ -615,8 +616,8 @@ function onPointerMove(e) {
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
+        if (el.textMode === 'line') scaleTextMetrics(el, es, scaleX, scaleY);
       }
-      scaleTextMetrics(el, es, scaleX, scaleY);
     }
     // Linked siblings and the group's image-mask layers scale about the group
     // anchor — the primary's stationary fixed corner — so the group's relative
@@ -635,8 +636,8 @@ function onPointerMove(e) {
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
+        if (el.textMode === 'line') scaleTextMetrics(el, es, scaleX, scaleY);
       }
-      scaleTextMetrics(el, es, scaleX, scaleY);
     }
   }
 
@@ -1038,7 +1039,7 @@ export function wireControls() {
         if (Math.abs(factor - 1) > 1e-9) {
           const sx = field === 'width' ? factor : 1;
           const sy = field === 'height' ? factor : 1;
-          scaleTextMetrics(l, l, sx, sy);
+          if (l.isText && l.textMode === 'line') scaleTextMetrics(l, l, sx, sy);
           const group = getScaleGroup(l);
           if (group.length) {
             if (field === 'width') l.x = (l.x + prev / 2) - l.width / 2;

@@ -1005,14 +1005,15 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
 .pat-slider-row .prop-label { width:30px; font-size:1.25rem; flex-shrink:0; }
 .pat-slider-row input[type=range] { flex:1; }
 .pat-slider-row .prop-value { width:28px; font-size:1.25rem; text-align:right; }
-.grad-angle-row, .grad-center-row {
+.grad-angle-row,
+.grad-cx-row,
+.grad-cy-row {
   display:flex; align-items:center; gap:3px; margin-bottom:4px;
 }
 
-/* Two labeled sliders share the single center row (radial CX + CY): keep
-   each label pinned to its own slider. */
-.grad-center-row .prop-label:not(:first-child) {
-  margin-left: 8px;
+/* Each gradient center input (CX, CY) lives on its own line. */
+.grad-center-row {
+  display:flex; flex-direction:column; gap:0; margin-bottom:4px;
 }
 
 /* ─── COLOR MANAGER DIALOG ───────────────────────────────────────── */
