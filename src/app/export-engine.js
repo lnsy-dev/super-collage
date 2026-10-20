@@ -6,7 +6,6 @@ import { State } from './state.js';
 import { CANVAS_W, CANVAS_H, RISO_COLORS } from './constants.js';
 import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from './image-processor.js';
 import { DB } from './db.js';
-import { hexToRgb } from '../utils/color.js';
 import { Renderer } from './renderer.js';
 import { appendKofiNotice, closeWindowAfterExport } from './ui.js';
 import { calculateLayout, computeSheetPlan, newSheetCanvas, drawPageInCell, buildSingleImageSheet } from './imposition.js';
@@ -219,26 +218,11 @@ export const ExportEngine = {
       const sCtx = scaled.getContext('2d', { willReadFrequently: true });
       sCtx.drawImage(plateCanvas, 0, 0, layer.width, layer.height);
       let px = sCtx.getImageData(0, 0, layer.width, layer.height);
-      if (layer.halftoneType === 'grayscale') {
-        const d = px.data;
-        const { r: cr, g: cg, b: cb } = hexToRgb(plateColor);
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = d[i];
-          d[i] = cr;
-          d[i + 1] = cg;
-          d[i + 2] = cb;
-          d[i + 3] = 255 - gray;
-        }
-        sCtx.putImageData(px, 0, 0);
-      } else {
-        const baseAngle = layer.halftoneAngle || 45;
-        const offsetAngle = ImageProcessor._separationAngles[plateColor] || 0;
-        const angle = (baseAngle + offsetAngle) % 180;
-        px = ImageProcessor.applyHalftone(px, layer.width, layer.height, layer.halftoneType, layer.halftoneSize, angle);
-        sCtx.putImageData(px, 0, 0);
-        const colored = ImageProcessor.colorize(sCtx.getImageData(0, 0, layer.width, layer.height), plateColor, null);
-        sCtx.putImageData(colored, 0, 0);
-      }
+      const colorIdx = layer.separationColors?.indexOf(plateColor) ?? -1;
+      // Shared Spectrolite-style plate styling (grayscale alpha, AM screen,
+      // error-diffusion dithering, or legacy Bayer/magazine/grunge).
+      px = ImageProcessor._styleSepPlate(px, layer, plateColor, colorIdx, layer.width, layer.height);
+      sCtx.putImageData(px, 0, 0);
       await this._drawLayerOnPlate(ctx, layer, scaled, width, height, layerSet);
     }
 

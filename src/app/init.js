@@ -8,6 +8,7 @@ import { Renderer } from './renderer.js';
 import { wireControls } from './events.js';
 import { showProjectDialog, loadEffectivePalette } from './project-manager.js';
 import { setBuildColorLut, rebuildColorSepLut, colorSepLut as exportedColorSepLut } from './color-lut.js';
+import { bindSepMethods } from './separation-methods.js';
 
 export let blendSubtractive = null;
 export let separateColorsWithLut = null;
@@ -28,6 +29,7 @@ async function _doInit() {
   await wasmMod.default({ module_or_path: '/src/wasm/super_collage_bg.wasm' });
   blendSubtractive = wasmMod.blend_subtractive;
   separateColorsWithLut = wasmMod.separate_colors_with_lut;
+  bindSepMethods(wasmMod);
   window.blendSubtractive = blendSubtractive;
   window.separateColorsWithLut = separateColorsWithLut;
   setBuildColorLut(wasmMod.build_color_lut);

@@ -583,9 +583,29 @@ export const UI = {
     setRange('prop-halftone-size', 'val-halftone-size', layer.halftoneSize);
     setRange('prop-halftone-angle', 'val-halftone-angle', layer.halftoneAngle);
 
-    const isGrayscale = layer.halftoneType === 'grayscale';
-    document.getElementById('halftone-size-row').classList.toggle('hidden', isGrayscale);
+    const isGrayscale = layer.halftoneType === 'grayscale' || layer.halftoneType === 'screen';
+    document.getElementById('halftone-size-row').classList.toggle('hidden', layer.halftoneType === 'grayscale');
     document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
+
+    // Spectrolite separation methods — contextual rows
+    const sepType = layer.halftoneType;
+    const setRow = (id, show) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !show); };
+    setRow('screen-shape-row', sepType === 'screen');
+    setRow('dither-method-row', sepType === 'errordiff');
+    setRow('sep-style-row', !!layer.isColorSeparation);
+    setRow('ink-opacity-row', !!layer.isColorSeparation && sepType !== 'none');
+    const sepStyleSel = document.getElementById('prop-sep-style');
+    if (sepStyleSel) sepStyleSel.value = layer.separationStyle || 'lut';
+    const shapeSel = document.getElementById('prop-halftone-shape');
+    if (shapeSel) shapeSel.value = layer.halftoneShape || 'circle';
+    const ditherSel = document.getElementById('prop-dither-method');
+    if (ditherSel) ditherSel.value = layer.ditherMethod || 'atkinson';
+    const ops = (Array.isArray(layer.inkOpacities) && layer.inkOpacities.length)
+      ? layer.inkOpacities.filter(v => v != null) : null;
+    const opacityPct = ops && ops.length
+      ? Math.round((ops.reduce((x, y) => x + y, 0) / ops.length) * 100) : 100;
+    setRange('prop-ink-opacity', 'val-ink-opacity', opacityPct);
+    document.getElementById('val-ink-opacity').textContent = opacityPct + '%';
 
     document.querySelectorAll('.halftone-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.halftone === layer.halftoneType));

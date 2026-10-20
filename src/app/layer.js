@@ -37,6 +37,20 @@ export class Layer {
     this.halftoneType = data.halftoneType || 'none';
     this.halftoneSize = data.halftoneSize ?? 8;
     this.halftoneAngle = data.halftoneAngle ?? 45;
+    // Spectrolite separation methods (see separation-methods.js).
+    // separationStyle: 'lut' (project LUT) | 'posterize' | 'cmykish'
+    this.separationStyle = data.separationStyle || 'lut';
+    this.halftoneShape = data.halftoneShape || 'circle';   // screen dot shape
+    this.ditherMethod = data.ditherMethod || 'atkinson';  // error-diffusion kernel
+    this.ditherScale = data.ditherScale ?? 1;
+    this.ditherThreshold = data.ditherThreshold ?? 0.5;
+    this.sepAngles = Array.isArray(data.sepAngles) ? data.sepAngles.slice() : null;
+    this.posterizeConfig = data.posterizeConfig ? { ...data.posterizeConfig } : null;
+    this.cmykishConfig = data.cmykishConfig ? { ...data.cmykishConfig } : null;
+    this.inkOpacities = Array.isArray(data.inkOpacities) ? data.inkOpacities.slice() : null;
+    // Palette kept when switching a sep layer to cmykish (which reassigns
+    // separationColors to the 4 C/M/Y/K inks) and back.
+    this.sepPaletteDefault = Array.isArray(data.sepPaletteDefault) ? data.sepPaletteDefault.slice() : null;
     this.color = data.color || '#010101';
     this.colorMode = data.colorMode || 'solid';
     this.gradient = data.gradient ? JSON.parse(JSON.stringify(data.gradient)) : {
@@ -124,6 +138,16 @@ export class Layer {
       halftoneType: this.halftoneType,
       halftoneSize: this.halftoneSize,
       halftoneAngle: this.halftoneAngle,
+      separationStyle: this.separationStyle,
+      halftoneShape: this.halftoneShape,
+      ditherMethod: this.ditherMethod,
+      ditherScale: this.ditherScale,
+      ditherThreshold: this.ditherThreshold,
+      sepAngles: this.sepAngles ? this.sepAngles.slice() : null,
+      posterizeConfig: this.posterizeConfig ? JSON.parse(JSON.stringify(this.posterizeConfig)) : null,
+      cmykishConfig: this.cmykishConfig ? JSON.parse(JSON.stringify(this.cmykishConfig)) : null,
+      inkOpacities: this.inkOpacities ? this.inkOpacities.slice() : null,
+      sepPaletteDefault: this.sepPaletteDefault ? this.sepPaletteDefault.slice() : null,
       color: this.color,
       colorMode: this.colorMode,
       gradient: JSON.parse(JSON.stringify(this.gradient)),

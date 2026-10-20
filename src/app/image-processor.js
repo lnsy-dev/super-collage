@@ -8,6 +8,7 @@ import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
 import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
+import { sepAngleFor, ditherMethodIndex, toImageData } from './separation-methods.js';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
 export function generateGradientCanvas(width, height, gradient) {
@@ -694,6 +695,64 @@ export const ImageProcessor = {
     '#ffe800': 90, '#ff48b0': 105, '#5ec8e5': 30, '#0078bf': 60,
   },
 
+  // Spectrolite-style per-plate styling, shared by preview
+  // (processColorSeparation) and export (export-engine).
+  // Input: grayscale separation plate (0 = full ink, 255 = no ink).
+  // Returns a colorized ImageData ready for compositing.
+  _styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH) {
+    const type = layer.halftoneType;
+
+    // Spectrolite inkOpacityMultipliers: rescale the grayscale ink amount
+    // before any post-processing.
+    const ops = layer.inkOpacities;
+    if (ops && ops[colorIdx] != null && ops[colorIdx] !== 1 && window.applyInkOpacities) {
+      const scaled = window.applyInkOpacities(px.data, targetW, targetH, 1,
+        new Float64Array([ops[colorIdx]]));
+      px = toImageData(scaled, targetW, targetH);
+    }
+
+    if (type === 'grayscale') {
+      // Continuous tone: plate value becomes the ink's alpha coverage.
+      const d = px.data;
+      const { r: cr, g: cg, b: cb } = hexToRgb(colorHex);
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = d[i]; // R = G = B in plate
+        d[i] = cr;
+        d[i + 1] = cg;
+        d[i + 2] = cb;
+        d[i + 3] = 255 - gray; // darker plate = more opaque ink
+      }
+      return px;
+    }
+
+    if (type === 'screen') {
+      // Spectrolite AM screen: per-ink angle + cell size (halftoneSize px)
+      // + circle/square dot.  Screens the raw grayscale — no posterize.
+      const angle = sepAngleFor(layer, colorHex, colorIdx, this._separationAngles);
+      const cellSize = Math.max(2, Math.round(layer.halftoneSize));
+      const screened = window.spectroliteHalftoneScreen(px.data, targetW, targetH,
+        cellSize, angle, layer.halftoneShape || 'circle');
+      return this.colorize(toImageData(screened, targetW, targetH), colorHex, null);
+    }
+
+    if (type === 'errordiff') {
+      // Spectrolite error-diffusion dithering: kernel + scale + threshold,
+      // applied to the raw grayscale plate.
+      const mi = ditherMethodIndex(layer.ditherMethod);
+      const dithered = window.spectroliteDitherPlate(px.data, targetW, targetH,
+        mi, layer.ditherScale ?? 1, layer.ditherThreshold ?? 0.5);
+      return this.colorize(toImageData(dithered, targetW, targetH), colorHex, null);
+    }
+
+    // Legacy screen types: coarse posterize + Bayer/magazine/grunge dots.
+    const baseAngle = layer.halftoneAngle || 45;
+    const offsetAngle = this._separationAngles[colorHex] || 0;
+    const angle = (baseAngle + offsetAngle) % 180;
+    px = this.posterize(px, 6);
+    px = this.applyHalftone(px, targetW, targetH, type, layer.halftoneSize, angle);
+    return this.colorize(px, colorHex, null);
+  },
+
   processColorSeparation(layer, forExport) {
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     let targetW, targetH;
@@ -708,45 +767,21 @@ export const ImageProcessor = {
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d');
 
-    for (const colorHex of layer.separationColors) {
+    layer.separationColors.forEach((colorHex, colorIdx) => {
       const plate = layer.separationPlates.get(colorHex);
-      if (!plate) continue;
+      if (!plate) return;
 
       const plateCanvas = new OffscreenCanvas(targetW, targetH);
       const pCtx = plateCanvas.getContext('2d', { willReadFrequently: true });
       pCtx.drawImage(plate, 0, 0, targetW, targetH);
 
       let px = pCtx.getImageData(0, 0, targetW, targetH);
-
-      if (layer.halftoneType === 'grayscale') {
-        // Grayscale halftone: use plate value as alpha coverage instead of dot patterns.
-        // Plate data is already grayscale where 0 = full ink, 255 = no ink.
-        const d = px.data;
-        const { r: cr, g: cg, b: cb } = hexToRgb(colorHex);
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = d[i]; // R = G = B in plate
-          d[i] = cr;
-          d[i + 1] = cg;
-          d[i + 2] = cb;
-          d[i + 3] = 255 - gray; // darker plate = more opaque ink
-        }
-        pCtx.putImageData(px, 0, 0);
-      } else {
-        const baseAngle = layer.halftoneAngle || 45;
-        const offsetAngle = this._separationAngles[colorHex] || 0;
-        const angle = (baseAngle + offsetAngle) % 180;
-        px = this.posterize(px, 6);
-        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, angle);
-        pCtx.putImageData(px, 0, 0);
-
-        // Colorize: black dots → riso color, white → transparent
-        const colored = this.colorize(pCtx.getImageData(0, 0, targetW, targetH), colorHex, null);
-        pCtx.putImageData(colored, 0, 0);
-      }
+      px = this._styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH);
+      pCtx.putImageData(px, 0, 0);
 
       ctx.globalCompositeOperation = 'multiply';
       ctx.drawImage(plateCanvas, 0, 0);
-    }
+    });
 
     if (forExport) return work;
     layer._processedCanvas = work;

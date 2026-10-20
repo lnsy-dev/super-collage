@@ -20,6 +20,7 @@ import { ProjectIO } from './project-io.js';
 import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
+import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1114,12 +1115,89 @@ export function wireControls() {
       l.halftoneType = btn.dataset.halftone;
       l._dirty = true;
       document.querySelectorAll('.halftone-opt').forEach(b => b.classList.toggle('active', b === btn));
-      const isGrayscale = btn.dataset.halftone === 'grayscale';
-      document.getElementById('halftone-size-row').classList.toggle('hidden', isGrayscale);
-      document.getElementById('halftone-angle-row')?.classList.toggle('hidden', isGrayscale);
       DB.saveLayer(l);
+      UI.refreshProperties();
       Renderer.schedule();
     });
+  });
+
+  // ── Spectrolite separation methods (see separation-methods.js) ─────
+  document.getElementById('prop-halftone-shape')?.addEventListener('change', e => {
+    const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
+    l.halftoneShape = e.target.value;
+    l._dirty = true;
+    DB.saveLayer(l);
+    Renderer.schedule();
+  });
+
+  document.getElementById('prop-dither-method')?.addEventListener('change', e => {
+    const l = selectedLayer(); if (!l) return;
+    pushUndo(snapshotLayer(l));
+    l.ditherMethod = e.target.value;
+    l._dirty = true;
+    DB.saveLayer(l);
+    Renderer.schedule();
+  });
+
+  const inkOpacityEl = document.getElementById('prop-ink-opacity');
+  if (inkOpacityEl) {
+    let opacityPushed = false;
+    inkOpacityEl.addEventListener('input', () => {
+      const l = selectedLayer(); if (!l || !l.isColorSeparation) return;
+      if (!opacityPushed) { pushUndo(snapshotLayer(l)); opacityPushed = true; }
+      const v = parseFloat(inkOpacityEl.value) / 100;
+      l.inkOpacities = l.separationColors.map(() => v);
+      document.getElementById('val-ink-opacity').textContent = inkOpacityEl.value + '%';
+      l._dirty = true;
+      Renderer.schedule();
+    });
+    inkOpacityEl.addEventListener('change', () => {
+      opacityPushed = false;
+      const l = selectedLayer(); if (l) DB.saveLayer(l);
+    });
+  }
+
+  document.getElementById('prop-sep-style')?.addEventListener('change', e => {
+    const l = selectedLayer();
+    if (!l || !l.isColorSeparation) return;
+    pushUndo(snapshotLayer(l));
+    const style = e.target.value;
+    if (style === 'cmykish' && !(l.sepPaletteDefault)) {
+      l.sepPaletteDefault = l.separationColors.slice();
+      const cfg = defaultCmykishConfig(l.separationColors);
+      l.cmykishConfig = cfg;
+      l.separationColors = cfg.channelInkHexes.slice();
+    } else if (style === 'cmykish') {
+      // Reassign channel inks against the *current* palette
+      const pal = l.sepPaletteDefault?.length ? l.sepPaletteDefault : RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+      const cfg = defaultCmykishConfig(pal);
+      l.cmykishConfig = cfg;
+      l.separationColors = cfg.channelInkHexes.slice();
+    } else {
+      // posterize / lut: restore the full palette plate order
+      const pal = l.sepPaletteDefault || l._lutSepColors
+        || RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+      l.separationColors = pal.slice();
+      if (style === 'posterize') {
+        l.posterizeConfig = defaultPosterizeConfig(pal);
+      } else {
+        l.posterizeConfig = null;
+        l.cmykishConfig = null;
+      }
+    }
+    l.sepAngles = defaultSepAngles(l.separationColors);
+    // Reconcile per-ink opacity array with the new plate count
+    const oldOps = Array.isArray(l.inkOpacities) ? l.inkOpacities : null;
+    l.inkOpacities = l.separationColors.map((_, i) => oldOps?.[i] ?? 1);
+    l.separationPlates = l.separationPlates || new Map();
+    if (l._originalCanvas) {
+      rebuildLayerSepPlates(l, l._originalCanvas);
+    }
+    l._dirty = true;
+    DB.saveLayer(l);
+    UI.refreshProperties();
+    Renderer.schedule();
   });
 
   document.getElementById('color-swatches')?.addEventListener('click', async e => {

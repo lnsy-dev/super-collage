@@ -9,11 +9,11 @@ import { ImageProcessor } from './image-processor.js';
 import { MaskEngine } from './mask-engine.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
-import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, getProjectSizeLabel } from './constants.js';
-import { hexToRgb } from '../utils/color.js';
+import { CANVAS_W, CANVAS_H, setCanvasSize, getProjectSizeLabel } from './constants.js';
 import { renderShapeLayerBitmap } from './shape-utils.js';
 import { loadSvgImage } from './svg-utils.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
+import { rebuildLayerSepPlates } from './separation-methods.js';
 
 export const PageManager = {
   loadViewSettings(project) {
@@ -423,28 +423,10 @@ export const PageManager = {
     bmp.close();
     layer._originalCanvas = sourceCanvas;
 
-    const imageData = sCtx.getImageData(0, 0, nw, nh);
-    const risoColors = [];
-    for (const rc of RISO_COLORS) {
-      if (rc.hex === '#FFFFFF') continue;
-      const { r, g, b } = hexToRgb(rc.hex);
-      risoColors.push(r, g, b);
-    }
-    const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
-    const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16, numColors);
-    const pixelCount = nw * nh;
-    const numPlates = RISO_COLORS.length - 1;
-    const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
-    for (let i = 0; i < numPlates; i++) {
-      const plateCanvas = new OffscreenCanvas(nw, nh);
-      const pCtx = plateCanvas.getContext('2d');
-      const plateData = new ImageData(
-        new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-        nw, nh
-      );
-      pCtx.putImageData(plateData, 0, 0);
-      layer.separationPlates.set(separationColors[i], plateCanvas);
-    }
+    // Rebuild via the layer's chosen Spectrolite separation method
+    // ('lut' → the project LUT, 'posterize' → breakpoints, 'cmykish' →
+    // C/M/Y/K channel inks).
+    rebuildLayerSepPlates(layer, sourceCanvas);
   },
 
   _dehydrateLayers(layers) {

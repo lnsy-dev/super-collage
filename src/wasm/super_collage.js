@@ -566,6 +566,28 @@ export class XYZ {
 if (Symbol.dispose) XYZ.prototype[Symbol.dispose] = XYZ.prototype.free;
 
 /**
+ * Spectrolite inkOpacityMultipliers: rescale the ink amount of every plate
+ * in a plate set (same layout as `separate_colors_with_lut`).
+ * multiplier 1 = unchanged, 0 = plate cleared, up to 2 = heavier laydown.
+ * @param {Uint8Array} plates
+ * @param {number} width
+ * @param {number} height
+ * @param {number} num_colors
+ * @param {Float64Array} multipliers
+ * @returns {Uint8Array}
+ */
+export function apply_ink_opacities(plates, width, height, num_colors, multipliers) {
+    const ptr0 = passArray8ToWasm0(plates, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF64ToWasm0(multipliers, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.apply_ink_opacities(ptr0, len0, width, height, num_colors, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
  * Alpha-weighted subtractive (multiply) blend. Both slices are flat RGBA u8 of equal length.
  * For each pixel: base_channel = base_channel × lerp(255, overlay_channel, overlay_alpha/255) / 255
  * This simulates transparent riso ink on paper: overlapping inks darken subtractively.
@@ -597,6 +619,53 @@ export function build_color_lut(riso_colors, max_mix, grid_size) {
     const ptr0 = passArray8ToWasm0(riso_colors, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.build_color_lut(ptr0, len0, max_mix, grid_size);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * Spectrolite "CMYK-ish" separation: split the image into C/M/Y/K channel
+ * tonages (naive RGB→CMYK with K = 1 − max(R,G,B)) and return 4 grayscale
+ * plates in order C, M, Y, K.  `opacities` are the channel ink density
+ * multipliers (CMYKishConfig.opacities, clamped 0..2).
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {Float64Array} opacities
+ * @returns {Uint8Array}
+ */
+export function cmykish_to_plates(image_data, width, height, opacities) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF64ToWasm0(opacities, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.cmykish_to_plates(ptr0, len0, width, height, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
+ * Spectrolite error-diffusion dithering on a grayscale plate.
+ * `method` indexes DITHER_KERNELS in Spectrolite's option order
+ * (0 atkinson … 7 sierra-lite; see js `DITHER_METHODS`).
+ * `scale_factor` > 1 makes chunkier dots: the tone is box-downscaled by
+ * that factor, dithered, then expanded back (nearest).
+ * Per Spectrolite's config id semantics, `threshold` is only applied when
+ * scale_factor ≠ 1; at scale 1 the natural 0.5 cutoff is used.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {number} method
+ * @param {number} scale_factor
+ * @param {number} threshold
+ * @returns {Uint8Array}
+ */
+export function dither_plate(image_data, width, height, method, scale_factor, threshold) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.dither_plate(ptr0, len0, width, height, method, scale_factor, threshold);
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
@@ -668,6 +737,30 @@ export function halftone_plate(image_data, width, height, cell_size) {
 }
 
 /**
+ * Spectrolite halftone: amplitude-modulated (AM) screen with per-plate
+ * screen angle, cell size (= round(dpi / lpi)), and dot shape
+ * ("circle" | "square").  Screens a grayscale plate (0 = full ink).
+ * Spectrolite defaults: lpi 71 @ 600 dpi → cell size 8 px.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {number} cell_size
+ * @param {number} angle_deg
+ * @param {string} shape
+ * @returns {Uint8Array}
+ */
+export function halftone_screen(image_data, width, height, cell_size, angle_deg, shape) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(shape, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.halftone_screen(ptr0, len0, width, height, cell_size, angle_deg, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
  * Initialize a particle system with `count` particles.
  * Returns a flat f32 array: [x0, y0, vx0, vy0, hue0, x1, y1, ...]
  * @param {number} count
@@ -679,6 +772,35 @@ export function init_particles(count, seed) {
     var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v1;
+}
+
+/**
+ * Spectrolite posterize separation: map each pixel's grayscale value to
+ * exactly one ink plate via `breakpoints` (0=black … 1=white, ascending)
+ * and `range_to_ink_index` (dark→light plate index per range).
+ * `blackpoint_min_threshold` raises the darkest printable tone: luminances
+ * below it clamp to 0 (full-ink darkest).  Plate for the assigned ink is
+ * fully inked; all others stay paper.  Output matches the LUT plate layout.
+ * @param {Uint8Array} image_data
+ * @param {number} width
+ * @param {number} height
+ * @param {number} blackpoint_min_threshold
+ * @param {Float64Array} breakpoints
+ * @param {Uint32Array} range_to_ink_index
+ * @param {number} num_inks
+ * @returns {Uint8Array}
+ */
+export function posterize_to_plates(image_data, width, height, blackpoint_min_threshold, breakpoints, range_to_ink_index, num_inks) {
+    const ptr0 = passArray8ToWasm0(image_data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF64ToWasm0(breakpoints, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray32ToWasm0(range_to_ink_index, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.posterize_to_plates(ptr0, len0, width, height, blackpoint_min_threshold, ptr1, len1, ptr2, len2, num_inks);
+    var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v4;
 }
 
 /**

@@ -618,3 +618,374 @@ pub fn evaluate_palettes(
 
     scores
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SPECTROLITE SEPARATION METHODS
+   Ported from Spectrolite v1.4.5 (Electron risograph tool):
+   types/transforms/{halftone,dithering,posterize,cmykish}.ts and
+   types/separation.ts (inkOpacityMultipliers).
+
+   Conventions (matching this project's plates):
+   · Inputs/outputs are flat RGBA, R = G = B grayscale.
+   · 0 = full ink, 255 = no ink (paper).
+   ═══════════════════════════════════════════════════════════════════ */
+
+#[inline]
+fn pixel_luma(d: &[u8], i: usize) -> f64 {
+    0.299 * d[i] as f64 + 0.587 * d[i + 1] as f64 + 0.114 * d[i + 2] as f64
+}
+
+/// Spectrolite halftone: amplitude-modulated (AM) screen with per-plate
+/// screen angle, cell size (= round(dpi / lpi)), and dot shape
+/// ("circle" | "square").  Screens a grayscale plate (0 = full ink).
+/// Spectrolite defaults: lpi 71 @ 600 dpi → cell size 8 px.
+#[wasm_bindgen]
+pub fn halftone_screen(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    cell_size: u32,
+    angle_deg: f64,
+    shape: &str,
+) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let cs = (cell_size.max(2) as f64).min(64.0);
+    let theta = angle_deg.to_radians();
+    let cos = theta.cos();
+    let sin = theta.sin();
+    let circle = shape != "square";
+    let mut out = vec![255u8; w * h * 4];
+
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            out[i + 3] = 255;
+            let gray = pixel_luma(image_data, i);
+            if gray >= 255.0 {
+                continue; // paper stays paper
+            }
+            let coverage = ((255.0 - gray) / 255.0).clamp(0.0, 1.0);
+            if coverage >= 1.0 - 1e-6 {
+                out[i] = 0;
+                out[i + 1] = 0;
+                out[i + 2] = 0;
+                continue;
+            }
+
+            // Rotate the pixel into screen space, keeping phase continuity
+            // across the whole image (dot centers tile diagonally).
+            let u = x as f64 * cos + y as f64 * sin;
+            let v = -(x as f64) * sin + y as f64 * cos;
+            let fu = u.rem_euclid(cs) / cs - 0.5; // -0.5..0.5 within cell
+            let fv = v.rem_euclid(cs) / cs - 0.5;
+
+            // Dot geometry chosen so dot area ≈ ink coverage:
+            // circle:  π·r²  = c  →  r   = √(c/π)
+            // square: (2·hw)² = c  →  hw = √(c)/2
+            //
+            // Beyond π/4 coverage the disks would overflow the cell and clip
+            // away area, so the dot inverts ("corner holes"): the paper
+            // becomes disks of radius √((1−c)/π) sitting on the cell
+            // corners, which keeps tone exact all the way to full black.
+            let inside = if circle {
+                if coverage <= std::f64::consts::FRAC_PI_4 {
+                    let r = coverage / std::f64::consts::PI;
+                    fu * fu + fv * fv <= r
+                } else {
+                    let q = (1.0 - coverage) / std::f64::consts::PI;
+                    // nearest cell corner in screen space
+                    let du = (u - (u / cs).round() * cs) / cs;
+                    let dv = (v - (v / cs).round() * cs) / cs;
+                    du * du + dv * dv > q
+                }
+            } else {
+                let hw = coverage.sqrt() * 0.5;
+                fu.abs() <= hw && fv.abs() <= hw
+            };
+
+            if inside {
+                out[i] = 0;
+                out[i + 1] = 0;
+                out[i + 2] = 0;
+            }
+        }
+    }
+
+    out
+}
+
+/// Spectrolite ditheringOptions order — the JS layer maps method *names*
+/// to this index.  (dx, dy, weight): dx/dy relative to the current pixel.
+const DITHER_KERNELS: [&[(i32, i32, f64)]; 8] = [
+    // 0 atkinson (diffuses only 6/8 of the error)
+    &[(1, 0, 1.0 / 8.0), (2, 0, 1.0 / 8.0), (-1, 1, 1.0 / 8.0), (0, 1, 1.0 / 8.0), (1, 1, 1.0 / 8.0), (0, 2, 1.0 / 8.0)],
+    // 1 jarvis-judice-ninke
+    &[(1, 0, 7.0 / 48.0), (2, 0, 5.0 / 48.0), (-2, 1, 3.0 / 48.0), (-1, 1, 5.0 / 48.0), (0, 1, 7.0 / 48.0), (1, 1, 5.0 / 48.0), (2, 1, 3.0 / 48.0), (-2, 2, 1.0 / 48.0), (-1, 2, 3.0 / 48.0), (0, 2, 5.0 / 48.0), (1, 2, 3.0 / 48.0), (2, 2, 1.0 / 48.0)],
+    // 2 floyd-steinberg
+    &[(1, 0, 7.0 / 16.0), (-1, 1, 3.0 / 16.0), (0, 1, 5.0 / 16.0), (1, 1, 1.0 / 16.0)],
+    // 3 stucki
+    &[(1, 0, 8.0 / 42.0), (2, 0, 4.0 / 42.0), (-2, 1, 2.0 / 42.0), (-1, 1, 4.0 / 42.0), (0, 1, 8.0 / 42.0), (1, 1, 4.0 / 42.0), (2, 1, 2.0 / 42.0), (-2, 2, 1.0 / 42.0), (-1, 2, 2.0 / 42.0), (0, 2, 4.0 / 42.0), (1, 2, 2.0 / 42.0), (2, 2, 1.0 / 42.0)],
+    // 4 burkes
+    &[(1, 0, 8.0 / 32.0), (2, 0, 4.0 / 32.0), (-2, 1, 2.0 / 32.0), (-1, 1, 4.0 / 32.0), (0, 1, 8.0 / 32.0), (1, 1, 4.0 / 32.0), (2, 1, 2.0 / 32.0)],
+    // 5 sierra
+    &[(1, 0, 5.0 / 32.0), (2, 0, 3.0 / 32.0), (-2, 1, 2.0 / 32.0), (-1, 1, 4.0 / 32.0), (0, 1, 5.0 / 32.0), (1, 1, 4.0 / 32.0), (2, 1, 2.0 / 32.0), (-1, 2, 2.0 / 32.0), (0, 2, 3.0 / 32.0), (1, 2, 2.0 / 32.0)],
+    // 6 two-row-sierra
+    &[(1, 0, 4.0 / 16.0), (2, 0, 3.0 / 16.0), (-2, 1, 1.0 / 16.0), (-1, 1, 2.0 / 16.0), (0, 1, 3.0 / 16.0), (1, 1, 2.0 / 16.0), (2, 1, 1.0 / 16.0)],
+    // 7 sierra-lite
+    &[(1, 0, 2.0 / 4.0), (-1, 1, 1.0 / 4.0), (0, 1, 1.0 / 4.0)],
+];
+
+/// Single-pass error diffusion over an ink-amount buffer (0..255, higher =
+/// more ink).  Returns a binary amount buffer (0 or 255).
+fn dither_amount(amounts: &mut [f64], w: usize, h: usize, method: usize, cutoff: f64) {
+    let kernel = DITHER_KERNELS[method.min(DITHER_KERNELS.len() - 1)];
+    let iw = w as i32;
+    let ih = h as i32;
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = y * w + x;
+            let old = amounts[idx];
+            let on = old >= cutoff;
+            let new = if on { 255.0 } else { 0.0 };
+            amounts[idx] = new;
+            let err = old - new;
+            if err == 0.0 {
+                continue;
+            }
+            for &(dx, dy, f) in kernel.iter() {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx < 0 || nx >= iw || ny < 0 || ny >= ih {
+                    continue;
+                }
+                amounts[(ny as usize) * w + nx as usize] += err * f;
+            }
+        }
+    }
+}
+
+/// Spectrolite error-diffusion dithering on a grayscale plate.
+/// `method` indexes DITHER_KERNELS in Spectrolite's option order
+/// (0 atkinson … 7 sierra-lite; see js `DITHER_METHODS`).
+/// `scale_factor` > 1 makes chunkier dots: the tone is box-downscaled by
+/// that factor, dithered, then expanded back (nearest).
+/// Per Spectrolite's config id semantics, `threshold` is only applied when
+/// scale_factor ≠ 1; at scale 1 the natural 0.5 cutoff is used.
+#[wasm_bindgen]
+pub fn dither_plate(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    method: u32,
+    scale_factor: f64,
+    threshold: f64,
+) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let pixel_count = w * h;
+    let mut out = vec![255u8; pixel_count * 4];
+    if pixel_count == 0 {
+        return out;
+    }
+
+    let f = (scale_factor.round() as i64).clamp(1, 8) as usize;
+    let cutoff = if f == 1 {
+        128.0 // Spectrolite: threshold unused at scale 1
+    } else {
+        threshold.clamp(0.0, 1.0) * 255.0
+    };
+
+    if f == 1 {
+        let mut amounts: Vec<f64> = (0..pixel_count)
+            .map(|p| 255.0 - pixel_luma(image_data, p * 4))
+            .collect();
+        dither_amount(&mut amounts, w, h, method as usize, cutoff);
+        for p in 0..pixel_count {
+            let dst = p * 4;
+            let ink = amounts[p] >= 255.0;
+            if ink {
+                out[dst] = 0;
+                out[dst + 1] = 0;
+                out[dst + 2] = 0;
+            }
+            out[dst + 3] = 255;
+        }
+    } else {
+        // Chunky-dot mode: box-downscale → dither → nearest-neighbour expand.
+        let dw = (w + f - 1) / f;
+        let dh = (h + f - 1) / f;
+        let mut small = vec![0.0f64; dw * dh];
+        for sy in 0..dh {
+            for sx in 0..dw {
+                let (x0, x1) = (sx * f, ((sx + 1) * f).min(w));
+                let (y0, y1) = (sy * f, ((sy + 1) * f).min(h));
+                let mut sum = 0.0;
+                let mut n = 0.0;
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        sum += 255.0 - pixel_luma(image_data, (y * w + x) * 4);
+                        n += 1.0;
+                    }
+                }
+                small[sy * dw + sx] = if n > 0.0 { sum / n } else { 0.0 };
+            }
+        }
+        dither_amount(&mut small, dw, dh, method as usize, cutoff);
+        for y in 0..h {
+            for x in 0..w {
+                let src = small[(y / f) * dw + (x / f)];
+                let dst = (y * w + x) * 4;
+                if src >= 255.0 {
+                    out[dst] = 0;
+                    out[dst + 1] = 0;
+                    out[dst + 2] = 0;
+                }
+                out[dst + 3] = 255;
+            }
+        }
+    }
+
+    out
+}
+
+/// Spectrolite posterize separation: map each pixel's grayscale value to
+/// exactly one ink plate via `breakpoints` (0=black … 1=white, ascending)
+/// and `range_to_ink_index` (dark→light plate index per range).
+/// `blackpoint_min_threshold` raises the darkest printable tone: luminances
+/// below it clamp to 0 (full-ink darkest).  Plate for the assigned ink is
+/// fully inked; all others stay paper.  Output matches the LUT plate layout.
+#[wasm_bindgen]
+pub fn posterize_to_plates(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    blackpoint_min_threshold: f64,
+    breakpoints: &[f64],
+    range_to_ink_index: &[u32],
+    num_inks: u32,
+) -> Vec<u8> {
+    let pixel_count = (width * height) as usize;
+    let n = (num_inks as usize).min(64);
+    let mut plates = vec![255u8; pixel_count * 4 * n];
+
+    let bp_min = blackpoint_min_threshold.clamp(0.0, 1.0);
+    for p in 0..pixel_count {
+        let base = p * 4;
+        if image_data.get(base + 3).copied().unwrap_or(0) < 10 {
+            continue; // transparent source → paper
+        }
+        let mut lum = pixel_luma(image_data, base) / 255.0;
+        if bp_min > 0.0 {
+            lum = ((lum - bp_min) / (1.0 - bp_min)).clamp(0.0, 1.0);
+        }
+
+        let mut range_idx: Option<usize> = None;
+        for (ri, &bp) in breakpoints.iter().enumerate() {
+            if lum < bp {
+                range_idx = Some(ri);
+                break;
+            }
+        }
+        if let Some(ri) = range_idx {
+            let ink = range_to_ink_index.get(ri).copied().unwrap_or(0) as usize;
+            if ink < n {
+                let dst = (ink * pixel_count + p) * 4;
+                plates[dst] = 0;
+                plates[dst + 1] = 0;
+                plates[dst + 2] = 0;
+                plates[dst + 3] = 255;
+            }
+        }
+    }
+
+    plates
+}
+
+/// Spectrolite "CMYK-ish" separation: split the image into C/M/Y/K channel
+/// tonages (naive RGB→CMYK with K = 1 − max(R,G,B)) and return 4 grayscale
+/// plates in order C, M, Y, K.  `opacities` are the channel ink density
+/// multipliers (CMYKishConfig.opacities, clamped 0..2).
+#[wasm_bindgen]
+pub fn cmykish_to_plates(
+    image_data: &[u8],
+    width: u32,
+    height: u32,
+    opacities: &[f64],
+) -> Vec<u8> {
+    let pixel_count = (width * height) as usize;
+    let mut plates = vec![255u8; pixel_count * 4 * 4];
+
+    let ops: [f64; 4] = (0..4)
+        .map(|c| opacities.get(c).copied().unwrap_or(1.0).clamp(0.0, 2.0))
+        .collect::<Vec<f64>>()
+        .try_into()
+        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+
+    for p in 0..pixel_count {
+        let base = p * 4;
+        if image_data.get(base + 3).copied().unwrap_or(0) < 10 {
+            continue; // transparent source → paper on all plates
+        }
+        let r = image_data[base] as f64 / 255.0;
+        let g = image_data[base + 1] as f64 / 255.0;
+        let b = image_data[base + 2] as f64 / 255.0;
+
+        let k = 1.0 - r.max(g).max(b);
+        let denom = 1.0 - k;
+        let (c, m, y) = if denom > 1e-6 {
+            ((denom - r) / denom, (denom - g) / denom, (denom - b) / denom)
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+        let amounts = [c, m, y, k];
+
+        for (ci, &amt) in amounts.iter().enumerate() {
+            let gray = (255.0 * (1.0 - amt)).round().clamp(0.0, 255.0);
+            let gray = (255.0 - (255.0 - gray) * ops[ci]).round().clamp(0.0, 255.0);
+            let dst = (ci * pixel_count + p) * 4;
+            plates[dst] = gray as u8;
+            plates[dst + 1] = gray as u8;
+            plates[dst + 2] = gray as u8;
+            plates[dst + 3] = 255;
+        }
+    }
+
+    plates
+}
+
+/// Spectrolite inkOpacityMultipliers: rescale the ink amount of every plate
+/// in a plate set (same layout as `separate_colors_with_lut`).
+/// multiplier 1 = unchanged, 0 = plate cleared, up to 2 = heavier laydown.
+#[wasm_bindgen]
+pub fn apply_ink_opacities(
+    plates: &[u8],
+    width: u32,
+    height: u32,
+    num_colors: u32,
+    multipliers: &[f64],
+) -> Vec<u8> {
+    let pixel_count = (width * height) as usize;
+    let n = (num_colors as usize).min(64);
+    let mut out = vec![255u8; pixel_count * 4 * n];
+    let len = plates.len().min(pixel_count * 4 * n);
+    out[..len].copy_from_slice(&plates[..len]);
+
+    for c in 0..n {
+        let m = multipliers.get(c).copied().unwrap_or(1.0).clamp(0.0, 2.0);
+        if (m - 1.0).abs() < 1e-6 {
+            continue;
+        }
+        for p in 0..pixel_count {
+            let src = (c * pixel_count + p) * 4;
+            let gray = out[src] as f64;
+            let gray = (255.0 - (255.0 - gray) * m).round().clamp(0.0, 255.0);
+            out[src] = gray as u8;
+            out[src + 1] = gray as u8;
+            out[src + 2] = gray as u8;
+        }
+    }
+
+    out
+}

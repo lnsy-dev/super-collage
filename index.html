@@ -869,11 +869,21 @@
                   <div class="halftone-opts">
                     <button class="halftone-opt active" data-halftone="none">None</button>
                     <button class="halftone-opt" data-halftone="grayscale">Gray</button>
+                    <button class="halftone-opt" data-halftone="screen">Screen</button>
+                    <button class="halftone-opt" data-halftone="errordiff">E-Dither</button>
                     <button class="halftone-opt" data-halftone="dither">Dither</button>
                     <button class="halftone-opt" data-halftone="magazine">Dots</button>
                     <button class="halftone-opt" data-halftone="grunge">Grunge</button>
 
                   </div>
+                </div>
+                <div class="prop-row" id="sep-style-row" style="display:none;">
+                  <span class="prop-label">Sep</span>
+                  <select id="prop-sep-style" style="flex:1;font-family:var(--font);font-size:1.1rem;">
+                    <option value="lut">Auto (LUT)</option>
+                    <option value="posterize">Posterize</option>
+                    <option value="cmykish">CMYK-ish</option>
+                  </select>
                 </div>
                 <div class="prop-row" id="halftone-size-row">
                   <span class="prop-label">Size</span>
@@ -885,6 +895,31 @@
                   <span class="prop-label">Angle</span>
                   <input type="range" id="prop-halftone-angle" min="0" max="180" value="45">
                   <span class="prop-value" id="val-halftone-angle">45</span>
+                </div>
+                <div class="prop-row" id="screen-shape-row" style="display:none;">
+                  <span class="prop-label">Dot shape</span>
+                  <select id="prop-halftone-shape" style="flex:1;font-family:var(--font);font-size:1.1rem;">
+                    <option value="circle">Circle</option>
+                    <option value="square">Square</option>
+                  </select>
+                </div>
+                <div class="prop-row" id="dither-method-row" style="display:none;">
+                  <span class="prop-label">Kernel</span>
+                  <select id="prop-dither-method" style="flex:1;font-family:var(--font);font-size:1.1rem;">
+                    <option value="atkinson">Atkinson</option>
+                    <option value="jarvis-judice-ninke">Jarvis Judice Ninke</option>
+                    <option value="floyd-steinberg">Floyd Steinberg</option>
+                    <option value="stucki">Stucki</option>
+                    <option value="burkes">Burkes</option>
+                    <option value="sierra">Sierra</option>
+                    <option value="two-row-sierra">Two Row Sierra</option>
+                    <option value="sierra-lite">Sierra Lite</option>
+                  </select>
+                </div>
+                <div class="prop-row" id="ink-opacity-row" style="display:none;">
+                  <span class="prop-label">Ink density</span>
+                  <input type="range" id="prop-ink-opacity" min="0" max="200" step="5" value="100">
+                  <span class="prop-value" id="val-ink-opacity">100%</span>
                 </div>
               </div>
 

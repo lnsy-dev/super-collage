@@ -17,6 +17,7 @@ import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { ProjectIO } from './project-io.js';
+import { defaultSepAngles, rebuildLayerSepPlates } from './separation-methods.js';
 
 // Long-edge cap for flatten's mask/bbox working resolution. Matches
 // MaskEngine's mask cap so a painted mask can be read back 1:1.
@@ -253,9 +254,14 @@ export const LayerManager = {
         naturalWidth: srcW, naturalHeight: srcH,
         isColorSeparation: true,
         separationColors,
+        separationStyle: 'lut',
         halftoneType: 'grayscale',
         halftoneSize: 12,
         halftoneAngle: 45,
+        // Spectrolite default per-ink screen angles (for the 'screen'
+        // halftone type); light→dark [15,75,0,45,30,60,105] with 7 inks.
+        sepAngles: defaultSepAngles(separationColors),
+        sepPaletteDefault: separationColors.slice(),
       });
       layer.separationPlates = separationPlates;
       // Store source image so we can rebuild plates on load
@@ -307,31 +313,7 @@ export const LayerManager = {
   _rebuildImportedSeparationPlates(layer) {
     const source = layer._originalCanvas;
     if (!source) return;
-    const sCtx = source.getContext('2d');
-    const nw = source.width, nh = source.height;
-    const imageData = sCtx.getImageData(0, 0, nw, nh);
-    const risoColors = [];
-    for (const rc of RISO_COLORS) {
-      if (rc.hex === '#FFFFFF') continue;
-      const { r, g, b } = hexToRgb(rc.hex);
-      risoColors.push(r, g, b);
-    }
-    const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
-    const plateBuffer = window.separateColorsWithLut(imageData.data, nw, nh, window.colorSepLut, 16, numColors);
-    const pixelCount = nw * nh;
-    const numPlates = RISO_COLORS.length - 1;
-    const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
-    layer.separationPlates = new Map();
-    for (let i = 0; i < numPlates; i++) {
-      const plateCanvas = new OffscreenCanvas(nw, nh);
-      const pCtx = plateCanvas.getContext('2d');
-      const plateData = new ImageData(
-        new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-        nw, nh
-      );
-      pCtx.putImageData(plateData, 0, 0);
-      layer.separationPlates.set(separationColors[i], plateCanvas);
-    }
+    rebuildLayerSepPlates(layer, source);
   },
 
   /**
@@ -599,21 +581,8 @@ export const LayerManager = {
 
         // Rebuild separation plates for color separation layers
         if (src.isColorSeparation) {
-          const imageData = layer._originalCanvas.getContext('2d').getImageData(0, 0, layer.naturalWidth, layer.naturalHeight);
-          const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
-          const plateBuffer = window.separateColorsWithLut(imageData.data, layer.naturalWidth, layer.naturalHeight, window.colorSepLut, 16, numColors);
-          const pixelCount = layer.naturalWidth * layer.naturalHeight;
-          const numPlates = numColors;
-          const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
-          for (let i = 0; i < numPlates; i++) {
-            const plateCanvas = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
-            const pCtx = plateCanvas.getContext('2d');
-            pCtx.putImageData(new ImageData(
-              new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-              layer.naturalWidth, layer.naturalHeight
-            ), 0, 0);
-            layer.separationPlates.set(separationColors[i], plateCanvas);
-          }
+          // Uses the layer's Spectrolite separation method + stored ink list
+          rebuildLayerSepPlates(layer, layer._originalCanvas);
         }
       }
 
