@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
+    "test:grid": "node --test src/app/grid-snap.test.js",
     "test:color-separation": "node scripts/test-color-separation.cjs"
   },
   "devDependencies": {

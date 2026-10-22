@@ -97,6 +97,8 @@ export async function selectTool(page, toolName) {
     toolName === 'select' ? 'Select' :
     toolName === 'mask-draw' ? 'Mask Draw' :
     toolName === 'mask-erase' ? 'Mask Erase' :
+    toolName === 'paint-bucket' ? 'Color Layer' :
+    toolName === 'eyedropper' ? 'Eyedropper' :
     toolName === 'text-box' ? 'Type — Paragraph Box' :
     toolName === 'text-line' ? 'Type — Single Line' :
     toolName === 'shape-rect' ? 'Rectangle' :

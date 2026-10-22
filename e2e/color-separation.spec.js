@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, createProject } from './helpers.js';
+import { clearIndexedDB, createProject, reopenProject } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -285,4 +285,72 @@ test.describe('Color Separation Calibration', () => {
     expect(results.whiteOnBlack,   'White patch → no black ink').toBeGreaterThan(220);
     expect(results.whiteOnPink,    'White patch → no pink ink').toBeGreaterThan(220);
   });
+
+  test('oversized separation source survives reload without cropping', async ({ page }) => {
+    test.setTimeout(60000);
+    await createProject(page, 'Sep Reload Crop Test');
+
+    // Build a 2000 × 3000 PNG — larger than the 1500 px decomposition cap, so
+    // the stored blob is bigger than the layer's natural size. Left half red,
+    // right half blue: a top-left crop of the oversized source would drop
+    // every blue pixel from the rebuilt plates.
+    const base64 = await page.evaluate(async () => {
+      const c = document.createElement('canvas');
+      c.width = 2000; c.height = 3000;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#FF0000'; ctx.fillRect(0, 0, 1000, 3000);
+      ctx.fillStyle = '#0000FF'; ctx.fillRect(1000, 0, 1000, 3000);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    });
+    const png = Buffer.from(base64, 'base64');
+
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('.menu-entry[data-action="import-color-separation"]');
+    await page.setInputFiles('#color-sep-input', {
+      name: 'sep-oversized.png', mimeType: 'image/png', buffer: png,
+    });
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1, { timeout: 20000 });
+
+    const before = await sepPlateInkBounds(page);
+    expect(before).not.toBeNull();
+    expect(Object.keys(before).length, 'red/blue source must ink some plates').toBeGreaterThan(0);
+
+    // Reload rehydrates every layer from the stored blob and rebuilds the
+    // plates — the ink bounds must be identical afterwards.
+    await reopenProject(page, 'Sep Reload Crop Test');
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1, { timeout: 20000 });
+    const after = await sepPlateInkBounds(page);
+
+    expect(after).toEqual(before);
+  });
 });
+
+// Ink bounding box of every rebuilt separation plate (0 = full ink). Plates
+// are grayscale-on-white, so any channel < 250 marks ink.
+async function sepPlateInkBounds(page) {
+  return page.evaluate(() => {
+    const l = window.State.layers.find(x => x.isColorSeparation);
+    if (!l || !l.separationPlates?.size) return null;
+    const out = {};
+    for (const [hex, plate] of l.separationPlates) {
+      const d = plate.getContext('2d').getImageData(0, 0, plate.width, plate.height).data;
+      let minX = Infinity, maxX = -1, minY = Infinity, maxY = -1;
+      for (let y = 0; y < plate.height; y += 2) {
+        for (let x = 0; x < plate.width; x += 2) {
+          if (d[(y * plate.width + x) * 4] < 250) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX >= 0) out[hex] = { minX, maxX, minY, maxY, plateW: plate.width, plateH: plate.height };
+    }
+    return out;
+  });
+}

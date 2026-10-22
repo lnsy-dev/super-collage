@@ -36,6 +36,28 @@ export function pushUndoWithMask(layer) {
   pushUndo(snap);
 }
 
+/** Attach the layer's source bitmap to a snapshot as raw ImageData. */
+export function attachRaster(snap, layer) {
+  const oc = layer._originalCanvas;
+  if (!oc) return snap;
+  try {
+    const ctx = oc.getContext('2d');
+    snap._originalImageData = ctx.getImageData(0, 0, oc.width, oc.height);
+  } catch (_e) {
+    // ignore
+  }
+  return snap;
+}
+
+/**
+ * Snapshot a layer record plus its baked source pixels, for tools that
+ * mutate the pixel data in place (Color Layer fills). Undone/redoed twins
+ * of such snapshots must carry the pixels too — see undo()/redo().
+ */
+export function pushUndoWithRaster(layer) {
+  pushUndo(attachRaster(snapshotLayer(layer), layer));
+}
+
 export function pushUndoState() {
   State.undoStack.push({
     _type: 'state',
@@ -78,6 +100,7 @@ export async function applySnapshot(layer, snap) {
     isMaskFor: snap.isMaskFor,
     isSvg: snap.isSvg,
     isColorSeparation: snap.isColorSeparation,
+    isColorFill: snap.isColorFill || false,
     separationColors: snap.separationColors ? [...snap.separationColors] : [],
     isShape: snap.isShape || false,
     shapeType: snap.shapeType,
@@ -110,6 +133,18 @@ export async function applySnapshot(layer, snap) {
     } catch (_e) {
       // ignore
     }
+  }
+
+  // Restore baked source pixels if the snapshot carried them (Color Layer
+  // fills merge pixels in place; the record alone can't rebuild them). The
+  // stored image blob is rewritten too, so a reload shows the same state.
+  if (snap._originalImageData) {
+    const data = snap._originalImageData;
+    const c = new OffscreenCanvas(data.width, data.height);
+    c.getContext('2d').putImageData(data, 0, 0);
+    layer._originalCanvas = c;
+    DB.put('imageBlobs', { layerId: layer.id, blob: await c.convertToBlob({ type: 'image/png' }) })
+      .catch(err => console.error('image blob restore failed:', err));
   }
 
   if (layer.isText) {
@@ -164,7 +199,11 @@ export function undo() {
 
   const layer = State.layers.find(l => l.id === snap.id);
   if (!layer) return;
-  State.redoStack.push(snapshotLayer(layer));
+  // Raster-carrying snapshots (Color Layer fills) must keep their pixels in
+  // the redo twin, or redo would restore geometry but lose the baked fill.
+  State.redoStack.push(snap._originalImageData
+    ? attachRaster(snapshotLayer(layer), layer)
+    : snapshotLayer(layer));
   applySnapshot(layer, snap);
 }
 
@@ -186,6 +225,9 @@ export function redo() {
 
   const layer = State.layers.find(l => l.id === snap.id);
   if (!layer) return;
-  State.undoStack.push(snapshotLayer(layer));
+  // Mirror of undo(): raster snapshots keep their pixels in the undo twin.
+  State.undoStack.push(snap._originalImageData
+    ? attachRaster(snapshotLayer(layer), layer)
+    : snapshotLayer(layer));
   applySnapshot(layer, snap);
 }

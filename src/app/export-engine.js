@@ -8,7 +8,7 @@ import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from '.
 import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { appendKofiNotice, closeWindowAfterExport } from './ui.js';
-import { calculateLayout, computeSheetPlan, newSheetCanvas, drawPageInCell, buildSingleImageSheet } from './imposition.js';
+import { calculateLayout, calculateBookletLayout, computeSheetPlan, newSheetCanvas, drawPageInCell, buildSingleImageSheet } from './imposition.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
 import { isTwoToneShape } from './shape-utils.js';
@@ -721,11 +721,15 @@ export const ExportEngine = {
     const colors = scan.colors;
 
     const refPage = scan.firstContentPage;
-    const sheetLayout = calculateLayout(
-      refPage?.width || CANVAS_W,
-      refPage?.height || CANVAS_H,
-      targetSheetSize, customTargetW, customTargetH
-    );
+    // Booklet grids are fixed by the fold structure (folio 2-up, quarto 2×2,
+    // octavo 4×2), so the layout must be computed for that grid — not the
+    // free N-up grid — or cells end up smaller than the page and every page
+    // is silently shrunk. Only the paper orientation / page rotation vary.
+    const refW = refPage?.width || CANVAS_W;
+    const refH = refPage?.height || CANVAS_H;
+    const sheetLayout = binding === 'saddle-stitch'
+      ? calculateBookletLayout(refW, refH, bookletLayout, targetSheetSize, customTargetW, customTargetH)
+      : calculateLayout(refW, refH, targetSheetSize, customTargetW, customTargetH);
     const plan = computeSheetPlan(pageCount, sheetLayout, binding, bookletLayout, 0);
 
     const totalPlates = plan.length * colors.length;
@@ -996,9 +1000,10 @@ export const ExportEngine = {
     const pageOrder = State.project.pageOrder;
     const scan = await this._scanPages(pageOrder);
     const refPage = scan.firstContentPage;
-    const sheetLayout = calculateLayout(
+    const sheetLayout = calculateBookletLayout(
       refPage?.width || CANVAS_W,
       refPage?.height || CANVAS_H,
+      bookletLayout,
       targetSheetSize, customTargetW, customTargetH
     );
     const plan = computeSheetPlan(pageOrder.length, sheetLayout, 'saddle-stitch', bookletLayout, 0);

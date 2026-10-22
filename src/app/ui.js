@@ -715,6 +715,8 @@ export const UI = {
     const names = {
       select: 'Select',
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
+      'paint-bucket': 'Color Layer — Fill Bucket',
+      eyedropper: 'Eyedropper — Pick Ink',
       'text-box': 'Type — Paragraph Box', 'text-line': 'Type — Single Line',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
       zoom: 'Zoom',
@@ -723,6 +725,8 @@ export const UI = {
     const isShape = tool.startsWith('shape-');
     document.getElementById('shape-options').style.display = isShape ? '' : 'none';
     document.getElementById('poly-options').style.display = (tool === 'shape-poly') ? '' : 'none';
+    const bucketOptions = document.getElementById('bucket-options');
+    if (bucketOptions) bucketOptions.style.display = tool === 'paint-bucket' ? '' : 'none';
     const isMask = tool === 'mask-draw' || tool === 'mask-erase';
     if (!isMask) document.getElementById('brush-cursor').style.display = 'none';
   },

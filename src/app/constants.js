@@ -74,7 +74,7 @@ export const DEFAULT_RISO_COLORS = [
   { name: 'Yellow',      hex: '#ffe800', pantone: 'YELLOW U' },
   { name: 'Neon Pink',   hex: '#ff48b0', pantone: '806 U' },
   { name: 'Aqua',        hex: '#5ec8e5', pantone: '637 U' },
-  { name: 'Blue',        hex: '#0078bf', pantone: '3005 U' },
+  { name: 'Royal Blue',  hex: '#252D59', pantone: '3005 U' },
   { name: 'White',       hex: '#FFFFFF', pantone: '' },
 ];
 

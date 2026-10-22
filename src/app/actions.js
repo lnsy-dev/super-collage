@@ -123,6 +123,19 @@ async function updateLayerColorsForPaletteChange(hexMap) {
   }
 }
 
+function buildColorManagerRow(color, isProject) {
+  const row = document.createElement('div');
+  row.className = 'color-manager-row';
+  row.dataset.originalHex = color.hex;
+  row.innerHTML = `
+    <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
+    <input type="color" class="color-manager-color" value="${color.hex}">
+    <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${isProject ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
+    <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
+  `;
+  return row;
+}
+
 export async function showColorManagerDialog() {
   const dialog = document.getElementById('color-manager-dialog');
   const list = document.getElementById('color-manager-list');
@@ -140,19 +153,21 @@ export async function showColorManagerDialog() {
 
   for (const color of _colorManagerOriginal) {
     const isProject = projectHexes.has(normalizeHex(color.hex));
-    const row = document.createElement('div');
-    row.className = 'color-manager-row';
-    row.dataset.originalHex = color.hex;
-    row.innerHTML = `
-      <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
-      <input type="color" class="color-manager-color" value="${color.hex}">
-      <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${isProject ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
-      <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
-    `;
-    list.appendChild(row);
+    list.appendChild(buildColorManagerRow(color, isProject));
   }
 
   dialog.classList.remove('hidden');
+}
+
+// Restore the Edit Colors dialog rows to the factory default palette.
+// The user must click OK to apply the reset (Cancel keeps current colors).
+export function resetColorManagerToDefaults() {
+  const list = document.getElementById('color-manager-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const color of DEFAULT_RISO_COLORS) {
+    list.appendChild(buildColorManagerRow({ ...color }, false));
+  }
 }
 
 export function hideColorManagerDialog() {

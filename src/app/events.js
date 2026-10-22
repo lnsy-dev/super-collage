@@ -10,7 +10,7 @@ import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, resetColorManagerToDefaults } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -21,6 +21,8 @@ import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils
 import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
 import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
+import { isSnapEnabled, snapPageValue, snapOverlayPoint, snapMoveCorrection } from './grid-snap.js';
+import { BucketTool } from './color-layer.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -181,8 +183,22 @@ function buildResizeMeta(layer, handleId, startX, startY, zoom) {
 
 function applyResize(layer, snap, meta, pointerX, pointerY, zoom) {
   const { fixedPos, offsetX, offsetY, handleId, cos, sin, fh, fv } = meta;
-  const effX = pointerX - offsetX;
-  const effY = pointerY - offsetY;
+  let effX = pointerX - offsetX;
+  let effY = pointerY - offsetY;
+
+  const isCorner = ['tl', 'tr', 'bl', 'br'].includes(handleId);
+  const snapOn = isSnapEnabled(State.showGrid, State.grid)
+    && !layer.rotation && !layer.flipH && !layer.flipV;
+
+  // Edge handles: snap the dragged handle to the nearest grid intersection —
+  // the handle sits exactly on the moving edge, so that edge lands on a
+  // drawn grid line.
+  // Corner handles skip the pointer snap: their aspect-locked scale is driven
+  // by ONE axis, so snapping both pointer axes would leave the other edge
+  // off-grid. Instead the driven dimension is snapped after the aspect math.
+  if (snapOn && !isCorner) {
+    ({ x: effX, y: effY } = snapOverlayPoint(effX, effY, zoom, State.grid.size, true));
+  }
 
   // Vector from the stationary opposite edge/corner to the dragged handle.
   const dsx = effX - fixedPos.x;
@@ -201,7 +217,18 @@ function applyResize(layer, snap, meta, pointerX, pointerY, zoom) {
     const [sx, sy] = HANDLE_SIGN[handleId];
     const cX = rawDx / (sx * snap.width);
     const cY = rawDy / (sy * snap.height);
-    const s = Math.abs(cX) >= Math.abs(cY) ? cX : cY;
+    const drivenIsW = Math.abs(cX) >= Math.abs(cY);
+    let s = drivenIsW ? cX : cY;
+    // With the grid visible (unrotated, unflipped layers), snap the DRIVEN
+    // dimension to a grid multiple so its moving edge lands on a drawn grid
+    // line; the other edge follows the locked aspect ratio from the same
+    // scale, so the shape stays similar.
+    if (snapOn) {
+      const g = State.grid.size;
+      const base = drivenIsW ? snap.width : snap.height;
+      const dim = Math.max(10, s * base);
+      s = Math.max(10, snapPageValue(dim, g)) / base;
+    }
     newW = Math.max(10, s * snap.width);
     newH = Math.max(10, s * snap.height);
   } else {
@@ -348,13 +375,34 @@ async function onPointerDown(e) {
   }
 
   if (State.tool.startsWith('shape-')) {
-    State.shapeDrag = { startX: x, startY: y };
+    // Anchor the shape's first corner on a grid intersection so both its
+    // origin and far corner land on grid lines while the grid is visible.
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
+    State.shapeDrag = { startX: s.x, startY: s.y };
     return;
   }
 
   // Zoom tool: click zooms in, Shift+click zooms out, both around the click.
   if (State.tool === 'zoom') {
     zoomAtClick(e, x, y, e.shiftKey ? 'out' : 'in');
+    return;
+  }
+
+  // Eyedropper: sample the composite color under the cursor and set the
+  // bucket's ink mix to the best simulated mix for it, then hand the
+  // user straight back to the fill bucket.
+  if (State.tool === 'eyedropper') {
+    const page = overlayToPage(x, y, State.zoom);
+    BucketTool.pickInk(page.x, page.y).then(() => UI.setTool('paint-bucket'));
+    return;
+  }
+  // Paint bucket (Color Layer): click floods the region under the cursor.
+  // The module debounces the fill so the second click of a double-click
+  // can promote the gesture to a fill-the-entire-layer instead.
+  if (State.tool === 'paint-bucket') {
+    const page = overlayToPage(x, y, State.zoom);
+    BucketTool.onPointerDown(page.x, page.y);
     return;
   }
 
@@ -370,7 +418,10 @@ async function onPointerDown(e) {
       TextEditor.beginEdit(hit);
       return;
     }
-    State.textDrag = { startX: x, startY: y };
+    // Anchor the box's first corner on a grid intersection (same as shapes).
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
+    State.textDrag = { startX: s.x, startY: s.y };
     return;
   }
 
@@ -513,20 +564,24 @@ function onPointerMove(e) {
   }
 
   if (State.shapeDrag && (e.buttons & 1)) {
-    drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, x, y);
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
+    drawShapePreview(State.shapeDrag.startX, State.shapeDrag.startY, s.x, s.y);
     return;
   }
 
   if (State.textDrag && (e.buttons & 1)) {
     // Reuse a dashed preview for the text box being dragged out.
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
     const ctx = overlayCanvas.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     ctx.save();
-    ctx.translate(Math.min(State.textDrag.startX, x), Math.min(State.textDrag.startY, y));
+    ctx.translate(Math.min(State.textDrag.startX, s.x), Math.min(State.textDrag.startY, s.y));
     ctx.strokeStyle = '#0055ff';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
-    ctx.strokeRect(0, 0, Math.abs(x - State.textDrag.startX), Math.abs(y - State.textDrag.startY));
+    ctx.strokeRect(0, 0, Math.abs(s.x - State.textDrag.startX), Math.abs(s.y - State.textDrag.startY));
     ctx.restore();
     ctx.setLineDash([]);
     return;
@@ -568,12 +623,21 @@ function onPointerMove(e) {
   const snap = State.drag.layerSnap;
 
   if (State.drag.type === 'move') {
-    layer.x = snap.x + dx / z;
-    layer.y = snap.y + dy / z;
+    let px = dx / z;
+    let py = dy / z;
+    // When the grid is visible, snap the dragged layer's top-left corner to
+    // the nearest grid intersection. The same correction moves the rest of
+    // the selection so multi-selects stay rigid.
+    const sc = snapMoveCorrection(snap.x + px, snap.y + py, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
+    px += sc.dx;
+    py += sc.dy;
+    layer.x = snap.x + px;
+    layer.y = snap.y + py;
     // Move all other selected layers by the same delta
     for (const es of (State.drag.extraSnaps || [])) {
       const el = State.layers.find(l => l.id === es.id);
-      if (el) { el.x = es.x + dx / z; el.y = es.y + dy / z; }
+      if (el) { el.x = es.x + px; el.y = es.y + py; }
     }
   } else if (State.drag.type === 'rotate') {
     // Same padded pivot as the drag start (see onPointerDown).
@@ -658,13 +722,15 @@ async function onPointerUp(e) {
 
   if (State.shapeDrag) {
     const { x, y } = getCanvasXY(e);
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
     const { startX, startY } = State.shapeDrag;
     State.shapeDrag = null;
     Renderer.drawOverlay();
-    const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
+    const sw = Math.abs(s.x - startX), sh = Math.abs(s.y - startY);
     if (sw >= 4 && sh >= 4) {
-      const cx = Math.round(Math.min(startX, x) / State.zoom - CANVAS_PAD);
-      const cy = Math.round(Math.min(startY, y) / State.zoom - CANVAS_PAD);
+      const cx = Math.round(Math.min(startX, s.x) / State.zoom - CANVAS_PAD);
+      const cy = Math.round(Math.min(startY, s.y) / State.zoom - CANVAS_PAD);
       const cw = Math.max(1, Math.round(sw / State.zoom));
       const ch = Math.max(1, Math.round(sh / State.zoom));
       const shapeProps = {
@@ -684,16 +750,18 @@ async function onPointerUp(e) {
   }
   if (State.textDrag) {
     const { x, y } = getCanvasXY(e);
+    const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
+      isSnapEnabled(State.showGrid, State.grid));
     const { startX, startY } = State.textDrag;
     State.textDrag = null;
     Renderer.drawOverlay();
     const isLine = State.tool === 'text-line';
-    const sw = Math.abs(x - startX), sh = Math.abs(y - startY);
     let cx, cy, cw, ch;
+    const sw = Math.abs(s.x - startX), sh = Math.abs(s.y - startY);
     if (!isLine && sw >= 8 && sh >= 8) {
       // Dragged out an explicit paragraph box.
-      cx = Math.round(Math.min(startX, x) / State.zoom - CANVAS_PAD);
-      cy = Math.round(Math.min(startY, y) / State.zoom - CANVAS_PAD);
+      cx = Math.round(Math.min(startX, s.x) / State.zoom - CANVAS_PAD);
+      cy = Math.round(Math.min(startY, s.y) / State.zoom - CANVAS_PAD);
       cw = Math.max(1, Math.round(sw / State.zoom));
       ch = Math.max(1, Math.round(sh / State.zoom));
     } else {
@@ -774,6 +842,12 @@ export function wireControls() {
 
   // Double-click a text layer to edit it in place.
   overlayCanvas.addEventListener('dblclick', async e => {
+    // Paint bucket: double-click fills the entire layer (whole page)
+    // regardless of what is drawn on it — regardless of region edges.
+    if (State.tool === 'paint-bucket') {
+      BucketTool.onDoubleClick();
+      return;
+    }
     // The pointerdown that precedes this may already have opened the editor
     // (Type tool over text) — don't commit-and-reopen it.
     if (TextEditor.isActive()) return;
@@ -1985,6 +2059,7 @@ export function wireControls() {
   document.getElementById('btn-color-manager-ok')?.addEventListener('click', () => applyColorManagerChanges());
   document.getElementById('btn-color-manager-cancel')?.addEventListener('click', () => hideColorManagerDialog());
   document.getElementById('btn-add-color')?.addEventListener('click', () => addColorManagerRow());
+  document.getElementById('btn-color-manager-reset')?.addEventListener('click', () => resetColorManagerToDefaults());
   document.getElementById('color-manager-list')?.addEventListener('click', e => {
     const btn = e.target.closest('.color-manager-remove');
     if (!btn) return;
@@ -1999,10 +2074,20 @@ export function wireControls() {
   // Switching tools always commits an in-progress on-canvas text edit.
   const setToolSafe = tool => {
     if (TextEditor.active()) TextEditor.commit();
+    // A pending bucket region fill belongs to the gesture it was
+    // scheduled for; starting a new tool (or key) drops it.
+    BucketTool.cancelPending();
     UI.setTool(tool);
   };
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn =>
-    btn.addEventListener('click', () => setToolSafe(btn.dataset.tool)));
+    btn.addEventListener('click', () => {
+      setToolSafe(btn.dataset.tool);
+    }));
+  // The Mix Ink window opens only from the ink swatch below the bucket —
+  // never from the tool button itself.
+  document.getElementById('bucket-color-swatch')?.addEventListener('click', () => {
+    BucketTool.showMixDialog();
+  });
 
   // All data-action buttons outside menus
   document.querySelectorAll('[data-action]:not(.menu-entry):not(.tool-btn):not(.halftone-opt):not(.color-swatch)').forEach(el =>
@@ -2079,6 +2164,8 @@ export function wireControls() {
       if (e.key === 'v' || e.key === 'V') setToolSafe('select');
       if (e.key === 'b' || e.key === 'B') setToolSafe('mask-draw');
       if (e.key === 'e' || e.key === 'E') setToolSafe('mask-erase');
+      if (e.key === 'g' || e.key === 'G') setToolSafe('paint-bucket');
+      if (e.key === 'i' || e.key === 'I') setToolSafe('eyedropper');
       if (e.key === 't' || e.key === 'T') setToolSafe(e.shiftKey ? 'text-line' : 'text-box');
       if (e.key === 'r' || e.key === 'R') setToolSafe('shape-rect');
       if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');

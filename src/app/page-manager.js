@@ -419,7 +419,11 @@ export const PageManager = {
     const sCtx = sourceCanvas.getContext('2d');
     sCtx.fillStyle = 'white';
     sCtx.fillRect(0, 0, nw, nh);
-    sCtx.drawImage(bmp, 0, 0);
+    // Draw with explicit destination dims: the stored blob is the original
+    // source file, which can be larger than the MAX_SEP_DIM-capped natural
+    // size — it must be downscaled rather than cropped (matches image-layer
+    // hydration above).
+    sCtx.drawImage(bmp, 0, 0, nw, nh);
     bmp.close();
     layer._originalCanvas = sourceCanvas;
 

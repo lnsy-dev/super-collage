@@ -80,6 +80,9 @@ export class Layer {
     this.importedGroupId = data.importedGroupId || null;
     this.isSvg = data.isSvg || false;
     this.isColorSeparation = data.isColorSeparation || false;
+    // Set on layers created by the fill-bucket tool (color-layer.js):
+    // bucket clicks merge into the selected layer instead of spawning one.
+    this.isColorFill = data.isColorFill || false;
     this.isText = data.isText || false;
     this.textMode = data.textMode || 'box'; // 'box' = paragraph box, 'line' = single line
     this.text = data.text || '';
@@ -158,6 +161,7 @@ export class Layer {
       importedGroupId: this.importedGroupId,
       isSvg: this.isSvg,
       isColorSeparation: this.isColorSeparation,
+      isColorFill: this.isColorFill,
       isText: this.isText,
       textMode: this.textMode,
       text: this.text,

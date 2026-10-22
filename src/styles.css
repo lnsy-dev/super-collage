@@ -804,6 +804,8 @@ body.tool-text-box #interaction-overlay,
 body.tool-text-line #interaction-overlay { cursor: text; }
 body.tool-zoom #interaction-overlay { cursor: zoom-in; }
 body.tool-zoom.shift-held #interaction-overlay { cursor: zoom-out; }
+body.tool-eyedropper #interaction-overlay { cursor: crosshair; }
+body.tool-paint-bucket #interaction-overlay { cursor: crosshair; }
 
 /* ─── On-canvas text editing (Adobe-style in-box editing) ────────── */
 .text-editor-host {
@@ -1149,5 +1151,36 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   opacity: 0.75;
   margin-top: 0.15rem;
   min-height: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Paint bucket "Mix Ink" dialog ─────────────────────────────── */
+.bucket-ink-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 1.25rem;
+}
+.bucket-ink-swatch {
+  width: 24px;
+  height: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  flex: none;
+}
+.bucket-ink-name {
+  width: 118px;
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bucket-ink-slider { flex: 1; }
+.bucket-ink-val {
+  width: 44px;
+  flex: none;
+  text-align: right;
+  font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
 }
