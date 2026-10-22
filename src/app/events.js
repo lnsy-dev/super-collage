@@ -600,9 +600,9 @@ function onPointerMove(e) {
     // factor and the same position delta.
     const scaleX = layer.width / snap.width;
     const scaleY = layer.height / snap.height;
-    // Point type ('line') scales the font with the block. Paragraph boxes
-    // ('box') only reflow: the field changes but the type size stays.
-    if (layer.isText && layer.textMode === 'line') {
+    // Text layers scale the font with the block, whether point type or a
+    // paragraph box — the type follows the block instead of reflowing.
+    if (layer.isText) {
       scaleTextMetrics(layer, snap, scaleX, scaleY);
     }
     const posDx = layer.x - snap.x;
@@ -617,7 +617,7 @@ function onPointerMove(e) {
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
-        if (el.textMode === 'line') scaleTextMetrics(el, es, scaleX, scaleY);
+        scaleTextMetrics(el, es, scaleX, scaleY);
       }
     }
     // Linked siblings and the group's image-mask layers scale about the group
@@ -637,7 +637,7 @@ function onPointerMove(e) {
       if (el.isText) {
         el.naturalWidth = el.width;
         el.naturalHeight = el.height;
-        if (el.textMode === 'line') scaleTextMetrics(el, es, scaleX, scaleY);
+        scaleTextMetrics(el, es, scaleX, scaleY);
       }
     }
   }
@@ -1040,7 +1040,7 @@ export function wireControls() {
         if (Math.abs(factor - 1) > 1e-9) {
           const sx = field === 'width' ? factor : 1;
           const sy = field === 'height' ? factor : 1;
-          if (l.isText && l.textMode === 'line') scaleTextMetrics(l, l, sx, sy);
+          if (l.isText) scaleTextMetrics(l, l, sx, sy);
           const group = getScaleGroup(l);
           if (group.length) {
             if (field === 'width') l.x = (l.x + prev / 2) - l.width / 2;
