@@ -68,6 +68,10 @@ async function addShapeToPage(page, pageId, shape, colorHex) {
 }
 
 test.describe('Paginated Export', () => {
+  // Booklet imposition renders 4–8 full pages per test — 30s is too tight
+  // on slower machines even before the tiled (quadrant) rendering path,
+  // which trades rendering time for a far smaller memory footprint.
+  test.setTimeout(120000);
   test('single-page saddle-stitch export renders page content', async ({ page }) => {
     await createProject(page, 'Saddle Single', { pageSize: 'half-letter', pageCount: 1 });
     const [pageId] = await getProjectPageIds(page);

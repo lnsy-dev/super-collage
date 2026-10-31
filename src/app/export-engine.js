@@ -13,8 +13,20 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits, computeSpreads } from './spread-manager.js';
 import { isTwoToneShape } from './shape-utils.js';
 import { createExportProgress, formatBytes, formatDuration } from './export-progress.js';
+import { planTiles } from './tiles.js';
+import { sepPlateToCanvas } from './separation-methods.js';
 
 export const ExportEngine = {
+  // Page-space work (image-mask compositing, plate flattening, composite
+  // blending) runs tile by tile and is stitched into the final canvas. The
+  // default 2×2 grid = quadrants: the largest intermediate page-space
+  // buffer is one quarter of a page instead of several whole-page buffers
+  // alive at once. Per-pixel page-space compositing is position
+  // independent, so tiled output is bit-identical to whole-page rendering
+  // (see e2e/export-tiling.spec.js). Overridable for tests: a 1×1 grid
+  // restores the untiled whole-image path.
+  _renderTileGrid: { cols: 2, rows: 2 },
+
   // Put a context into the layer's own coordinate space: origin at its
   // top-left corner, with rotation and flips applied.
   _applyLayerTransform(ctx, layer) {
@@ -24,12 +36,40 @@ export const ExportEngine = {
     ctx.translate(-layer.width / 2, -layer.height / 2);
   },
 
-  // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) to a full-canvas
-  // OffscreenCanvas, applying both painted mask (_maskCanvas) and image masks (imageMaskIds).
-  async _renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet = State.layers) {
-    const buf = new OffscreenCanvas(width, height);
-    const bCtx = buf.getContext('2d');
+  // Instrumentation for the tiling invariant: the largest single
+  // page-space intermediate (canvas or ImageData) allocated while
+  // rendering. With the default grid this is one tile (≈ 1/4 page RGBA),
+  // however many masked layers or inks a page has.
+  _notePageBuffer(bytes) {
+    if (bytes > (this._peakPageBufferBytes || 0)) this._peakPageBufferBytes = bytes;
+  },
+
+  _resetMemoryStats() {
+    this._peakPageBufferBytes = 0;
+  },
+
+  _pageTiles(width, height) {
+    return planTiles(width, height, this._renderTileGrid.cols, this._renderTileGrid.rows);
+  },
+
+  // Renders a layer's sourceCanvas (processedCanvas or weightedCanvas) into
+  // a page-space OffscreenCanvas, applying both painted mask (_maskCanvas)
+  // and image masks (imageMaskIds). When `tile` is given only that tile of
+  // the page is rendered — the returned canvas is tile-sized and its
+  // content sits at (tile.x, tile.y) in page space, so drawing it there
+  // stitches tiles into an identical whole-page result.
+  // `maskMemo` caches processed image-mask canvases by layer id, so tiling
+  // a page across N tiles still processes each mask layer once.
+  async _renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet = State.layers, tile = null, maskMemo = null) {
+    const tw = tile ? tile.w : width;
+    const th = tile ? tile.h : height;
+    const buf = new OffscreenCanvas(tw, th);
+    this._notePageBuffer(tw * th * 4);
+    // Readback-friendly: the composite path reads this buffer per tile,
+    // and software surfaces avoid GPU texture copies for the readbacks.
+    const bCtx = buf.getContext('2d', { willReadFrequently: true });
     bCtx.save();
+    if (tile) bCtx.translate(-tile.x, -tile.y);
     this._applyLayerTransform(bCtx, layer);
     if (layer._maskCanvas) {
       const tmp = new OffscreenCanvas(layer.width, layer.height);
@@ -45,11 +85,19 @@ export const ExportEngine = {
     for (const maskId of (layer.imageMaskIds || [])) {
       const maskLayer = layerSet.find(l => l.id === maskId);
       if (!maskLayer) continue;
-      const maskCanvas = await ImageProcessor.processLayer(maskLayer, { forExport: true });
+      let maskCanvas;
+      if (maskMemo?.has(maskId)) {
+        maskCanvas = maskMemo.get(maskId);
+      } else {
+        maskCanvas = await ImageProcessor.processLayer(maskLayer, { forExport: true });
+        maskMemo?.set(maskId, maskCanvas);
+      }
       if (!maskCanvas) continue;
-      const maskBuf = new OffscreenCanvas(width, height);
-      const mCtx = maskBuf.getContext('2d');
+      const maskBuf = new OffscreenCanvas(tw, th);
+      this._notePageBuffer(tw * th * 4);
+      const mCtx = maskBuf.getContext('2d', { willReadFrequently: true });
       mCtx.save();
+      if (tile) mCtx.translate(-tile.x, -tile.y);
       mCtx.translate(maskLayer.x + maskLayer.width / 2, maskLayer.y + maskLayer.height / 2);
       mCtx.rotate(maskLayer.rotation * Math.PI / 180);
       mCtx.scale(maskLayer.flipH ? -1 : 1, maskLayer.flipV ? -1 : 1);
@@ -62,7 +110,8 @@ export const ExportEngine = {
         mCtx.drawImage(maskLayer._maskCanvas, 0, 0, maskLayer.width, maskLayer.height);
       }
       mCtx.restore();
-      const maskImgData = mCtx.getImageData(0, 0, width, height);
+      const maskImgData = mCtx.getImageData(0, 0, tw, th);
+      this._notePageBuffer(tw * th * 4);
       const md = maskImgData.data;
       for (let i = 0; i < md.length; i += 4) md[i + 3] = 255 - md[i + 3];
       mCtx.putImageData(maskImgData, 0, 0);
@@ -72,10 +121,12 @@ export const ExportEngine = {
     return buf;
   },
 
-  // Paint one prepared layer onto a plate canvas. A page-sized intermediate is
-  // only built when an image mask has to be composited in page space; an
-  // unmasked layer (or one with just a painted mask) goes straight through the
-  // layer transform, so no full-page copy is allocated per layer per plate.
+  // Paint one prepared layer onto a plate canvas. A page-space intermediate is
+  // only built when an image mask has to be composited in page space — and
+  // then tile by tile, stitched straight onto the plate, so the intermediate
+  // is tile-sized rather than page-sized; an unmasked layer (or one with just
+  // a painted mask) goes straight through the layer transform, so no full-page
+  // copy is allocated per layer per plate.
   async _drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet) {
     const imageMaskIds = layer.imageMaskIds || [];
     if (!layer._maskCanvas && !imageMaskIds.length) {
@@ -99,7 +150,14 @@ export const ExportEngine = {
       ctx.restore();
       return;
     }
-    ctx.drawImage(await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet), 0, 0);
+    // Image masks composite in page space: render one tile at a time and
+    // stitch it onto the plate. maskMemo keeps each mask layer's processed
+    // canvas across tiles (processing once per plate, as before tiling).
+    const maskMemo = new Map();
+    for (const tile of this._pageTiles(width, height)) {
+      const buf = await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layerSet, tile, maskMemo);
+      ctx.drawImage(buf, tile.x, tile.y);
+    }
   },
 
   _tileCanvas(src, layout, pageWidth, pageHeight) {
@@ -177,7 +235,9 @@ export const ExportEngine = {
   // contribution: "rendering layer 3 of 7 · grunge.png".
   async _renderPlate(color, plate, width, height, layerSet, progress = null) {
     const ec = new OffscreenCanvas(width, height);
-    const ctx = ec.getContext('2d');
+    // The flatten pass now reads the plate back tile by tile, so ask for
+    // a readback-friendly surface.
+    const ctx = ec.getContext('2d', { willReadFrequently: true });
 
     const totalSteps =
       plate.solidLayers.length +
@@ -212,8 +272,10 @@ export const ExportEngine = {
     // Color separation layer contributions
     for (const { layer, color: plateColor } of (plate.separationLayers || [])) {
       await tick(layer);
-      const plateCanvas = layer.separationPlates.get(plateColor);
-      if (!plateCanvas) continue;
+      const plateStore = layer.separationPlates.get(plateColor);
+      if (!plateStore) continue;
+      // Plates are stored grayscale; materialize just this ink's canvas.
+      const plateCanvas = sepPlateToCanvas(plateStore);
       const scaled = new OffscreenCanvas(layer.width, layer.height);
       const sCtx = scaled.getContext('2d', { willReadFrequently: true });
       sCtx.drawImage(plateCanvas, 0, 0, layer.width, layer.height);
@@ -248,20 +310,25 @@ export const ExportEngine = {
       await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
     }
 
-    // Remap to greyscale ink on white
+    // Remap to greyscale ink on white — one tile at a time, so the
+    // readback buffer is tile-sized instead of page-sized.
     if (progress) await progress(`flattening ${color} ink on white…`);
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const d = imgData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const grey = 255 - d[i+3];
-      d[i] = grey; d[i+1] = grey; d[i+2] = grey; d[i+3] = 255;
+    for (const tile of this._pageTiles(width, height)) {
+      const imgData = ctx.getImageData(tile.x, tile.y, tile.w, tile.h);
+      this._notePageBuffer(tile.w * tile.h * 4);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const grey = 255 - d[i+3];
+        d[i] = grey; d[i+1] = grey; d[i+2] = grey; d[i+3] = 255;
+      }
+      ctx.putImageData(imgData, tile.x, tile.y);
     }
-    ctx.putImageData(imgData, 0, 0);
     return ec;
   },
 
   // Exports a single layer set (one page) and returns a Map color -> plate canvas.
   async exportLayers(layers, width, height) {
+    this._resetMemoryStats();
     const visibleLayers = layers.filter(l => l.visible && !l.isMaskFor);
     if (!visibleLayers.length) return new Map();
 
@@ -516,6 +583,7 @@ export const ExportEngine = {
     const prog = createExportProgress(progEl);
     const btn = document.getElementById('btn-export-go');
     this._cancelRequested = false;
+    this._resetMemoryStats();
     try {
       const projectSlug = document.getElementById('status-project').textContent
         .toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -661,6 +729,7 @@ export const ExportEngine = {
   // for the e2e harness, which needs every plate in memory at once; the real
   // exporters never call it and stream one plate at a time instead.
   async _buildBookletPagePlates(pageOrder, prog = null) {
+    this._resetMemoryStats();
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
     const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);
@@ -741,6 +810,7 @@ export const ExportEngine = {
     let done = 0;
     this._peakLivePlates = 0;
     this._livePlates = 0;
+    this._resetMemoryStats();
 
     for (let si = 0; si < plan.length; si++) {
       const side = plan[si];
@@ -864,8 +934,19 @@ export const ExportEngine = {
     this._cancelRequested = true;
   },
 
+  // Full-colour composite: layers are subtractively blended onto white,
+  // ONE TILE at a time. The output canvas itself accumulates the result
+  // (read tile → blend → write tile), so there is no page-sized
+  // accumulator, no page-sized per-layer buffer, and the wasm blend runs
+  // in place on tile-sized slices. Bit-identical to the previous
+  // whole-page accumulator: the blend is per-pixel independent and the
+  // per-tile base starts from exactly what earlier layers left there.
   async _renderComposite(layers, width, height, prog = null, label = '') {
-    let accumulator = new Uint8Array(width * height * 4).fill(255);
+    const outCanvas = new OffscreenCanvas(width, height);
+    const outCtx = outCanvas.getContext('2d', { willReadFrequently: true });
+    outCtx.fillStyle = '#fff';
+    outCtx.fillRect(0, 0, width, height);
+    const tiles = this._pageTiles(width, height);
 
     // Exclude mask layers — they render as part of their paired base layer
     const visibleLayers = layers.filter(l => l.visible && !l.isMaskFor && (l._processedCanvas || l._originalCanvas || l.isColorSeparation || l.isText));
@@ -879,20 +960,30 @@ export const ExportEngine = {
 
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
-      const layerBuf = await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layers);
-      const layerData = layerBuf.getContext('2d').getImageData(0, 0, width, height);
-      accumulator = window.blendSubtractive(accumulator, new Uint8Array(layerData.data.buffer));
+      const maskMemo = new Map();
+      for (const tile of tiles) {
+        const layerBuf = await this._renderLayerToBuffer(layer, sourceCanvas, width, height, layers, tile, maskMemo);
+        const layerData = layerBuf.getContext('2d').getImageData(0, 0, tile.w, tile.h);
+        this._notePageBuffer(tile.w * tile.h * 4);
+        const imgData = outCtx.getImageData(tile.x, tile.y, tile.w, tile.h);
+        this._notePageBuffer(tile.w * tile.h * 4);
+        const base = new Uint8Array(imgData.data.buffer, imgData.data.byteOffset, imgData.data.byteLength);
+        const overlay = new Uint8Array(layerData.data.buffer, layerData.data.byteOffset, layerData.data.byteLength);
+        if (window.blendSubtractiveInto) {
+          window.blendSubtractiveInto(base, overlay);
+        } else {
+          base.set(window.blendSubtractive(base, overlay));
+        }
+        outCtx.putImageData(imgData, tile.x, tile.y);
+      }
     }
 
-    const outCanvas = new OffscreenCanvas(width, height);
-    const outCtx = outCanvas.getContext('2d');
-    const imgData = new ImageData(new Uint8ClampedArray(accumulator.buffer), width, height);
-    outCtx.putImageData(imgData, 0, 0);
     return outCanvas;
   },
 
   async exportComposite() {
     const prog = document.getElementById('composite-export-progress');
+    this._resetMemoryStats();
     const projectSlug = document.getElementById('status-project').textContent.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     const compositeLayout = document.querySelector('input[name="composite-layout"]:checked')?.value || '1up';
     const bookletLayout = document.querySelector('input[name="composite-booklet-layout"]:checked')?.value || 'folio';
@@ -971,6 +1062,7 @@ export const ExportEngine = {
   // rule as _buildBookletPagePlates. Kept for the e2e harness, which needs every
   // composite in memory at once; the exporter streams them instead.
   async _buildBookletPageComposites(pageOrder, prog = null) {
+    this._resetMemoryStats();
     const spreads = computeSpreads(pageOrder, 'saddle-stitch');
     const readerSpreadIds = this._genuineReaderSpreadIds(pageOrder);
     const spreadOfPage = this._spreadIndexOfPages(pageOrder, spreads);

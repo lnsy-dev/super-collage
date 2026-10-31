@@ -566,8 +566,9 @@ export class XYZ {
 if (Symbol.dispose) XYZ.prototype[Symbol.dispose] = XYZ.prototype.free;
 
 /**
- * Spectrolite inkOpacityMultipliers: rescale the ink amount of every plate
- * in a plate set (same layout as `separate_colors_with_lut`).
+ * Spectrolite inkOpacityMultipliers: rescale the ink amount of plate image
+ * data in flat RGBA form (R = G = B grayscale, as in an ImageData of one
+ * styled plate; NOT the packed grayscale layout of separate_colors_with_lut).
  * multiplier 1 = unchanged, 0 = plate cleared, up to 2 = heavier laydown.
  * @param {Uint8Array} plates
  * @param {number} width
@@ -607,6 +608,23 @@ export function blend_subtractive(base, overlay) {
 }
 
 /**
+ * In-place variant of `blend_subtractive`: blends `overlay` into `base`
+ * without allocating a result vector. Bit-identical output to
+ * `blend_subtractive(base, overlay)`; the streaming composite renderer uses
+ * it so per-layer blends mutate one tile-sized buffer instead of
+ * allocating a fresh buffer per layer.
+ * @param {Uint8Array} base
+ * @param {Uint8Array} overlay
+ */
+export function blend_subtractive_into(base, overlay) {
+    var ptr0 = passArray8ToWasm0(base, wasm.__wbindgen_malloc);
+    var len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(overlay, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    wasm.blend_subtractive_into(ptr0, len0, base, ptr1, len1);
+}
+
+/**
  * Build a 3-D RGB lookup table for fast color separation.
  * `grid_size` cells per channel (e.g. 16 → 16³ = 4096 cells).
  * Each cell stores 7 weight bytes (one per riso color, 0–255).
@@ -627,8 +645,10 @@ export function build_color_lut(riso_colors, max_mix, grid_size) {
 /**
  * Spectrolite "CMYK-ish" separation: split the image into C/M/Y/K channel
  * tonages (naive RGB→CMYK with K = 1 − max(R,G,B)) and return 4 grayscale
- * plates in order C, M, Y, K.  `opacities` are the channel ink density
- * multipliers (CMYKishConfig.opacities, clamped 0..2).
+ * plates in order C, M, Y, K (one byte per pixel per plate; 0 = full ink,
+ * 255 = paper — the same layout as `separate_colors_with_lut`).
+ * `opacities` are the channel ink density multipliers
+ * (CMYKishConfig.opacities, clamped 0..2).
  * @param {Uint8Array} image_data
  * @param {number} width
  * @param {number} height
@@ -683,6 +703,14 @@ export function dither_plate(image_data, width, height, method, scale_factor, th
  *
  * Returns a `Vec<f64>` where each element is the average ΔE for the
  * corresponding candidate palette.
+ *
+ * Memory: streams ONE pixel at a time through LUT lookup → plate math →
+ * print simulation → ΔE, accumulating into per-candidate totals.  The
+ * previous implementation materialized a CieLab per source pixel
+ * (~24 bytes/px) plus full plate and composite images per candidate;
+ * this version holds only the candidate LUTs (a few KB each).
+ * The per-candidate accumulation order (ascending pixels) is unchanged,
+ * so scores are bit-identical to the old two-pass form.
  * @param {Uint8Array} image_data
  * @param {number} width
  * @param {number} height
@@ -780,7 +808,8 @@ export function init_particles(count, seed) {
  * and `range_to_ink_index` (dark→light plate index per range).
  * `blackpoint_min_threshold` raises the darkest printable tone: luminances
  * below it clamp to 0 (full-ink darkest).  Plate for the assigned ink is
- * fully inked; all others stay paper.  Output matches the LUT plate layout.
+ * fully inked; all others stay paper.  Output matches the LUT plate layout
+ * (grayscale, one byte per pixel per ink; 0 = full ink, 255 = paper).
  * @param {Uint8Array} image_data
  * @param {number} width
  * @param {number} height
@@ -827,6 +856,11 @@ export function separate_colors(image_data, width, height, riso_colors, max_mix)
 /**
  * Decompose an RGBA image into risograph plates using a pre-built LUT.
  * This is ~20–50× faster than per-pixel brute-force search.
+ *
+ * Returns GRAYSCALE plates: one byte per pixel per color
+ * (layout `[plate0_gray…, plate1_gray…, …]`, 0 = full ink, 255 = no ink),
+ * a quarter of the bytes the old RGBA layout crossed the wasm boundary
+ * with — R=G=B=ink and A=255 carried no information.
  * @param {Uint8Array} image_data
  * @param {number} width
  * @param {number} height
@@ -850,8 +884,8 @@ export function separate_colors_with_lut(image_data, width, height, lut, grid_si
  * Simulate a physical risograph print by blending grayscale plates
  * with their ink colors using subtractive (multiply) blending.
  *
- * `plates` — flat RGBA array from `separate_colors_with_lut`.
- *            Layout: [plate0_rgba…, plate1_rgba…, …]  (0 = full ink, 255 = no ink)
+ * `plates` — flat GRAYSCALE array from `separate_colors_with_lut`.
+ *            Layout: [plate0_gray…, plate1_gray…, …]  (0 = full ink, 255 = no ink)
  * `colors` — flat RGB array of ink colors, one per plate.
  * Returns a flat RGBA composite image.
  * @param {Uint8Array} plates

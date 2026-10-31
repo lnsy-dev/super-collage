@@ -8,7 +8,7 @@ import { clamp } from '../utils/math.js';
 import { BAYER8 } from './constants.js';
 import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
-import { sepAngleFor, ditherMethodIndex, toImageData } from './separation-methods.js';
+import { sepAngleFor, ditherMethodIndex, toImageData, sepPlateToCanvas } from './separation-methods.js';
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
 export function generateGradientCanvas(width, height, gradient) {
@@ -768,19 +768,22 @@ export const ImageProcessor = {
     const ctx = work.getContext('2d');
 
     layer.separationColors.forEach((colorHex, colorIdx) => {
-      const plate = layer.separationPlates.get(colorHex);
-      if (!plate) return;
+      const plateStore = layer.separationPlates.get(colorHex);
+      if (!plateStore) return;
 
-      const plateCanvas = new OffscreenCanvas(targetW, targetH);
-      const pCtx = plateCanvas.getContext('2d', { willReadFrequently: true });
-      pCtx.drawImage(plate, 0, 0, targetW, targetH);
+      // Plates are stored grayscale (1 byte/px); expand one plate at a
+      // time instead of keeping every ink's RGBA canvas alive.
+      const plateCanvas = sepPlateToCanvas(plateStore);
+      const styledCanvas = new OffscreenCanvas(targetW, targetH);
+      const pCtx = styledCanvas.getContext('2d', { willReadFrequently: true });
+      pCtx.drawImage(plateCanvas, 0, 0, targetW, targetH);
 
       let px = pCtx.getImageData(0, 0, targetW, targetH);
       px = this._styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH);
       pCtx.putImageData(px, 0, 0);
 
       ctx.globalCompositeOperation = 'multiply';
-      ctx.drawImage(plateCanvas, 0, 0);
+      ctx.drawImage(styledCanvas, 0, 0);
     });
 
     if (forExport) return work;
