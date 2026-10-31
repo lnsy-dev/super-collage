@@ -10,12 +10,65 @@ const displayCanvas   = document.getElementById('display-canvas');
 const dCtx            = displayCanvas.getContext('2d');
 export const overlayCanvas = document.getElementById('interaction-overlay');
 const oCtx            = overlayCanvas.getContext('2d');
-const maskOverlayCanvas = document.getElementById('mask-canvas-overlay');
-const mCtx            = maskOverlayCanvas.getContext('2d');
+
+/**
+ * The document canvas backing stores are capped: at high zoom the CSS-size
+ * backing store used to scale with the page (a letter page at 2× would be
+ * 10200×13200 ≈ 134 megapixels per canvas, reallocated and fully repainted on
+ * every zoom step — the source of "zooming slows the app down"). Above the
+ * cap the backing store is at a proportionally smaller resolution and the
+ * context is scaled up, so document coordinates still map 1:1 to screen px.
+ * Past the cap the backing dimensions stop growing, so zooming no longer
+ * reallocates anything at all.
+ *
+ * The caps only bite on very large pages/zooms: every page type at zoom ≤ 1
+ * keeps its previous full-resolution 1:1 backing store.
+ */
+const CANVAS_MAX_EDGE   = 8192;
+const CANVAS_MAX_PIXELS = 40 * 1024 * 1024; // ~40 MP per canvas
+// When a full-quality repaint starts less than this long ago, later zoom
+// steps get a cheap scaled-blit preview instead of a fresh full repaint;
+// the pending debounce paints full quality once the steps settle.
+const PAINT_COALESCE_MS = 100;
+
+function capScale(cssW, cssH) {
+  const edge = Math.min(1, CANVAS_MAX_EDGE / Math.max(cssW, cssH));
+  const area = Math.min(1, Math.sqrt(CANVAS_MAX_PIXELS / (cssW * cssH)));
+  return Math.max(0.05, Math.min(edge, area));
+}
+
+/* Render-cache invalidation keys: the caches below store *references to the
+   source bitmaps* (_processedCanvas / _maskCanvas are replaced wholesale
+   whenever a layer is re-processed) plus the mask revision counters, and
+   compare them with plain === on reuse. Reference identity is the exact
+   invalidation signal — no registry bookkeeping involved. */
+function sameRefs(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 export const Renderer = {
 
+  _displayScale: 1,  // backing px per CSS px on the document canvas
+  _overlayScale: 1,  // backing px per CSS px on the interaction overlay
+  _lastFullPaintAt: 0,
+  // Offline counters used by the zoom-performance test suite:
+  // how often each composite cache had to be rebuilt, and how many zoom
+  // steps were served with the cheap preview blit instead of a full repaint.
+  _stats: { imageMaskBuilds: 0, paintedMaskBuilds: 0, previewBlits: 0 },
+
   init() { this.resize(); },
+
+  // CSS-pixel size of the document area (independent of the backing scale)
+  _docSize() {
+    return {
+      w: Math.round(CANVAS_W * State.zoom),
+      h: Math.round(CANVAS_H * State.zoom),
+    };
+  },
 
   resize() {
     const z = State.zoom;
@@ -23,16 +76,36 @@ export const Renderer = {
     const dh = Math.round(CANVAS_H * z);
     const ow = Math.round((CANVAS_W + CANVAS_PAD * 2) * z);
     const oh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
-    displayCanvas.width = dw; displayCanvas.height = dh;
+
+    this._displayScale = capScale(dw, dh);
+    this._overlayScale = capScale(ow, oh);
+    const dwB = Math.max(1, Math.round(dw * this._displayScale));
+    const dhB = Math.max(1, Math.round(dh * this._displayScale));
+    const owB = Math.max(1, Math.round(ow * this._overlayScale));
+    const ohB = Math.max(1, Math.round(oh * this._overlayScale));
+
+    // Snapshot the current frame first: resizing a canvas clears it. When a
+    // full-quality repaint already ran less than PAINT_COALESCE_MS ago this
+    // cheap scaled blit is all we show for now (drag-zoom / stepped zooming
+    // stays smooth), otherwise quality repaints immediately via schedule().
+    const snapshot = new OffscreenCanvas(
+      Math.max(1, displayCanvas.width), Math.max(1, displayCanvas.height));
+    snapshot.getContext('2d').drawImage(displayCanvas, 0, 0);
+
+    displayCanvas.width = dwB; displayCanvas.height = dhB;
     displayCanvas.style.width = dw + 'px'; displayCanvas.style.height = dh + 'px';
-    overlayCanvas.width = ow; overlayCanvas.height = oh;
+    overlayCanvas.width = owB; overlayCanvas.height = ohB;
     overlayCanvas.style.width = ow + 'px'; overlayCanvas.style.height = oh + 'px';
     const padPx = Math.round(CANVAS_PAD * z);
     overlayCanvas.style.top = -padPx + 'px';
     overlayCanvas.style.left = -padPx + 'px';
-    maskOverlayCanvas.width = dw; maskOverlayCanvas.height = dh;
-    maskOverlayCanvas.style.width = dw + 'px'; maskOverlayCanvas.style.height = dh + 'px';
+    this._overlaySize = { w: ow, h: oh };
+    // The mask stroke overlay canvas is display:none and is never drawn;
+    // skip its full-document reallocation on every zoom step.
 
+    // Cheap preview: stretch the previous frame over the new geometry.
+    dCtx.setTransform(this._displayScale, 0, 0, this._displayScale, 0, 0);
+    dCtx.drawImage(snapshot, 0, 0, dw, dh);
     if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
     State.zoomDebounceTimer = setTimeout(() => {
       for (const layer of State.layers) {
@@ -48,7 +121,21 @@ export const Renderer = {
     // On-canvas text editing caret must track zoom — commit the edit.
     document.dispatchEvent(new CustomEvent('sc-zoom'));
 
+    const now = performance.now();
+    if (now - this._lastFullPaintAt < PAINT_COALESCE_MS) {
+      // rapid zoom sequence: keep the preview, let the debounce above paint
+      // full quality when the steps settle. New snapshots during the window
+      // build on the preview blits already on screen.
+      this._stats.previewBlits++;
+      return;
+    }
+    this._lastFullPaintAt = now;
     this.schedule();
+  },
+
+  // Reset the scaled document-coordinate transform on a display-area context
+  _beginDocTransform(ctx, scale) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
   },
 
   schedule() {
@@ -97,7 +184,8 @@ export const Renderer = {
   },
 
   async draw() {
-    await this.drawLayers(dCtx, State.layers, displayCanvas.width, displayCanvas.height, State.zoom);
+    this._beginDocTransform(dCtx, this._displayScale);
+    await this.drawLayers(dCtx, State.layers, this._docSize().w, this._docSize().h, State.zoom);
     if (State.showMargins) this.drawMargins();
     if (State.showGrid) this.drawGrid();
     this.drawOverlay();
@@ -140,6 +228,28 @@ export const Renderer = {
     ctx.translate(-layer.width / 2 * scale, -layer.height / 2 * scale);
   },
 
+  /**
+   * Composite a layer with its painted mask (layer._maskCanvas) into a cache
+   * at the layer's *processed* resolution. The result is zoom-invariant, so
+   * storing it lets every zoom-level redraw be a single scaled drawImage
+   * instead of two full-canvas draws plus re-compositing per frame.
+   */
+  _buildPaintedMaskComposite(layer) {
+    const sw = layer._processedCanvas.width;
+    const sh = layer._processedCanvas.height;
+    const cache = new OffscreenCanvas(sw, sh);
+    const cCtx = cache.getContext('2d');
+    cCtx.imageSmoothingQuality = layer.isText ? 'high' : 'medium';
+    cCtx.drawImage(layer._processedCanvas, 0, 0);
+    cCtx.globalCompositeOperation = 'destination-in';
+    cCtx.drawImage(layer._maskCanvas, 0, 0, sw, sh);
+    // Source references make the cache self-invalidating
+    cache._srcRef = layer._processedCanvas;
+    cache._srcMask = layer._maskCanvas;
+    cache._srcMaskRev = layer._maskRev || 0;
+    return cache;
+  },
+
   _compositeLayer(ctx, layer, z) {
     const dw = layer.width * z, dh = layer.height * z;
     ctx.globalCompositeOperation = 'multiply';
@@ -148,13 +258,20 @@ export const Renderer = {
     if (!layer._maskCanvas) {
       ctx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
     } else {
-      const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
-      const tCtx = tmp.getContext('2d');
-      tCtx.imageSmoothingQuality = layer.isText ? 'high' : quality;
-      tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
-      tCtx.globalCompositeOperation = 'destination-in';
-      tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
-      ctx.drawImage(tmp, 0, 0);
+      let comp = layer._maskComposite;
+      // Rebuild only when a source bitmap changed (they are replaced
+      // wholesale on each re-process / mask edit) or the mask rev moved.
+      if (
+        !comp ||
+        comp._srcRef !== layer._processedCanvas ||
+        comp._srcMask !== layer._maskCanvas ||
+        comp._srcMaskRev !== (layer._maskRev || 0)
+      ) {
+        comp = this._buildPaintedMaskComposite(layer);
+        layer._maskComposite = comp;
+        this._stats.paintedMaskBuilds++;
+      }
+      ctx.drawImage(comp, 0, 0, dw, dh);
     }
     ctx.imageSmoothingQuality = quality;
   },
@@ -174,7 +291,39 @@ export const Renderer = {
     const b = this._getLayerScreenBounds(layer, z);
     const cw = b.width, ch = b.height;
 
-    // Buffer A: render base layer at tight bounds (source-over on transparent)
+    // The composition below (base layer + alpha-inverted masks) is
+    // zoom-invariant: recompute it only when a source bitmap changed or when
+    // the cached zoom is far enough away to lose visible fidelity (>1.3× or
+    // <0.7×, matching the processed-layer reprocess threshold). The per-frame
+    // cost then falls to a single scaled drawImage, which keeps deep-zoom
+    // redraws cheap instead of allocating buffers and running per-pixel alpha
+    // inversion loops on every frame.
+    const currentRefs = () => [
+      layer._processedCanvas ?? null, layer._maskCanvas ?? null, layer._maskRev || 0,
+      ...maskLayers.flatMap(ml => [
+        ml._processedCanvas ?? null, ml._maskCanvas ?? null, ml._maskRev || 0,
+      ]),
+    ];
+    let cache = layer._imageMaskComposite;
+    if (cache && sameRefs(cache._srcRefs, currentRefs())) {
+      const ratio = z / cache._zoomRef;
+      if (!(ratio > 1.3 || ratio < 0.7)) {
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.drawImage(cache, b.left, b.top, cw, ch);
+        return;
+      }
+      // zoom moved beyond the fidelity band — recompute geometry below
+    } else {
+      cache = null;
+    }
+
+    // Make sure every mask layer has a processed bitmap before building.
+    for (const maskLayer of maskLayers) {
+      if (maskLayer._dirty) await ImageProcessor.processLayer(maskLayer);
+    }
+
+    // Buffer A: render base layer at tight bounds (source-over on transparent),
+    // at the current zoom's fidelity level
     const layerBuf = new OffscreenCanvas(cw, ch);
     const lCtx = layerBuf.getContext('2d');
     lCtx.save();
@@ -188,13 +337,20 @@ export const Renderer = {
     const dw = layer.width * z, dh = layer.height * z;
     if (layer.isText) lCtx.imageSmoothingQuality = 'high';
     if (layer._maskCanvas) {
-      const tmp = new OffscreenCanvas(Math.ceil(dw), Math.ceil(dh));
-      const tCtx = tmp.getContext('2d');
-      tCtx.imageSmoothingQuality = layer.isText ? 'high' : lCtx.imageSmoothingQuality;
-      tCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
-      tCtx.globalCompositeOperation = 'destination-in';
-      tCtx.drawImage(layer._maskCanvas, 0, 0, dw, dh);
-      lCtx.drawImage(tmp, 0, 0);
+      // Painted-mask composite is cached on the source bitmaps; scaling it
+      // into the mask buffer is all the per-frame work needed.
+      let comp = layer._maskComposite;
+      if (
+        !comp ||
+        comp._srcRef !== layer._processedCanvas ||
+        comp._srcMask !== layer._maskCanvas ||
+        comp._srcMaskRev !== (layer._maskRev || 0)
+      ) {
+        comp = this._buildPaintedMaskComposite(layer);
+        layer._maskComposite = comp;
+        this._stats.paintedMaskBuilds++;
+      }
+      lCtx.drawImage(comp, 0, 0, dw, dh);
     } else {
       lCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
     }
@@ -202,6 +358,7 @@ export const Renderer = {
 
     // Apply each mask sequentially — each further clips the base layer
     for (const maskLayer of maskLayers) {
+      if (!maskLayer._processedCanvas) continue;
       if (maskLayer._dirty) await ImageProcessor.processLayer(maskLayer);
       if (!maskLayer._processedCanvas) continue;
 
@@ -240,10 +397,23 @@ export const Renderer = {
       lCtx.drawImage(maskBuf, 0, 0);
     }
 
-    // Composite the masked result onto the main canvas using multiply
+    // Composite the masked result onto the main canvas using multiply.
+    // Source references are recorded AFTER processing so the stored key
+    // reflects the canvases the cache was actually built from.
+    cache = layerBuf;
+    cache._srcRefs = currentRefs();
+    cache._zoomRef = z;
+    layer._imageMaskComposite = cache;
+    this._stats.imageMaskBuilds++;
     ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(layerBuf, b.left, b.top);
+    ctx.drawImage(cache, b.left, b.top);
   },
+
+  // Backing stores may be scaled below the CSS size at high zoom; these
+  // helpers give drawing code the CSS-pixel document dimensions so geometry
+  // math stays in document coordinates regardless of the backing scale.
+  _displayDocW() { return displayCanvas.width / this._displayScale; },
+  _displayDocH() { return displayCanvas.height / this._displayScale; },
 
   drawMargins() {
     const z = State.zoom;
@@ -255,26 +425,26 @@ export const Renderer = {
       const split = State.spreadSplitX * z;
       // Center split line
       dCtx.moveTo(split, 0);
-      dCtx.lineTo(split, displayCanvas.height);
+      dCtx.lineTo(split, this._displayDocH());
       // Left page margins
       const m = State.margins;
       const lLeft = m.left * z;
       const lTop = m.top * z;
       const lRight = split - m.right * z;
-      const lBottom = displayCanvas.height - m.bottom * z;
+      const lBottom = this._displayDocH() - m.bottom * z;
       dCtx.rect(lLeft, lTop, lRight - lLeft, lBottom - lTop);
       // Right page margins
       const rLeft = split + m.left * z;
       const rTop = m.top * z;
-      const rRight = displayCanvas.width - m.right * z;
-      const rBottom = displayCanvas.height - m.bottom * z;
+      const rRight = this._displayDocW() - m.right * z;
+      const rBottom = this._displayDocH() - m.bottom * z;
       dCtx.rect(rLeft, rTop, rRight - rLeft, rBottom - rTop);
     } else {
       const m = State.margins;
       const x = m.left * z;
       const y = m.top * z;
-      const w = displayCanvas.width - (m.left + m.right) * z;
-      const h = displayCanvas.height - (m.top + m.bottom) * z;
+      const w = this._displayDocW() - (m.left + m.right) * z;
+      const h = this._displayDocH() - (m.top + m.bottom) * z;
       dCtx.rect(x, y, w, h);
     }
     dCtx.stroke();
@@ -285,28 +455,28 @@ export const Renderer = {
     const z = State.zoom;
     const size = State.grid.size * z;
     if (size <= 0) return;
+    const W = this._displayDocW(), H = this._displayDocH();
     dCtx.save();
     dCtx.strokeStyle = 'rgba(135, 206, 235, 0.35)';
     dCtx.lineWidth = 1;
     dCtx.beginPath();
     if (State.grid.type === 'isometric') {
-      this._drawIsometricGrid(size);
+      this._drawIsometricGrid(size, W, H);
     } else {
-      for (let x = 0; x <= displayCanvas.width; x += size) {
+      for (let x = 0; x <= W; x += size) {
         dCtx.moveTo(Math.round(x) + 0.5, 0);
-        dCtx.lineTo(Math.round(x) + 0.5, displayCanvas.height);
+        dCtx.lineTo(Math.round(x) + 0.5, H);
       }
-      for (let y = 0; y <= displayCanvas.height; y += size) {
+      for (let y = 0; y <= H; y += size) {
         dCtx.moveTo(0, Math.round(y) + 0.5);
-        dCtx.lineTo(displayCanvas.width, Math.round(y) + 0.5);
+        dCtx.lineTo(W, Math.round(y) + 0.5);
       }
     }
     dCtx.stroke();
     dCtx.restore();
   },
 
-  _drawIsometricGrid(size) {
-    const W = displayCanvas.width, H = displayCanvas.height;
+  _drawIsometricGrid(size, W, H) {
     const diag = Math.sqrt(W * W + H * H) + size;
     const toRad = a => a * Math.PI / 180;
     const families = [0, 60, 120];
@@ -332,8 +502,19 @@ export const Renderer = {
     }
   },
 
+  // Reset a context bound to the interaction overlay to document
+  // coordinates. The overlay backing store can be capped at high zoom, so
+  // callers (including preview drawing in events.js) must re-apply this
+  // transform rather than assuming a 1:1 identity mapping.
+  resetOverlayTransform(ctx) {
+    ctx.setTransform(this._overlayScale, 0, 0, this._overlayScale, 0, 0);
+    const ow = this._overlaySize?.w ?? overlayCanvas.width;
+    const oh = this._overlaySize?.h ?? overlayCanvas.height;
+    ctx.clearRect(0, 0, ow, oh);
+  },
+
   drawOverlay() {
-    oCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    this.resetOverlayTransform(oCtx);
     const layer = selectedLayer();
     if (!layer) return;
     const z = State.zoom;

@@ -520,7 +520,7 @@ function onPointerMove(e) {
   if (State.textDrag && (e.buttons & 1)) {
     // Reuse a dashed preview for the text box being dragged out.
     const ctx = overlayCanvas.getContext('2d');
-    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    Renderer.resetOverlayTransform(ctx);
     ctx.save();
     ctx.translate(Math.min(State.textDrag.startX, x), Math.min(State.textDrag.startY, y));
     ctx.strokeStyle = '#0055ff';
