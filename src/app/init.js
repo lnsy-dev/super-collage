@@ -31,6 +31,9 @@ async function _doInit() {
   separateColorsWithLut = wasmMod.separate_colors_with_lut;
   bindSepMethods(wasmMod);
   window.blendSubtractive = blendSubtractive;
+  // In-place variant used by the tiled composite renderer (same math, no
+  // per-call result allocation).
+  window.blendSubtractiveInto = wasmMod.blend_subtractive_into;
   window.separateColorsWithLut = separateColorsWithLut;
   setBuildColorLut(wasmMod.build_color_lut);
 

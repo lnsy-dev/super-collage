@@ -90,8 +90,23 @@ pub fn extract_render_data(data: &[f32]) -> Vec<f32> {
 #[wasm_bindgen]
 pub fn blend_subtractive(base: &[u8], overlay: &[u8]) -> Vec<u8> {
     let mut result = base.to_vec();
+    blend_subtractive_slice(&mut result, overlay);
+    result
+}
+
+/// In-place variant of `blend_subtractive`: blends `overlay` into `base`
+/// without allocating a result vector. Bit-identical output to
+/// `blend_subtractive(base, overlay)`; the streaming composite renderer uses
+/// it so per-layer blends mutate one tile-sized buffer instead of
+/// allocating a fresh buffer per layer.
+#[wasm_bindgen]
+pub fn blend_subtractive_into(base: &mut [u8], overlay: &[u8]) {
+    blend_subtractive_slice(base, overlay);
+}
+
+fn blend_subtractive_slice(result: &mut [u8], overlay: &[u8]) {
     let mut i = 0;
-    while i < result.len() {
+    while i + 3 < result.len() && i + 3 < overlay.len() {
         let oa = overlay[i + 3] as u32;
         if oa > 0 {
             let mr = 255 * (255 - oa) + overlay[i]     as u32 * oa;
@@ -104,7 +119,6 @@ pub fn blend_subtractive(base: &[u8], overlay: &[u8]) -> Vec<u8> {
         }
         i += 4;
     }
-    result
 }
 
 fn lcg(state: u32) -> u32 {
@@ -367,6 +381,11 @@ pub fn build_color_lut(riso_colors: &[u8], max_mix: u32, grid_size: u32) -> Vec<
 
 /// Decompose an RGBA image into risograph plates using a pre-built LUT.
 /// This is ~20–50× faster than per-pixel brute-force search.
+///
+/// Returns GRAYSCALE plates: one byte per pixel per color
+/// (layout `[plate0_gray…, plate1_gray…, …]`, 0 = full ink, 255 = no ink),
+/// a quarter of the bytes the old RGBA layout crossed the wasm boundary
+/// with — R=G=B=ink and A=255 carried no information.
 #[wasm_bindgen]
 pub fn separate_colors_with_lut(
     image_data: &[u8],
@@ -378,7 +397,8 @@ pub fn separate_colors_with_lut(
 ) -> Vec<u8> {
     let pixel_count = (width * height) as usize;
     let num_colors = num_colors.max(1).min(7) as usize;
-    let mut plates = vec![0u8; pixel_count * 4 * num_colors];
+    // 255 = no ink: transparent pixels keep the initialization.
+    let mut plates = vec![255u8; pixel_count * num_colors];
 
     if pixel_count == 0 || lut.is_empty() {
         return plates;
@@ -394,13 +414,6 @@ pub fn separate_colors_with_lut(
 
         // Transparent pixels → no ink on any plate (255 = no ink)
         if ta < 10 {
-            for c in 0..num_colors {
-                let dst_base = (c * pixel_count + py) * 4;
-                plates[dst_base] = 255;
-                plates[dst_base + 1] = 255;
-                plates[dst_base + 2] = 255;
-                plates[dst_base + 3] = 255;
-            }
             continue;
         }
 
@@ -415,12 +428,8 @@ pub fn separate_colors_with_lut(
         let lut_base = ((bz * gs + gy) * gs + rx) * lut_stride;
 
         for c in 0..num_colors {
-            let dst_base = (c * pixel_count + py) * 4;
-            let ink = 255 - lut[lut_base + c]; // 0 = full ink, 255 = no ink
-            plates[dst_base] = ink;
-            plates[dst_base + 1] = ink;
-            plates[dst_base + 2] = ink;
-            plates[dst_base + 3] = 255;
+            // 0 = full ink, 255 = no ink
+            plates[c * pixel_count + py] = 255 - lut[lut_base + c];
         }
     }
 
@@ -489,8 +498,8 @@ pub fn halftone_plate(
 /// Simulate a physical risograph print by blending grayscale plates
 /// with their ink colors using subtractive (multiply) blending.
 ///
-/// `plates` — flat RGBA array from `separate_colors_with_lut`.
-///            Layout: [plate0_rgba…, plate1_rgba…, …]  (0 = full ink, 255 = no ink)
+/// `plates` — flat GRAYSCALE array from `separate_colors_with_lut`.
+///            Layout: [plate0_gray…, plate1_gray…, …]  (0 = full ink, 255 = no ink)
 /// `colors` — flat RGB array of ink colors, one per plate.
 /// Returns a flat RGBA composite image.
 #[wasm_bindgen]
@@ -517,8 +526,7 @@ pub fn simulate_print(
         let ib = colors[c * 3 + 2] as u32;
 
         for p in 0..pixel_count {
-            let src = (c * pixel_count + p) * 4;
-            let gray = plates[src] as u32; // 0 = full ink, 255 = no ink
+            let gray = plates[c * pixel_count + p] as u32; // 0 = full ink, 255 = no ink
             let alpha = 255 - gray;        // ink coverage
 
             if alpha == 0 {
@@ -551,6 +559,14 @@ pub fn simulate_print(
 ///
 /// Returns a `Vec<f64>` where each element is the average ΔE for the
 /// corresponding candidate palette.
+///
+/// Memory: streams ONE pixel at a time through LUT lookup → plate math →
+/// print simulation → ΔE, accumulating into per-candidate totals.  The
+/// previous implementation materialized a CieLab per source pixel
+/// (~24 bytes/px) plus full plate and composite images per candidate;
+/// this version holds only the candidate LUTs (a few KB each).
+/// The per-candidate accumulation order (ascending pixels) is unchanged,
+/// so scores are bit-identical to the old two-pass form.
 #[wasm_bindgen]
 pub fn evaluate_palettes(
     image_data: &[u8],
@@ -562,54 +578,90 @@ pub fn evaluate_palettes(
     grid_size: u32,
 ) -> Vec<f64> {
     let pixel_count = (width * height) as usize;
-    let mut scores = Vec::with_capacity(candidate_counts.len());
+    let num_candidates = candidate_counts.len();
+    let mut scores = Vec::with_capacity(num_candidates);
 
-    // Pre-compute original-image CieLab values once.
-    let mut orig_lab = Vec::with_capacity(pixel_count);
-    for p in 0..pixel_count {
-        let base = p * 4;
-        orig_lab.push(srgb_to_cielab(
-            image_data[base],
-            image_data[base + 1],
-            image_data[base + 2],
-        ));
-    }
-
+    // One small LUT per candidate (grid_size³ cells × 7 bytes).
+    let mut luts = Vec::with_capacity(num_candidates);
     let mut color_offset = 0usize;
     for &count in candidate_counts {
         let count = count as usize;
         let palette = &candidate_colors[color_offset..color_offset + count * 3];
         color_offset += count * 3;
+        luts.push(build_color_lut(palette, max_mix, grid_size));
+    }
 
-        // Build LUT and separate
-        let lut = build_color_lut(palette, max_mix, grid_size);
-        let plates = separate_colors_with_lut(
-            image_data, width, height, &lut, grid_size, count as u32,
+    let mut totals = vec![0.0f64; num_candidates];
+    let mut valid_pixels = 0usize;
+
+    let gs = grid_size as usize;
+    let gs_minus_1 = (gs - 1) as f64;
+    let lut_stride = 7;
+
+    for p in 0..pixel_count {
+        let base = p * 4;
+        // Skip fully-transparent source pixels
+        if image_data[base + 3] < 10 {
+            continue;
+        }
+        valid_pixels += 1;
+        let orig_lab = srgb_to_cielab(
+            image_data[base],
+            image_data[base + 1],
+            image_data[base + 2],
         );
 
-        // Simulate print
-        let composite = simulate_print(&plates, palette, width, height, count as u32);
+        let r = image_data[base] as usize;
+        let g = image_data[base + 1] as usize;
+        let b = image_data[base + 2] as usize;
 
-        // Compute average CIEDE2000
-        let mut total_de = 0.0f64;
-        let mut valid_pixels = 0usize;
-        for p in 0..pixel_count {
-            let base = p * 4;
-            // Skip fully-transparent source pixels
-            if image_data[base + 3] < 10 {
-                continue;
+        let rx = ((r as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
+        let gy = ((g as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
+        let bz = ((b as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
+        let lut_base = ((bz * gs + gy) * gs + rx) * lut_stride;
+
+        let mut color_offset = 0usize;
+        for (ci, &count) in candidate_counts.iter().enumerate() {
+            // Palette slices/offsets advance by the FULL candidate count
+            // (same as the LUT-build loop above); only the ink fold clamps
+            // to the 7 colors a plate set can hold, matching
+            // separate_colors_with_lut.
+            let full_count = count as usize;
+            let count = full_count.min(7);
+            let palette = &candidate_colors[color_offset..color_offset + full_count * 3];
+            color_offset += full_count * 3;
+
+            // Simulate the print for this pixel: fold each ink's plate
+            // value into a running composite, exactly as simulate_print
+            // would fold the full plate image.  The LUT cell stores the
+            // ink weight, which is the plate's ink coverage (alpha).
+            let mut cr = 255u32;
+            let mut cg = 255u32;
+            let mut cb = 255u32;
+            for c in 0..count {
+                let alpha = luts[ci][lut_base + c] as u32; // ink coverage
+                if alpha == 0 {
+                    continue;
+                }
+                let ir = palette[c * 3] as u32;
+                let ig = palette[c * 3 + 1] as u32;
+                let ib = palette[c * 3 + 2] as u32;
+                let mr = 255 * (255 - alpha) + ir * alpha;
+                let mg = 255 * (255 - alpha) + ig * alpha;
+                let mb = 255 * (255 - alpha) + ib * alpha;
+                cr = (cr * mr) / (255 * 255);
+                cg = (cg * mg) / (255 * 255);
+                cb = (cb * mb) / (255 * 255);
             }
-            let comp_lab = srgb_to_cielab(
-                composite[base],
-                composite[base + 1],
-                composite[base + 2],
-            );
-            total_de += ciede2000_distance(&orig_lab[p], &comp_lab);
-            valid_pixels += 1;
-        }
 
+            let comp_lab = srgb_to_cielab(cr as u8, cg as u8, cb as u8);
+            totals[ci] += ciede2000_distance(&orig_lab, &comp_lab);
+        }
+    }
+
+    for ci in 0..num_candidates {
         let avg = if valid_pixels > 0 {
-            total_de / valid_pixels as f64
+            totals[ci] / valid_pixels as f64
         } else {
             f64::INFINITY
         };
@@ -855,7 +907,8 @@ pub fn dither_plate(
 /// and `range_to_ink_index` (dark→light plate index per range).
 /// `blackpoint_min_threshold` raises the darkest printable tone: luminances
 /// below it clamp to 0 (full-ink darkest).  Plate for the assigned ink is
-/// fully inked; all others stay paper.  Output matches the LUT plate layout.
+/// fully inked; all others stay paper.  Output matches the LUT plate layout
+/// (grayscale, one byte per pixel per ink; 0 = full ink, 255 = paper).
 #[wasm_bindgen]
 pub fn posterize_to_plates(
     image_data: &[u8],
@@ -868,7 +921,8 @@ pub fn posterize_to_plates(
 ) -> Vec<u8> {
     let pixel_count = (width * height) as usize;
     let n = (num_inks as usize).min(64);
-    let mut plates = vec![255u8; pixel_count * 4 * n];
+    // 255 = no ink: transparent/unassigned pixels keep the initialization.
+    let mut plates = vec![255u8; pixel_count * n];
 
     let bp_min = blackpoint_min_threshold.clamp(0.0, 1.0);
     for p in 0..pixel_count {
@@ -891,11 +945,7 @@ pub fn posterize_to_plates(
         if let Some(ri) = range_idx {
             let ink = range_to_ink_index.get(ri).copied().unwrap_or(0) as usize;
             if ink < n {
-                let dst = (ink * pixel_count + p) * 4;
-                plates[dst] = 0;
-                plates[dst + 1] = 0;
-                plates[dst + 2] = 0;
-                plates[dst + 3] = 255;
+                plates[ink * pixel_count + p] = 0; // full ink
             }
         }
     }
@@ -905,8 +955,10 @@ pub fn posterize_to_plates(
 
 /// Spectrolite "CMYK-ish" separation: split the image into C/M/Y/K channel
 /// tonages (naive RGB→CMYK with K = 1 − max(R,G,B)) and return 4 grayscale
-/// plates in order C, M, Y, K.  `opacities` are the channel ink density
-/// multipliers (CMYKishConfig.opacities, clamped 0..2).
+/// plates in order C, M, Y, K (one byte per pixel per plate; 0 = full ink,
+/// 255 = paper — the same layout as `separate_colors_with_lut`).
+/// `opacities` are the channel ink density multipliers
+/// (CMYKishConfig.opacities, clamped 0..2).
 #[wasm_bindgen]
 pub fn cmykish_to_plates(
     image_data: &[u8],
@@ -915,7 +967,7 @@ pub fn cmykish_to_plates(
     opacities: &[f64],
 ) -> Vec<u8> {
     let pixel_count = (width * height) as usize;
-    let mut plates = vec![255u8; pixel_count * 4 * 4];
+    let mut plates = vec![255u8; pixel_count * 4];
 
     let ops: [f64; 4] = (0..4)
         .map(|c| opacities.get(c).copied().unwrap_or(1.0).clamp(0.0, 2.0))
@@ -942,21 +994,18 @@ pub fn cmykish_to_plates(
         let amounts = [c, m, y, k];
 
         for (ci, &amt) in amounts.iter().enumerate() {
-            let gray = (255.0 * (1.0 - amt)).round().clamp(0.0, 255.0);
-            let gray = (255.0 - (255.0 - gray) * ops[ci]).round().clamp(0.0, 255.0);
-            let dst = (ci * pixel_count + p) * 4;
-            plates[dst] = gray as u8;
-            plates[dst + 1] = gray as u8;
-            plates[dst + 2] = gray as u8;
-            plates[dst + 3] = 255;
+            let gray = (255.0 * (1.0 - amt)).round().clamp(0.0, 255.0) as u8;
+            let gray = (255.0 - (255.0 - gray as f64) * ops[ci]).round().clamp(0.0, 255.0) as u8;
+            plates[ci * pixel_count + p] = gray;
         }
     }
 
     plates
 }
 
-/// Spectrolite inkOpacityMultipliers: rescale the ink amount of every plate
-/// in a plate set (same layout as `separate_colors_with_lut`).
+/// Spectrolite inkOpacityMultipliers: rescale the ink amount of plate image
+/// data in flat RGBA form (R = G = B grayscale, as in an ImageData of one
+/// styled plate; NOT the packed grayscale layout of separate_colors_with_lut).
 /// multiplier 1 = unchanged, 0 = plate cleared, up to 2 = heavier laydown.
 #[wasm_bindgen]
 pub fn apply_ink_opacities(

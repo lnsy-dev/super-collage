@@ -17,7 +17,7 @@ import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { ProjectIO } from './project-io.js';
-import { defaultSepAngles, rebuildLayerSepPlates } from './separation-methods.js';
+import { defaultSepAngles, rebuildLayerSepPlates, makeSepPlate, sepPlateToCanvas } from './separation-methods.js';
 
 // Long-edge cap for flatten's mask/bbox working resolution. Matches
 // MaskEngine's mask cap so a painted mask can be read back 1:1.
@@ -223,27 +223,24 @@ export const LayerManager = {
         risoColors.push(r, g, b);
       }
 
-      // Run WASM decomposition using pre-built LUT (fast, non-blocking)
+      // Run WASM decomposition using pre-built LUT (fast, non-blocking).
+      // The engine returns packed grayscale plates (one byte per pixel
+      // per ink) — stored as-is; RGBA plate canvases are materialized on
+      // demand, one at a time, when drawn.
       const numColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').length;
       const plateBuffer = window.separateColorsWithLut(imageData.data, srcW, srcH, window.colorSepLut, 16, numColors);
-      const pixelCount = srcW * srcH;
-      const numPlates = RISO_COLORS.length - 1; // exclude white
 
       statusEl.textContent = 'Building plates…';
       await new Promise(r => setTimeout(r, 10));
 
       const separationColors = RISO_COLORS.filter(c => c.hex !== '#FFFFFF').map(c => c.hex);
+      const pixelCount = srcW * srcH;
       const separationPlates = new Map();
-
-      for (let i = 0; i < numPlates; i++) {
-        const plateCanvas = new OffscreenCanvas(srcW, srcH);
-        const pCtx = plateCanvas.getContext('2d');
-        const plateData = new ImageData(
-          new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-          srcW, srcH
+      for (let i = 0; i < separationColors.length; i++) {
+        separationPlates.set(
+          separationColors[i],
+          makeSepPlate(srcW, srcH, plateBuffer.subarray(i * pixelCount, (i + 1) * pixelCount))
         );
-        pCtx.putImageData(plateData, 0, 0);
-        separationPlates.set(separationColors[i], plateCanvas);
       }
 
       const layer = new Layer({
@@ -662,8 +659,10 @@ export const LayerManager = {
     const newLayers = [];
 
     for (const colorHex of src.separationColors) {
-      const plate = src.separationPlates.get(colorHex);
-      if (!plate) continue;
+      const plateStore = src.separationPlates.get(colorHex);
+      if (!plateStore) continue;
+      // Plates are stored grayscale; expand just this one to a canvas.
+      const plate = sepPlateToCanvas(plateStore);
 
       const colorInfo = RISO_COLORS.find(c => c.hex === colorHex);
       const colorName = colorInfo?.name || colorHex;

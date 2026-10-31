@@ -169,12 +169,14 @@ test.describe('Color Separation Calibration', () => {
 
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
 
-    const results = await page.evaluate(() => {
+    const results = await page.evaluate(async () => {
       // @ts-ignore
       const layer = State.layers[0];
+      // Plates are stored packed grayscale; expand them to canvases.
+      const { sepPlateToCanvas } = await import('/src/app/separation-methods.js');
       const plates = {};
       for (const color of layer.separationColors) {
-        const canvas = layer.separationPlates.get(color);
+        const canvas = sepPlateToCanvas(layer.separationPlates.get(color));
         if (!canvas) {
           console.log('Missing plate for color:', color);
           continue;
@@ -247,9 +249,11 @@ test.describe('Color Separation Calibration', () => {
 
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
 
-    const results = await page.evaluate(() => {
+    const results = await page.evaluate(async () => {
       // @ts-ignore
       const layer = State.layers[0];
+      // Plates are stored packed grayscale; expand them to canvases.
+      const { sepPlateToCanvas } = await import('/src/app/separation-methods.js');
       const getPatchAvg = (canvas, x, y, w, h) => {
         const data = canvas.getContext('2d').getImageData(x, y, w, h).data;
         let sum = 0;
@@ -257,7 +261,7 @@ test.describe('Color Separation Calibration', () => {
         return sum / (data.length / 4);
       };
 
-      const p = (hex) => layer.separationPlates.get(hex);
+      const p = (hex) => sepPlateToCanvas(layer.separationPlates.get(hex));
 
       return {
         blackOnBlack:   getPatchAvg(p('#010101'), 0, 0, 21, 21),

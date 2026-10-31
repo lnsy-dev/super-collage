@@ -9,8 +9,11 @@
    · types/transforms/cmykish.ts    → CMYK channel → closest inks
    · types/separation.ts            → inkOpacityMultipliers
 
-   Plate convention (project-wide): flat RGBA, R=G=B grayscale,
-   0 = full ink, 255 = no ink.
+   Plate convention (project-wide): packed grayscale, one byte per pixel
+   per ink, 0 = full ink, 255 = no ink — exactly what the WASM engine
+   emits. A plate STORE is { width, height, data: Uint8Array } (see
+   makeSepPlate); an RGBA canvas is materialized on demand with
+   sepPlateToCanvas, one plate at a time.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─── WASM bindings (set by init.js once the module loads) ─────────── */
@@ -251,8 +254,9 @@ export function cmykishConfigFor(layer) {
 /* ─── Plate generation per separation method ──────────────────────── */
 
 // Generate separation plates for a layer's chosen method.  Returns a flat
-// Uint8Array of [plate0_rgba, plate1_rgba, …] exactly like
-// separate_colors_with_lut, so callers can swap methods transparently.
+// Uint8Array of packed grayscale plates [plate0_gray, plate1_gray, …]
+// exactly like separate_colors_with_lut, so callers can swap methods
+// transparently.
 // Plate i must then map to layer.separationColors[i]:
 //   · 'lut'       → separationColors is the palette (minus white)
 //   · 'cmykish'   → separationColors IS the C/M/Y/K ink assignment
@@ -278,24 +282,55 @@ export function generateSeparationPlates(layer, imageData, width, height) {
   return window.separateColorsWithLut(imageData, width, height, window.colorSepLut, 16, sepColors.length);
 }
 
+/* ─── Grayscale plate store ───────────────────────────────────────── */
+
+// Separation plates are STORED as one byte per pixel (0 = full ink,
+// 255 = paper) — the same packing the WASM engine emits. A 7-ink layer at
+// 1500×1500 keeps ~16 MB of plate data instead of ~63 MB of RGBA
+// canvases, and only the plate currently being drawn is expanded to an
+// RGBA canvas (transient, one at a time).
+export function makeSepPlate(width, height, data) {
+  return { width, height, data };
+}
+
+// Materialize a stored grayscale plate as an RGBA OffscreenCanvas
+// (R=G=B=gray, A=255) for drawing. Byte-identical to the plates the old
+// RGBA storage held.
+export function sepPlateToCanvas(plate) {
+  const canvas = new OffscreenCanvas(plate.width, plate.height);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(plate.width, plate.height);
+  const d = img.data;
+  const src = plate.data;
+  for (let i = 0, j = 0; i < src.length; i++, j += 4) {
+    const v = src[i];
+    d[j] = v; d[j + 1] = v; d[j + 2] = v; d[j + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+// Store the packed grayscale plate buffer a separation method produced as
+// the layer's per-ink plate map. `data` holds sepColors.length plates of
+// width×height bytes each; plates are stored as subarray views (no copy).
+export function storeSeparationPlates(layer, data, width, height) {
+  const pixelCount = width * height;
+  const sepColors = layer.separationColors;
+  layer.separationPlates = new Map();
+  for (let i = 0; i < sepColors.length; i++) {
+    layer.separationPlates.set(
+      sepColors[i],
+      makeSepPlate(width, height, data.subarray(i * pixelCount, (i + 1) * pixelCount))
+    );
+  }
+}
+
 export function rebuildLayerSepPlates(layer, sourceCanvas) {
   const nw = sourceCanvas.width, nh = sourceCanvas.height;
   const sCtx = sourceCanvas.getContext('2d');
   const imageData = sCtx.getImageData(0, 0, nw, nh);
   const plateBuffer = generateSeparationPlates(layer, imageData.data, nw, nh);
-  const pixelCount = nw * nh;
-  const sepColors = layer.separationColors;
-  layer.separationPlates = new Map();
-  for (let i = 0; i < sepColors.length; i++) {
-    const plateCanvas = new OffscreenCanvas(nw, nh);
-    const pCtx = plateCanvas.getContext('2d');
-    const plateData = new ImageData(
-      new Uint8ClampedArray(plateBuffer.buffer, i * pixelCount * 4, pixelCount * 4),
-      nw, nh
-    );
-    pCtx.putImageData(plateData, 0, 0);
-    layer.separationPlates.set(sepColors[i], plateCanvas);
-  }
+  storeSeparationPlates(layer, plateBuffer, nw, nh);
 }
 
 export { toImageData };

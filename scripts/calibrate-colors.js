@@ -158,14 +158,15 @@ async function main() {
       raw: { width, height, channels: 4 },
     }).png().toFile(compositePath);
 
-    // Save individual plates
+    // Save individual plates (grayscale, one byte per pixel per ink —
+    // the packed layout separate_colors_with_lut returns)
     const pixelCount = width * height;
     for (let c = 0; c < count; c++) {
-      const plateStart = c * pixelCount * 4;
-      const plateData = plates.slice(plateStart, plateStart + pixelCount * 4);
+      const plateStart = c * pixelCount;
+      const plateData = plates.slice(plateStart, plateStart + pixelCount);
       const platePath = path.join(outputDir, `${cand.name}.plate-${cand.colors[c]}.png`);
       await sharp(Buffer.from(plateData), {
-        raw: { width, height, channels: 4 },
+        raw: { width, height, channels: 1 },
       }).png().toFile(platePath);
     }
 
