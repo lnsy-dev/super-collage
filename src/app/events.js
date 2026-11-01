@@ -649,8 +649,25 @@ function onPointerMove(e) {
     }
   }
 
-  UI.refreshProperties();
-  Renderer.schedule();
+  if (State.drag) {
+    refreshPropertiesThrottled();
+    Renderer.schedule();
+  }
+}
+
+/* ─── DRAG PROPERTY-PANEL COALESCING ──────────────────────────────
+   During a drag, every pointermove used to run a full properties-panel
+   refresh (dozens of DOM writes × pointer event rate). Coalesce to at
+   most one refresh per animation frame — rendering is scheduled in the
+   same frame, so the panel can never be more than one frame behind. */
+let propsRefreshQueued = false;
+function refreshPropertiesThrottled() {
+  if (propsRefreshQueued) return;
+  propsRefreshQueued = true;
+  requestAnimationFrame(() => {
+    propsRefreshQueued = false;
+    UI.refreshProperties();
+  });
 }
 
 async function onPointerUp(e) {

@@ -216,6 +216,37 @@ test.describe('Multi-select', () => {
     // Exactly one deferred save per transformed layer at pointerup.
     expect(counts.up).toBe(2);
   });
+
+  test('drag coalesces properties-panel refreshes to one per frame', async ({ page }) => {
+    const pts = await setupLayers(page);
+    await selectTwo(page, pts);
+
+    await page.evaluate(() => {
+      window.__propsRefreshes = 0;
+      const orig = UI.refreshProperties.bind(UI);
+      UI.refreshProperties = (...args) => {
+        window.__propsRefreshes++;
+        return orig(...args);
+      };
+    });
+
+    // 24 pointermove events in one tick: 1 sync refresh on pointerdown plus
+    // at most one rAF-coalesced refresh regardless of the event rate.
+    await pressDrag(page, pts.centers[1].x, pts.centers[1].y, pts.centers[1].x + 60, pts.centers[1].y + 60, { moveSteps: 24 });
+    await page.waitForTimeout(120);
+
+    const refreshes = await page.evaluate(() => window.__propsRefreshes);
+    expect(refreshes).toBeGreaterThanOrEqual(1);
+    expect(refreshes).toBeLessThanOrEqual(3);
+
+    // The panel still ends up showing the dragged layer's final geometry.
+    const props = await page.evaluate(() => ({
+      x: Number(document.getElementById('prop-x').value),
+      y: Number(document.getElementById('prop-y').value),
+    }));
+    expect(props.x).toBeCloseTo(await page.evaluate(() => State.layers.find(l => l.id === State.selectedId).x), 1);
+    expect(props.y).toBeCloseTo(await page.evaluate(() => State.layers.find(l => l.id === State.selectedId).y), 1);
+  });
 });
 
 const selection = page => page.evaluate(() => ({
