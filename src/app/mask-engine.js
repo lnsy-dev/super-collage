@@ -4,6 +4,7 @@
 
 import { State } from './state.js';
 import { clampDims, clampOffscreenCanvas } from './canvas-limits.js';
+import { decodeImageBlob } from './image-decode.js';
 
 // Resolution at which mask bitmaps are kept. Masks are pure alpha
 // channels sampled at display/export resolution downstream, so keeping
@@ -43,11 +44,10 @@ export const MaskEngine = {
   },
 
   async loadMask(layer, blob) {
-    const bmp = await createImageBitmap(blob);
+    const bmp = await decodeImageBlob(blob);
     const { w, h } = this.maskDims(layer);
     const c = new OffscreenCanvas(w, h);
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
-    bmp.close();
     layer._maskCanvas = c;
   },
 

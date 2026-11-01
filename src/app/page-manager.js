@@ -12,6 +12,7 @@ import { UI } from './ui.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize, getProjectSizeLabel } from './constants.js';
 import { renderShapeLayerBitmap } from './shape-utils.js';
 import { loadSvgImage } from './svg-utils.js';
+import { decodeImageBlob } from './image-decode.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { rebuildLayerSepPlates } from './separation-methods.js';
 
@@ -424,7 +425,7 @@ export const PageManager = {
       } else if (layer.isColorSeparation) {
         await this._rebuildSeparationPlates(layer, imgRec.blob);
       } else {
-        const bmp = await createImageBitmap(imgRec.blob);
+        const bmp = await decodeImageBlob(imgRec.blob);
         const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
         const ctx = orig.getContext('2d');
         ctx.fillStyle = 'white';
@@ -433,7 +434,6 @@ export const PageManager = {
         // larger than the (canvas-limit-clamped) natural size, which must be
         // downscaled rather than cropped.
         ctx.drawImage(bmp, 0, 0, layer.naturalWidth, layer.naturalHeight);
-        bmp.close();
         layer._originalCanvas = orig;
       }
     }
@@ -455,14 +455,13 @@ export const PageManager = {
   },
 
   async _rebuildSeparationPlates(layer, blob) {
-    const bmp = await createImageBitmap(blob);
+    const bmp = await decodeImageBlob(blob);
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     const sourceCanvas = new OffscreenCanvas(nw, nh);
     const sCtx = sourceCanvas.getContext('2d');
     sCtx.fillStyle = 'white';
     sCtx.fillRect(0, 0, nw, nh);
     sCtx.drawImage(bmp, 0, 0);
-    bmp.close();
     layer._originalCanvas = sourceCanvas;
 
     // Rebuild via the layer's chosen Spectrolite separation method

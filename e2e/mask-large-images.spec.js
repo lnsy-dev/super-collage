@@ -26,7 +26,7 @@
 import { test, expect } from '@playwright/test';
 import {
   clearIndexedDB, createProject, addImageFromBuffer, createSolidPngBuffer,
-  createShapePngBuffer, selectTool,
+  createShapePngBuffer, selectTool, reopenProject,
 } from './helpers.js';
 import sharp from 'sharp';
 
@@ -115,6 +115,29 @@ function persistedMask(page, layerId) {
     const rec = await DB.get('maskBlobs', id);
     if (!rec || !rec.blob) return null;
     return { size: rec.blob.size, type: rec.blob.type };
+  }, layerId);
+}
+
+// Decode the persisted mask blob and sample its center pixel's alpha.
+// -1 means there is no record. Import already saves an all-white mask, so
+// a reload must not race a still-in-flight painted save: wait for the
+// *content* (the painted hole), not just a record's existence. Decode
+// through an <img> — see src/app/image-decode.js for why
+// createImageBitmap cannot be trusted for large PNGs here.
+function persistedMaskCenterAlpha(page, layerId) {
+  return page.evaluate(async (id) => {
+    const { DB } = await import('/src/app/db.js');
+    const rec = await DB.get('maskBlobs', id);
+    if (!rec || !rec.blob) return -1;
+    const url = URL.createObjectURL(rec.blob);
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    URL.revokeObjectURL(url);
+    const c = new OffscreenCanvas(img.naturalWidth, img.naturalHeight);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(Math.floor(img.naturalWidth / 2), Math.floor(img.naturalHeight / 2), 1, 1).data[3];
   }, layerId);
 }
 
@@ -500,16 +523,16 @@ test.describe('Mask persistence across reload', () => {
 
     await selectTool(page, 'mask-draw');
     await paintAtLayerCenter(page);
+    // Mask application is async under load — poll for the painted hole
+    // instead of sampling the mask right after the stroke lands.
+    await expect.poll(() => maskProbe(page).then(p => p.centerAlpha), { timeout: 10000 }).toBe(0);
     const before = await maskProbe(page);
-    expect(before.centerAlpha).toBe(0);
-    // Give the debounced saves a beat to land.
-    await page.waitForTimeout(300);
+    // Wait until the painted hole is actually persisted — the import already
+    // wrote an all-white mask record, and reloading can kill a save that
+    // is still converting the huge mask to PNG.
+    await expect.poll(() => persistedMaskCenterAlpha(page, before.id), { timeout: 15000 }).toBe(0);
 
-    await page.reload();
-    await expect(page.locator('#project-dialog')).toBeVisible();
-    await page.locator('.project-entry', { hasText: 'SVG Mask Reload' }).click();
-    await page.click('#btn-open-project');
-    await expect(page.locator('#main-app')).toBeVisible();
+    await reopenProject(page, 'SVG Mask Reload');
     await expect(page.locator('.layer-row')).toHaveCount(1);
 
     // The mask blob must have rehydrated with the painted hole.
@@ -530,15 +553,11 @@ test.describe('Mask persistence across reload', () => {
 
     await selectTool(page, 'mask-draw');
     await paintAtLayerCenter(page);
+    await expect.poll(() => maskProbe(page).then(p => p.centerAlpha), { timeout: 10000 }).toBe(0);
     const before = await maskProbe(page);
-    expect(before.centerAlpha).toBe(0);
-    await page.waitForTimeout(300);
+    await expect.poll(() => persistedMaskCenterAlpha(page, before.id), { timeout: 15000 }).toBe(0);
 
-    await page.reload();
-    await expect(page.locator('#project-dialog')).toBeVisible();
-    await page.locator('.project-entry', { hasText: 'Raster Mask Reload' }).click();
-    await page.click('#btn-open-project');
-    await expect(page.locator('#main-app')).toBeVisible();
+    await reopenProject(page, 'Raster Mask Reload');
     await expect(page.locator('.layer-row')).toHaveCount(1);
 
     const after = await maskProbe(page);

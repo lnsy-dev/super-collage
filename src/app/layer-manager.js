@@ -12,6 +12,7 @@ import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js'
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { loadSvgImage } from './svg-utils.js';
+import { decodeImageBlob } from './image-decode.js';
 import { renderShapeLayerBitmap, isTwoToneShape, effectiveShapeColor, rerenderShapeLayer } from './shape-utils.js';
 import { pushUndoState, pushUndoWithMask } from './undo.js';
 import { PageManager } from './page-manager.js';
@@ -136,8 +137,8 @@ export const LayerManager = {
       return;
     }
 
-    const bmp = await createImageBitmap(file);
-    const nw = bmp.width, nh = bmp.height;
+    const bmp = await decodeImageBlob(file);
+    const nw = bmp.naturalWidth, nh = bmp.naturalHeight;
     const scale = Math.min(1, pageW / nw, pageH / nh);
     const w = Math.round(nw * scale), h = Math.round(nh * scale);
     const layer = new Layer({
@@ -152,7 +153,6 @@ export const LayerManager = {
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, nw, nh);
     ctx.drawImage(bmp, 0, 0);
-    bmp.close();
     layer._originalCanvas = orig;
     MaskEngine.initMask(layer);
 
@@ -190,8 +190,8 @@ export const LayerManager = {
     await new Promise(r => setTimeout(r, 50));
 
     try {
-      const bmp = await createImageBitmap(file);
-      const origW = bmp.width, origH = bmp.height;
+      const bmp = await decodeImageBlob(file);
+      const origW = bmp.naturalWidth, origH = bmp.naturalHeight;
       const scale = Math.min(1, CANVAS_W / origW, CANVAS_H / origH);
       const w = Math.round(origW * scale), h = Math.round(origH * scale);
 
@@ -212,7 +212,6 @@ export const LayerManager = {
       sCtx.fillStyle = 'white';
       sCtx.fillRect(0, 0, srcW, srcH);
       sCtx.drawImage(bmp, 0, 0, srcW, srcH);
-      bmp.close();
       const imageData = sCtx.getImageData(0, 0, srcW, srcH);
 
       // Build riso color array (exclude white)
@@ -292,14 +291,13 @@ export const LayerManager = {
    * _originalCanvas from a stored imageBlobs record.
    */
   async _originalCanvasFromBlob(blob, layer) {
-    const bmp = await createImageBitmap(blob);
+    const bmp = await decodeImageBlob(blob);
     const w = layer.naturalWidth, h = layer.naturalHeight;
     const canvas = new OffscreenCanvas(w, h);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(bmp, 0, 0, w, h);
-    bmp.close();
     return canvas;
   },
 
