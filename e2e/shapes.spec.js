@@ -1,6 +1,23 @@
 import { test, expect } from '@playwright/test';
 import { clearIndexedDB, createProject, selectTool, runExportBooklet } from './helpers.js';
 
+/**
+ * Click a riso-ink swatch reliably. Right after a shape is created the
+ * properties panel refreshes asynchronously (addShape awaits IndexedDB
+ * page saves before refreshing the swatch row), and under heavy load that
+ * can outlast Playwright's 5s action timeout — or re-render the swatch
+ * element between actionability checks and dispatch. Wait for the swatch
+ * to be genuinely visible, then click with retries instead of relying on
+ * a single auto-waiting click.
+ */
+async function clickInkSwatch(page, hex) {
+  const swatch = page.locator(`#color-swatches .color-swatch[data-color="${hex}"]`);
+  await expect(async () => {
+    await expect(swatch).toBeVisible();
+    await swatch.click({ timeout: 2000 });
+  }).toPass({ timeout: 20000 });
+}
+
 test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
 });
@@ -205,8 +222,11 @@ test.describe('Shapes', () => {
     const canvas = page.locator('#interaction-overlay');
     await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
-    // Ink the fill body blue.
-    await page.locator('#color-swatches .color-swatch[data-color="#0078bf"]').click();
+    // Ink the fill body blue. addShape persists the layer (IndexedDB +
+    // page save) before the panel refreshes, so under load the panel can
+    // lag behind the drag for a while — wait for the layer to exist.
+    await page.waitForFunction(() => State.layers.length === 1 && State.selectedId);
+    await clickInkSwatch(page, '#0078bf');
     await page.waitForFunction(() => {
       const l = State.layers.find(x => x.id === State.selectedId);
       return l?.shapeFillColor === '#0078bf';
@@ -215,7 +235,7 @@ test.describe('Shapes', () => {
     // Selecting Border spawns a separate outline layer (selected); ink it red.
     await page.check('#prop-shape-border');
     await page.waitForFunction(() => State.layers.length === 2);
-    await page.locator('#color-swatches .color-swatch[data-color="#f65058"]').click();
+    await clickInkSwatch(page, '#f65058');
     await page.waitForFunction(() => {
       const l = State.layers.find(x => x.id === State.selectedId);
       return l?.shapeStrokeColor === '#f65058';
