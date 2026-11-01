@@ -206,10 +206,10 @@ test.describe('Shapes', () => {
     await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
     // Ink the fill body blue.
-    await page.locator('#color-swatches .color-swatch[data-color="#0078bf"]').click();
+    await page.locator('#color-swatches .color-swatch[data-color="#5ec8e5"]').click();
     await page.waitForFunction(() => {
       const l = State.layers.find(x => x.id === State.selectedId);
-      return l?.shapeFillColor === '#0078bf';
+      return l?.shapeFillColor === '#5ec8e5';
     });
 
     // Selecting Border spawns a separate outline layer (selected); ink it red.
@@ -233,8 +233,8 @@ test.describe('Shapes', () => {
     const body = info.find(l => l.hasFill);
     const ring = info.find(l => l.hasStroke);
     expect(body.hasStroke).toBe(false);
-    expect(body.fill).toBe('#0078bf');
-    expect(body.color).toBe('#0078bf');
+    expect(body.fill).toBe('#5ec8e5');
+    expect(body.color).toBe('#5ec8e5');
     expect(ring.hasFill).toBe(false);
     expect(ring.stroke).toBe('#f65058');
     expect(ring.color).toBe('#f65058');
@@ -291,9 +291,9 @@ test.describe('Shapes', () => {
       const l = State.layers.find(x => x.id === State.selectedId);
       l.shapeHasFill = true;
       l.shapeHasStroke = true;
-      l.shapeFillColor = '#0078bf';
+      l.shapeFillColor = '#5ec8e5';
       l.shapeStrokeColor = '#f65058';
-      l.color = '#0078bf';
+      l.color = '#5ec8e5';
       await rerenderShapeLayer(l);
     });
 
@@ -318,8 +318,8 @@ test.describe('Shapes', () => {
     expect(fillLayer, 'expected a fill-only shape layer').toBeTruthy();
     expect(borderLayer, 'expected a border-only shape layer').toBeTruthy();
 
-    expect(fillLayer.fill).toBe('#0078bf');
-    expect(fillLayer.color).toBe('#0078bf');
+    expect(fillLayer.fill).toBe('#5ec8e5');
+    expect(fillLayer.color).toBe('#5ec8e5');
     expect(borderLayer.stroke).toBe('#f65058');
     expect(borderLayer.color).toBe('#f65058');
 
@@ -356,7 +356,7 @@ test.describe('Shapes', () => {
 
     // Body layer inked blue; selecting Border spawns the outline layer
     // (selected), which we ink red.
-    await page.locator('#color-swatches .color-swatch[data-color="#0078bf"]').click();
+    await page.locator('#color-swatches .color-swatch[data-color="#5ec8e5"]').click();
     await page.check('#prop-shape-border');
     await page.waitForFunction(() => State.layers.length === 2);
     await page.locator('#color-swatches .color-swatch[data-color="#f65058"]').click();
@@ -375,13 +375,13 @@ test.describe('Shapes', () => {
         };
       });
       return recs.length === 2
-        && recs.some(r => r.shapeHasFill && !r.shapeHasStroke && r.shapeFillColor === '#0078bf')
+        && recs.some(r => r.shapeHasFill && !r.shapeHasStroke && r.shapeFillColor === '#5ec8e5')
         && recs.some(r => r.shapeHasStroke && !r.shapeHasFill && r.shapeStrokeColor === '#f65058');
     }, null, { timeout: 10000 });
 
     const plates = await runExportBooklet(page, { binding: 'saddle-stitch', bookletLayout: 'folio', targetSheetSize: 'letter' });
     const findKey = hex => Object.keys(plates).find(k => k.toLowerCase() === hex.toLowerCase());
-    const blueKey = findKey('#0078bf');
+    const blueKey = findKey('#5ec8e5');
     const redKey = findKey('#f65058');
     expect(blueKey, 'expected a plate for the fill color').toBeTruthy();
     expect(redKey, 'expected a plate for the border color').toBeTruthy();

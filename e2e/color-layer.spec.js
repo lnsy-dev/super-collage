@@ -285,15 +285,15 @@ test.describe('Color Layer (paint bucket)', () => {
     await waitForColorLayer(page);
     expect(await page.locator('#layer-list .layer-row')).toHaveCount(2);
 
-    // Switch the mix to blue ink, then fill again.
+    // Switch the mix to aqua ink, then fill again.
     await page.click('#bucket-color-swatch');
     await page.evaluate(() => {
       const black = document.querySelector('.bucket-ink-row input[data-hex="#010101"]');
       black.value = '0';
       black.dispatchEvent(new Event('input', { bubbles: true }));
-      const blue = document.querySelector('.bucket-ink-row input[data-hex="#0078bf"]');
-      blue.value = '100';
-      blue.dispatchEvent(new Event('input', { bubbles: true }));
+      const ink = document.querySelector('.bucket-ink-row input[data-hex="#5ec8e5"]');
+      ink.value = '100';
+      ink.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await page.click('#btn-bucket-done');
     await bucketClick(page, pageSize.w / 2, pageSize.h / 2);
@@ -303,7 +303,7 @@ test.describe('Color Layer (paint bucket)', () => {
 
     const colors = await page.evaluate(() =>
       window.State.layers.filter(l => l.name === 'Color Layer').map(l => l.color));
-    expect(colors).toEqual(['#010101', '#0078bf']);
+    expect(colors).toEqual(['#010101', '#5ec8e5']);
   });
 
   test('eyedropper picks the composite mix of two overlapping inks', async ({ page }) => {
