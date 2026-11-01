@@ -201,10 +201,9 @@ export async function applyColorManagerChanges() {
     alert('At least one printable color is required.');
     return false;
   }
-  if (printableCount > 7) {
-    alert('The color separation engine supports at most 7 printable colors. Please remove or merge colors before saving.');
-    return false;
-  }
+  // No upper cap: the separation LUT is dynamic now, so any number of
+  // inks works — a mixed color separates into overlapping ink plates
+  // that blend back into it when printed.
 
   await DB.putSetting('risoColors', newGlobalColors);
 

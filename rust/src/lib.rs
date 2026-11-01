@@ -219,23 +219,29 @@ fn geometric_mix(inks: &[(Vec3, f64)]) -> Vec3 {
 /// Pre-computed powers for each color channel: cache[color][step] = channel^(step/10)
 /// This eliminates expensive `powf` calls inside the LUT search loops.
 struct PowCache {
-    r: [[f64; 11]; 7],
-    g: [[f64; 11]; 7],
-    b: [[f64; 11]; 7],
+    r: Vec<[f64; 11]>,
+    g: Vec<[f64; 11]>,
+    b: Vec<[f64; 11]>,
 }
 
 impl PowCache {
     fn new(colors: &[Vec3]) -> Self {
-        let mut r = [[1.0f64; 11]; 7];
-        let mut g = [[1.0f64; 11]; 7];
-        let mut b = [[1.0f64; 11]; 7];
-        for (i, c) in colors.iter().enumerate() {
+        let mut r = Vec::with_capacity(colors.len());
+        let mut g = Vec::with_capacity(colors.len());
+        let mut b = Vec::with_capacity(colors.len());
+        for c in colors {
+            let mut cr = [1.0f64; 11];
+            let mut cg = [1.0f64; 11];
+            let mut cb = [1.0f64; 11];
             for step in 0..=10 {
                 let w = step as f64 / 10.0;
-                r[i][step] = c.x.powf(w);
-                g[i][step] = c.y.powf(w);
-                b[i][step] = c.z.powf(w);
+                cr[step] = c.x.powf(w);
+                cg[step] = c.y.powf(w);
+                cb[step] = c.z.powf(w);
             }
+            r.push(cr);
+            g.push(cg);
+            b.push(cb);
         }
         Self { r, g, b }
     }
@@ -257,10 +263,10 @@ impl PowCache {
 /// Find the best weights for one LUT cell using brute-force search over
 /// discrete weight grids.  Uses geometric (subtractive) mixing for
 /// calibrations that match real ink behaviour.
-fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix: u32) -> [u8; 7] {
+fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix: u32) -> Vec<u8> {
     let target_lab = linear_rgb_to_cielab(target_rgb.x, target_rgb.y, target_rgb.z);
     let mut best_error = f64::INFINITY;
-    let mut best_weights = [0.0f64; 7];
+    let mut best_weights: Vec<f64> = vec![0.0; num_colors];
 
     // "No ink" option (paper white).  This prevents white/light pixels from
     // being forced onto the nearest riso color.
@@ -268,7 +274,7 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
     let white_err = ciede2000_distance(&target_lab, &white_lab);
     if white_err < best_error {
         best_error = white_err;
-        best_weights = [0.0; 7];
+        best_weights = vec![0.0; num_colors];
     }
 
     // 1-color search with partial densities (0.1 … 1.0).
@@ -280,7 +286,7 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
             let err = ciede2000_distance(&target_lab, &mix_lab);
             if err <= best_error {
                 best_error = err;
-                best_weights = [0.0; 7];
+                best_weights = vec![0.0; num_colors];
                 best_weights[c] = step as f64 / 10.0;
             }
         }
@@ -298,7 +304,7 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
                     let err = ciede2000_distance(&target_lab, &mix_lab);
                     if err <= best_error {
                         best_error = err;
-                        best_weights = [0.0; 7];
+                        best_weights = vec![0.0; num_colors];
                         best_weights[i] = w1 as f64 / 10.0;
                         best_weights[j] = w2 as f64 / 10.0;
                     }
@@ -323,7 +329,7 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
                             let err = ciede2000_distance(&target_lab, &mix_lab);
                             if err <= best_error {
                                 best_error = err;
-                                best_weights = [0.0; 7];
+                                best_weights = vec![0.0; num_colors];
                                 best_weights[i] = a as f64 / 4.0;
                                 best_weights[j] = b as f64 / 4.0;
                                 best_weights[k] = c as f64 / 4.0;
@@ -335,18 +341,21 @@ fn build_lut_cell(target_rgb: Vec3, cache: &PowCache, num_colors: usize, max_mix
         }
     }
 
-    best_weights.map(|w| (w * 255.0).round().clamp(0.0, 255.0) as u8)
+    best_weights.iter()
+        .map(|w| (w * 255.0).round().clamp(0.0, 255.0) as u8)
+        .collect()
 }
 
 /// Build a 3-D RGB lookup table for fast color separation.
 /// `grid_size` cells per channel (e.g. 16 → 16³ = 4096 cells).
-/// Each cell stores 7 weight bytes (one per riso color, 0–255).
+/// Each cell stores one weight byte per ink in `riso_colors` (0–255),
+/// so the table supports any number of inks.
 #[wasm_bindgen]
 pub fn build_color_lut(riso_colors: &[u8], max_mix: u32, grid_size: u32) -> Vec<u8> {
     let num_colors = riso_colors.len() / 3;
     let gs = grid_size.max(2).min(64) as usize;
     let total_cells = gs * gs * gs;
-    let mut lut = vec![0u8; total_cells * 7];
+    let mut lut = vec![0u8; total_cells * num_colors];
 
     let colors: Vec<Vec3> = (0..num_colors)
         .map(|i| Vec3::new(
@@ -368,7 +377,7 @@ pub fn build_color_lut(riso_colors: &[u8], max_mix: u32, grid_size: u32) -> Vec<
                     srgb_byte_to_linear((rz as f64 * scale * 255.0).round() as u8),
                 );
                 let cell = build_lut_cell(target, &cache, num_colors, max_mix);
-                let base = ((rz * gs + gy) * gs + bx) * 7;
+                let base = ((rz * gs + gy) * gs + bx) * num_colors;
                 for c in 0..num_colors {
                     lut[base + c] = cell[c];
                 }
@@ -396,17 +405,23 @@ pub fn separate_colors_with_lut(
     num_colors: u32,
 ) -> Vec<u8> {
     let pixel_count = (width * height) as usize;
-    let num_colors = num_colors.max(1).min(7) as usize;
-    // 255 = no ink: transparent pixels keep the initialization.
-    let mut plates = vec![255u8; pixel_count * num_colors];
+    let num_colors = num_colors.max(1) as usize;
+    let gs = grid_size as usize;
 
-    if pixel_count == 0 || lut.is_empty() {
+    // The LUT stride is whatever the table was built with — dynamic, not
+    // the historical hardcoded 7 — so palettes larger than 7 inks still
+    // separate; a layer asking for fewer plates than the LUT holds is
+    // served from the first `num_colors` inks.
+    let stride = if gs > 0 { lut.len() / (gs * gs * gs) } else { 0 };
+    let n = num_colors.min(stride);
+    // 255 = no ink: transparent pixels keep the initialization.
+    let mut plates = vec![255u8; pixel_count * n];
+
+    if pixel_count == 0 || n == 0 || lut.is_empty() {
         return plates;
     }
 
-    let gs = grid_size as usize;
     let gs_minus_1 = (gs - 1) as f64;
-    let lut_stride = 7;
 
     for py in 0..pixel_count {
         let src_base = py * 4;
@@ -425,9 +440,9 @@ pub fn separate_colors_with_lut(
         let gy = ((g as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
         let bz = ((b as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
 
-        let lut_base = ((bz * gs + gy) * gs + rx) * lut_stride;
+        let lut_base = ((bz * gs + gy) * gs + rx) * stride;
 
-        for c in 0..num_colors {
+        for c in 0..n {
             // 0 = full ink, 255 = no ink
             plates[c * pixel_count + py] = 255 - lut[lut_base + c];
         }
@@ -447,7 +462,7 @@ pub fn separate_colors(
     max_mix: u32,
 ) -> Vec<u8> {
     let lut = build_color_lut(riso_colors, max_mix, 32);
-    let num_colors = (riso_colors.len() / 3).max(1).min(7) as u32;
+    let num_colors = (riso_colors.len() / 3).max(1) as u32;
     separate_colors_with_lut(image_data, width, height, &lut, 32, num_colors)
 }
 
@@ -596,7 +611,7 @@ pub fn evaluate_palettes(
 
     let gs = grid_size as usize;
     let gs_minus_1 = (gs - 1) as f64;
-    let lut_stride = 7;
+    let gs_cells = gs * gs * gs;
 
     for p in 0..pixel_count {
         let base = p * 4;
@@ -618,16 +633,16 @@ pub fn evaluate_palettes(
         let rx = ((r as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
         let gy = ((g as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
         let bz = ((b as f64 / 255.0 * gs_minus_1).round() as usize).min(gs - 1);
-        let lut_base = ((bz * gs + gy) * gs + rx) * lut_stride;
 
         let mut color_offset = 0usize;
         for (ci, &count) in candidate_counts.iter().enumerate() {
-            // Palette slices/offsets advance by the FULL candidate count
-            // (same as the LUT-build loop above); only the ink fold clamps
-            // to the 7 colors a plate set can hold, matching
-            // separate_colors_with_lut.
+            // Palette slices/offsets advance by the FULL candidate count;
+            // only the ink fold clamps to the inks the candidate's LUT
+            // actually holds (dynamic stride, was hardcoded to 7).
             let full_count = count as usize;
-            let count = full_count.min(7);
+            let lut_stride = luts[ci].len() / gs_cells;
+            let count = full_count.min(lut_stride);
+            let lut_base = ((bz * gs + gy) * gs + rx) * lut_stride;
             let palette = &candidate_colors[color_offset..color_offset + full_count * 3];
             color_offset += full_count * 3;
 

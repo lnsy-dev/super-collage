@@ -400,6 +400,7 @@
       <p style="font-size:1.15rem;line-height:2;margin-top:10px;">Sliders set how much of each ink is printed; the mix stacks them like real riso passes.</p>
     </div>
     <div class="dialog-footer">
+      <button class="mac-btn" id="btn-bucket-save-color">Save Color</button>
       <button class="mac-btn" id="btn-bucket-reset">Reset</button>
       <button class="mac-btn primary" id="btn-bucket-done">Done</button>
     </div>
@@ -1153,10 +1154,11 @@ document.getElementById('screentone-dialog').addEventListener('click', e => {
 });
 
 // Paint bucket "Mix Ink" dialog buttons
-import { showBucketMixDialog, hideBucketMixDialog, resetBucketInks, BucketTool } from './src/app/color-layer.js';
+import { showBucketMixDialog, hideBucketMixDialog, resetBucketInks, saveBucketInkToPalette, BucketTool } from './src/app/color-layer.js';
 window.BucketTool = BucketTool;
 document.getElementById('btn-bucket-done').addEventListener('click', hideBucketMixDialog);
 document.getElementById('btn-bucket-reset').addEventListener('click', resetBucketInks);
+document.getElementById('btn-bucket-save-color').addEventListener('click', saveBucketInkToPalette);
 document.getElementById('paint-bucket-dialog').addEventListener('click', e => {
   if (e.target === document.getElementById('paint-bucket-dialog')) hideBucketMixDialog();
 });

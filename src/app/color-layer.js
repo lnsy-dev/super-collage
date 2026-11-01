@@ -29,7 +29,8 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { RISO_COLORS, CANVAS_W, CANVAS_H } from './constants.js';
+import { RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, CANVAS_W, CANVAS_H } from './constants.js';
+import { rebuildColorSepLut } from './color-lut.js';
 import { Layer } from './layer.js';
 import { MaskEngine } from './mask-engine.js';
 import { Renderer } from './renderer.js';
@@ -132,6 +133,17 @@ function buildInkSliders() {
       val.textContent = `${slider.value}%`;
       updateMixPreview();
     });
+    // Click a swatch to print just that ink: 100% here, 0% everywhere else.
+    const swatchEl = row.querySelector('.bucket-ink-swatch');
+    swatchEl.style.cursor = 'pointer';
+    swatchEl.addEventListener('click', () => {
+      for (const other of RISO_COLORS) {
+        if (other.hex.toUpperCase() !== '#FFFFFF') State.bucketInks[other.hex] = 0;
+      }
+      State.bucketInks[c.hex] = 100;
+      buildInkSliders();
+      updateMixPreview();
+    });
     wrap.appendChild(row);
   }
 }
@@ -150,6 +162,55 @@ export function resetBucketInks() {
   State.bucketInks = { '#010101': 100 };
   buildInkSliders();
   updateMixPreview();
+}
+
+/* ─── SAVE COLOR ═══════════════════════════════════════════════════ */
+
+/**
+ * Add the currently mixed ink to the user's palette. It lands in the
+ * global 'risoColors' setting (so it shows up in every project) and in
+ * the open project's `colors` (so it round-trips in downloaded project
+ * zips), mirroring how Edit Colors persists its palette.
+ */
+export async function saveBucketInkToPalette() {
+  const hex = (State.bucketColor || currentBucketColor()).toUpperCase();
+
+  // Already in the palette — nothing to add.
+  if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex)) return false;
+
+  const color = { name: hex, hex, pantone: '' };
+
+  // Global setting: persists between projects.
+  const setting = await DB.getSetting('risoColors');
+  const globalColors = Array.isArray(setting?.value) ? setting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+  globalColors.push(color);
+  await DB.putSetting('risoColors', globalColors);
+
+  // Project palette: rides along in downloaded/uploaded project zips.
+  if (State.project) {
+    State.project.colors = [...(State.project.colors || []), color];
+    await DB.put('projects', { ...State.project, updatedAt: Date.now() });
+  }
+
+  // Rebuild the effective palette (global minus project hexes + project
+  // colors) and apply, exactly like loadEffectivePalette + Edit Colors.
+  const projectHexes = new Set((State.project?.colors || []).map(c => c.hex.toUpperCase()));
+  setRisoColors([
+    ...globalColors.filter(c => !projectHexes.has(c.hex.toUpperCase())),
+    ...(State.project?.colors || []),
+  ]);
+  rebuildColorSepLut();
+  UI.refreshColorSwatches();
+  UI.refreshProperties();
+  Renderer.schedule();
+
+  // Flash the button so the user can see the save happened.
+  const btn = document.getElementById('btn-bucket-save-color');
+  if (btn) {
+    btn.textContent = 'Saved ✓';
+    setTimeout(() => { btn.textContent = 'Save Color'; }, 1200);
+  }
+  return true;
 }
 
 /* ─── FLOOD FILL ─────────────────────────────────────────────────── */

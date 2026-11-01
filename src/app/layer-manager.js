@@ -256,7 +256,8 @@ export const LayerManager = {
         halftoneSize: 12,
         halftoneAngle: 45,
         // Spectrolite default per-ink screen angles (for the 'screen'
-        // halftone type); light→dark [15,75,0,45,30,60,105] with 7 inks.
+        // halftone type); classic riso angles, cycling extra angles when
+        // the palette holds more inks.
         sepAngles: defaultSepAngles(separationColors),
         sepPaletteDefault: separationColors.slice(),
       });

@@ -10,7 +10,7 @@ import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, resetColorManagerToDefaults } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, showColorManagerDialog, addColorManagerRow, resetColorManagerToDefaults } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -1306,6 +1306,22 @@ export function wireControls() {
     DB.saveLayer(l);
     UI.refreshLayerList();
     Renderer.schedule();
+  });
+
+  // Double-click a palette swatch to edit that color (rename or re-tint
+  // it in the Edit Colors manager, opened on the matching row).
+  document.getElementById('color-swatches')?.addEventListener('dblclick', async e => {
+    const sw = e.target.closest('.color-swatch');
+    if (!sw) return;
+    showColorManagerDialog();
+    const row = document.querySelector(
+      `#color-manager-list .color-manager-row[data-original-hex="${sw.dataset.color}"]`);
+    if (row) {
+      row.scrollIntoView({ block: 'center' });
+      row.style.outline = '2px solid var(--blue, #252D59)';
+      row.querySelector('.color-manager-color')?.focus();
+      setTimeout(() => { row.style.outline = ''; }, 1500);
+    }
   });
 
   // Text layer property controls
