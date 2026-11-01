@@ -10,13 +10,14 @@ import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, showColorManagerDialog, addColorManagerRow, resetColorManagerToDefaults } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, showColorManagerAddRow, showColorManagerDialog, resetColorManagerToDefaults } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
+import { wireSidebars } from './sidebars.js';
 import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
@@ -509,9 +510,15 @@ async function onPointerDown(e) {
         State.selectedIds.splice(idx, 1);
         State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
       }
-    } else {
+    } else if (!State.selectedIds.includes(hit.id)) {
+      // A plain press on a layer outside the selection re-selects it alone.
       State.selectedId = hit.id;
       State.selectedIds = [hit.id];
+    } else if (State.selectedId !== hit.id) {
+      // A plain press on an already-selected member keeps the multi-selection
+      // (so a subsequent click-drag or handle resize transforms them all
+      // together) and promotes the pressed layer to primary.
+      State.selectedId = hit.id;
     }
     // Only start a drag if the hit layer is still selected after toggle/select.
     if (State.selectedIds.includes(hit.id)) {
@@ -575,7 +582,7 @@ function onPointerMove(e) {
     const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
       isSnapEnabled(State.showGrid, State.grid));
     const ctx = overlayCanvas.getContext('2d');
-    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    Renderer.resetOverlayTransform(ctx);
     ctx.save();
     ctx.translate(Math.min(State.textDrag.startX, s.x), Math.min(State.textDrag.startY, s.y));
     ctx.strokeStyle = '#0055ff';
@@ -706,8 +713,25 @@ function onPointerMove(e) {
     }
   }
 
-  UI.refreshProperties();
-  Renderer.schedule();
+  if (State.drag) {
+    refreshPropertiesThrottled();
+    Renderer.schedule();
+  }
+}
+
+/* ─── DRAG PROPERTY-PANEL COALESCING ──────────────────────────────
+   During a drag, every pointermove used to run a full properties-panel
+   refresh (dozens of DOM writes × pointer event rate). Coalesce to at
+   most one refresh per animation frame — rendering is scheduled in the
+   same frame, so the panel can never be more than one frame behind. */
+let propsRefreshQueued = false;
+function refreshPropertiesThrottled() {
+  if (propsRefreshQueued) return;
+  propsRefreshQueued = true;
+  requestAnimationFrame(() => {
+    propsRefreshQueued = false;
+    UI.refreshProperties();
+  });
 }
 
 async function onPointerUp(e) {
@@ -1276,7 +1300,14 @@ export function wireControls() {
 
   document.getElementById('color-swatches')?.addEventListener('click', async e => {
     const sw = e.target.closest('.color-swatch');
-    if (!sw) return;
+    if (!sw) {
+      // "+" at the end of the palette: add a new ink via the ink selection
+      // (Color Manager opens with a fresh editable row).
+      if (e.target.closest('.color-swatch-add')) {
+        await showColorManagerAddRow();
+      }
+      return;
+    }
     const l = selectedLayer(); if (!l) return;
     if (l.isShape && !l.isColorSeparation) {
       // Shape layers are single-ink (one part per layer): apply the swatch to
@@ -2111,13 +2142,13 @@ export function wireControls() {
 
   // ── File input & drag/drop ────────────────────────────────────────
   document.getElementById('file-input').addEventListener('change', async e => {
-    for (const file of e.target.files) await LayerManager.addFromFile(file);
+    for (const file of e.target.files) await PageManager.queueOp(() => LayerManager.addFromFile(file));
     e.target.value = '';
   });
 
   document.getElementById('color-sep-input').addEventListener('change', async e => {
     const file = e.target.files[0];
-    if (file) await LayerManager.addColorSeparation(file);
+    if (file) await PageManager.queueOp(() => LayerManager.addColorSeparation(file));
     e.target.value = '';
   });
 
@@ -2242,4 +2273,7 @@ export function wireControls() {
   window.addEventListener('blur', () => document.body.classList.remove('shift-held'));
 
   UI.updateBrushPopout();
+
+  // Sidebar resize / collapse handles
+  wireSidebars();
 }

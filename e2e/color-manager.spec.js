@@ -55,6 +55,49 @@ test.describe('Color Manager', () => {
     expect(layerColor).toBe('#333333');
   });
 
+  test('ink window has no per-project checkboxes; OK saves the whole palette to the project', async ({ page }) => {
+    await createProject(page, 'Palette Scope Test');
+
+    await page.click('.menu-item[data-menu="colors"]');
+    await page.click('.menu-entry[data-action="edit-colors"]');
+    await expect(page.locator('#color-manager-dialog')).toBeVisible();
+
+    // No "Project" checkboxes anymore: scoping is implicit (project-only).
+    await expect(page.locator('.color-manager-project')).toHaveCount(0);
+
+    // Recolor one ink so the save has something to verify.
+    const row = page.locator('.color-manager-row').first();
+    await row.locator('.color-manager-name').fill('Charcoal');
+    await row.locator('.color-manager-color').evaluate((el) => {
+      el.value = '#333333';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.click('#btn-color-manager-ok');
+    await expect(page.locator('#color-manager-dialog')).toBeHidden();
+
+    // Every palette ink lands in the project's colors (not split between
+    // project and global storage), and the renamed ink is part of them.
+    const colors = await page.evaluate(async () => {
+      // @ts-ignore
+      const { RISO_COLORS } = await import('/src/app/constants.js');
+      return { live: [...RISO_COLORS], saved: window.State.project.colors };
+    });
+    expect(colors.saved.every(c => c.hex && c.name)).toBe(true);
+    expect(colors.saved.length).toBe(colors.live.length);
+    expect(colors.saved.find(c => c.hex === '#333333').name).toBe('Charcoal');
+
+    // The saved palette survives a project reopen.
+    await page.reload();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await page.locator('.project-entry', { hasText: 'Palette Scope Test' }).click();
+    await page.click('#btn-open-project');
+    await page.waitForTimeout(1000);
+    const swatch = await page.evaluate(() =>
+      !!document.querySelector('.color-swatch[data-color="#333333"]'));
+    expect(swatch).toBe(true);
+  });
+
   test('radial gradient center row shows CX and CY; moving CY updates and persists centerY', async ({ page }) => {
     await createProject(page, 'Radial CY Test');
     await addSolidColorImage(page, '#000000');

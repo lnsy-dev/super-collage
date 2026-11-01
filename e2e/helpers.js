@@ -30,7 +30,9 @@ export async function clearIndexedDB(page) {
 export async function gotoApp(page) {
   await page.goto('/');
   await page.waitForFunction(() => window.__appReady === true, null, { timeout: 10000 });
-  await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible();
+  // Under load (WASM init + font loading) either dialog can take several
+  // seconds longer than the 5s action default to appear.
+  await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible({ timeout: 15000 });
 }
 
 /**
@@ -54,8 +56,18 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
     await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
   }
   await page.click('#btn-create-next'); // Create
-  // Wait for main app to be visible
-  await expect(page.locator('#main-app')).toBeVisible();
+  // Wait for main app to be visible. The final click kicks off project
+  // creation (several IndexedDB writes + the serialized page-op queue +
+  // first render); under load it can outlast the 5s action default.
+  await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
+  // The create/open flow finishes its initial unit load asynchronously after
+  // #main-app becomes visible; anything that starts here (imports, page
+  // switches) must observe the settled state, so drain the pending page-op
+  // queue before returning.
+  await page.evaluate(async () => {
+    await PageManager.queueIdle();
+    if (!State.project) throw new Error('project did not finish opening');
+  });
   if (orientation === 'landscape') {
     await page.locator('#zoom-controls [data-action="orient-landscape"]').click();
   }
@@ -117,11 +129,14 @@ export async function addTextLayer(page, text = 'Hello') {
   await page.click('[data-menu="file"]');
   await page.click('[data-action="add-text"]');
   const editor = page.locator('.text-editor-input');
-  await expect(editor).toBeVisible();
+  // Opening the editor, and the Escape commit (IndexedDB save + re-render
+  // of the type-set bitmap), both depend on awaits that can stretch past
+  // the 5s action default under load.
+  await expect(editor).toBeVisible({ timeout: 15000 });
   if (text) await editor.fill(text);
   await page.keyboard.press('Escape');
   await expect(editor).toHaveCount(0);
-  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible();
+  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible({ timeout: 15000 });
 }
 
 /**
@@ -193,7 +208,9 @@ export async function reopenProject(page, name) {
   await page.reload();
   await page.locator('.project-entry', { hasText: name }).click();
   await page.click('#btn-open-project');
-  await expect(page.locator('#main-app')).toBeVisible();
+  // Opening a project queues serialized page ops and a full initial render;
+  // under load it can outlast the 5s action default.
+  await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
 }
 
 /**
@@ -217,7 +234,16 @@ export async function setLayerColorDirect(page, colorHex) {
     layer._dirty = true;
     await DB.saveLayer(layer);
   }, colorHex);
-  await page.waitForTimeout(50);
+  // Verify the write is actually committed with the expected content — under
+  // load, proceeding on a blind timer used to let reads race uncommitted
+  // writes, so pages could resolve stale/default ink colors at export time.
+  await page.waitForFunction(async (color) => {
+    const { DB } = await import('/src/app/db.js');
+    const layer = State.layers.find(l => l.id === State.selectedId);
+    if (!layer) return false;
+    const rec = await DB.get('layers', layer.id);
+    return !!rec && rec.color === color;
+  }, colorHex, { timeout: 5000 });
 }
 
 import { deflateSync } from 'zlib';
@@ -408,6 +434,17 @@ export async function addSolidColorImage(page, colorHex, { width = 100, height =
     buffer,
   });
   await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+  // Verify the layer record is committed to the ACTIVE page before moving on.
+  // An import landing on a page other than State.pageId (page-op interleaving
+  // while a project opens) used to show up as missing plates / blank cells in
+  // export assertions far beyond this step.
+  await page.waitForFunction(async () => {
+    const { DB } = await import('/src/app/db.js');
+    const layer = State.layers.find(l => l.id === State.selectedId);
+    if (!layer) return false;
+    const rec = await DB.get('layers', layer.id);
+    return !!rec && rec.pageId === State.pageId;
+  }, null, { timeout: 5000 });
 }
 
 /**

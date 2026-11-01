@@ -9,6 +9,7 @@ import { Renderer } from './renderer.js';
 import { PageManager } from './page-manager.js';
 import { rerenderShapeLayer } from './shape-utils.js';
 import { restoreSvgLayer } from './svg-utils.js';
+import { MaskEngine } from './mask-engine.js';
 
 
 export function snapshotLayer(layer) { return layer.toRecord(); }
@@ -129,6 +130,7 @@ export async function applySnapshot(layer, snap) {
     try {
       const ctx = layer._maskCanvas.getContext('2d');
       ctx.putImageData(snap._maskImageData, 0, 0);
+      MaskEngine.bumpRevision(layer); // mask painted in place — invalidate render caches
       DB.saveMask(layer);
     } catch (_e) {
       // ignore

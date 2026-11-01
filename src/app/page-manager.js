@@ -12,10 +12,15 @@ import { UI } from './ui.js';
 import { CANVAS_W, CANVAS_H, setCanvasSize, getProjectSizeLabel } from './constants.js';
 import { renderShapeLayerBitmap } from './shape-utils.js';
 import { loadSvgImage } from './svg-utils.js';
+import { decodeImageBlob } from './image-decode.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { rebuildLayerSepPlates } from './separation-methods.js';
 
 export const PageManager = {
+  // Serialization state for page-level operations (see queueOp below).
+  _pageOpQueue: null,
+  _inQueuedOp: false,
+
   loadViewSettings(project) {
     const vs = project?.viewSettings || {};
     State.showMargins = !!vs.showMargins;
@@ -218,7 +223,41 @@ export const PageManager = {
     }
   },
 
+  /**
+   * Serialize page-navigation operations. An opening project finishes its
+   * initial unit load in the background after #main-app becomes visible; a
+   * page switch or layer add that lands in that window used to interleave
+   * with the open's trailing loadUnit, so content could be written against a
+   * page other than the one the caller switched to. queueOp() gives every
+   * page-level operation (loadPage, loadUnit, adds from the file import) a
+   * single ordered slot so opening, navigation and content writes cannot
+   * interleave. Nested calls made from inside a queued operation run
+   * directly instead of re-queuing (which would deadlock).
+   */
+  queueOp(fn) {
+    if (this._inQueuedOp) return fn();
+    // Lazily start the chain so the queue always represents live work.
+    if (!this._pageOpQueue) this._pageOpQueue = Promise.resolve();
+    const run = this._pageOpQueue.then(() => {
+      this._inQueuedOp = true;
+      return fn();
+    }).finally(() => { this._inQueuedOp = false; });
+    this._pageOpQueue = run.then(() => {}, () => {});
+    return run;
+  },
+
+  // Resolves once every page operation queued so far has finished. Used as a
+  // test readiness gate after triggering flows whose tail work is queued.
+  async queueIdle() {
+    if (!this._pageOpQueue) this._pageOpQueue = Promise.resolve();
+    await this._pageOpQueue;
+  },
+
   async loadPage(pageId) {
+    return this.queueOp(() => this._runLoadPage(pageId));
+  },
+
+  async _runLoadPage(pageId) {
     if (State.pageId === pageId && !State.spreadView) return;
 
     // Save current unit state before leaving.
@@ -255,6 +294,10 @@ export const PageManager = {
   },
 
   async loadUnit(unitId) {
+    return this.queueOp(() => this._runLoadUnit(unitId));
+  },
+
+  async _runLoadUnit(unitId) {
     if (!State.project || !State.project.pageOrder) return;
     if (State.unitId === unitId) return;
 
@@ -382,7 +425,7 @@ export const PageManager = {
       } else if (layer.isColorSeparation) {
         await this._rebuildSeparationPlates(layer, imgRec.blob);
       } else {
-        const bmp = await createImageBitmap(imgRec.blob);
+        const bmp = await decodeImageBlob(imgRec.blob);
         const orig = new OffscreenCanvas(layer.naturalWidth, layer.naturalHeight);
         const ctx = orig.getContext('2d');
         ctx.fillStyle = 'white';
@@ -391,7 +434,6 @@ export const PageManager = {
         // larger than the (canvas-limit-clamped) natural size, which must be
         // downscaled rather than cropped.
         ctx.drawImage(bmp, 0, 0, layer.naturalWidth, layer.naturalHeight);
-        bmp.close();
         layer._originalCanvas = orig;
       }
     }
@@ -413,7 +455,7 @@ export const PageManager = {
   },
 
   async _rebuildSeparationPlates(layer, blob) {
-    const bmp = await createImageBitmap(blob);
+    const bmp = await decodeImageBlob(blob);
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     const sourceCanvas = new OffscreenCanvas(nw, nh);
     const sCtx = sourceCanvas.getContext('2d');

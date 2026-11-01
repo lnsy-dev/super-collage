@@ -123,14 +123,13 @@ async function updateLayerColorsForPaletteChange(hexMap) {
   }
 }
 
-function buildColorManagerRow(color, isProject) {
+function buildColorManagerRow(color) {
   const row = document.createElement('div');
   row.className = 'color-manager-row';
   row.dataset.originalHex = color.hex;
   row.innerHTML = `
     <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
     <input type="color" class="color-manager-color" value="${color.hex}">
-    <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${isProject ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
     <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
   `;
   return row;
@@ -141,19 +140,11 @@ export async function showColorManagerDialog() {
   const list = document.getElementById('color-manager-list');
   if (!dialog || !list) return;
 
-  const globalSetting = await DB.getSetting('risoColors');
-  const globalColors = Array.isArray(globalSetting?.value)
-    ? globalSetting.value
-    : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
-  const projectColors = State.project?.colors || [];
-  const projectHexes = new Set(projectColors.map(c => normalizeHex(c.hex)));
-
   _colorManagerOriginal = RISO_COLORS.map(c => ({ ...c }));
   list.innerHTML = '';
 
   for (const color of _colorManagerOriginal) {
-    const isProject = projectHexes.has(normalizeHex(color.hex));
-    list.appendChild(buildColorManagerRow(color, isProject));
+    list.appendChild(buildColorManagerRow(color));
   }
 
   dialog.classList.remove('hidden');
@@ -166,7 +157,7 @@ export function resetColorManagerToDefaults() {
   if (!list) return;
   list.innerHTML = '';
   for (const color of DEFAULT_RISO_COLORS) {
-    list.appendChild(buildColorManagerRow({ ...color }, false));
+    list.appendChild(buildColorManagerRow({ ...color }));
   }
 }
 
@@ -178,19 +169,14 @@ export async function applyColorManagerChanges() {
   const list = document.getElementById('color-manager-list');
   const rows = list.querySelectorAll('.color-manager-row');
   const newColors = [];
-  const newGlobalColors = [];
-  const newProjectColors = [];
   const hexMap = new Map();
 
   for (const row of rows) {
     const name = row.querySelector('.color-manager-name').value.trim() || 'Untitled';
     const hex = normalizeHex(row.querySelector('.color-manager-color').value);
-    const isProject = row.querySelector('.color-manager-project').checked;
     const color = { name, hex, pantone: '' };
 
     newColors.push(color);
-    if (isProject) newProjectColors.push(color);
-    else newGlobalColors.push(color);
 
     const orig = normalizeHex(row.dataset.originalHex || '');
     if (orig && orig !== hex) hexMap.set(orig, hex);
@@ -205,11 +191,13 @@ export async function applyColorManagerChanges() {
   // inks works — a mixed color separates into overlapping ink plates
   // that blend back into it when printed.
 
-  await DB.putSetting('risoColors', newGlobalColors);
-
+  // The whole edited palette is scoped to the current project (or the global
+  // fallback when no project is open). No per-project/global split anymore.
   if (State.project) {
-    State.project.colors = newProjectColors;
+    State.project.colors = newColors;
     await DB.put('projects', { ...State.project, updatedAt: Date.now() });
+  } else {
+    await DB.putSetting('risoColors', newColors);
   }
 
   setRisoColors(newColors);
@@ -233,11 +221,20 @@ export async function addColorManagerRow() {
   row.innerHTML = `
     <input type="text" class="mac-input color-manager-name" value="New Color" placeholder="Name">
     <input type="color" class="color-manager-color" value="#000000">
-    <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${State.project ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
     <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
   `;
   list.appendChild(row);
   row.querySelector('.color-manager-name').focus();
+}
+
+/**
+ * "+" button in the palette view: opens the ink selection (Color Manager)
+ * with a fresh editable row pre-appended, so a new ink is picked through the
+ * manager.
+ */
+export async function showColorManagerAddRow() {
+  await showColorManagerDialog();
+  await addColorManagerRow();
 }
 
 // Rotate the whole page (canvas + all art) by delta degrees (-90 or 90).

@@ -4,6 +4,7 @@
 
 import { State } from './state.js';
 import { clampDims, clampOffscreenCanvas } from './canvas-limits.js';
+import { decodeImageBlob } from './image-decode.js';
 
 // Resolution at which mask bitmaps are kept. Masks are pure alpha
 // channels sampled at display/export resolution downstream, so keeping
@@ -14,6 +15,13 @@ import { clampDims, clampOffscreenCanvas } from './canvas-limits.js';
 const MASK_MAX_DIM = 4096;
 
 export const MaskEngine = {
+  // Mask bitmap revision counter. The renderer caches composited results
+  // keyed on the mask canvas object identity plus this revision, so in-place
+  // edits (paint/erase, fill, clear, invert) bump it to invalidate caches.
+  bumpRevision(layer) {
+    layer._maskRev = (layer._maskRev || 0) + 1;
+  },
+
   // Mask bitmap resolution for a layer: natural size clamped to the
   // browser-allocatable envelope, then to MASK_MAX_DIM on the long edge.
   maskDims(layer) {
@@ -36,11 +44,10 @@ export const MaskEngine = {
   },
 
   async loadMask(layer, blob) {
-    const bmp = await createImageBitmap(blob);
+    const bmp = await decodeImageBlob(blob);
     const { w, h } = this.maskDims(layer);
     const c = new OffscreenCanvas(w, h);
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
-    bmp.close();
     layer._maskCanvas = c;
   },
 
@@ -67,6 +74,7 @@ export const MaskEngine = {
     ctx.arc(mx, my, mr, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
+    this.bumpRevision(layer);
   },
 
   paintStroke(layer, x0, y0, x1, y1, radius, isErasing) {
@@ -83,6 +91,7 @@ export const MaskEngine = {
     const ctx = layer._maskCanvas.getContext('2d');
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, layer._maskCanvas.width, layer._maskCanvas.height);
+    this.bumpRevision(layer);
   },
 
   fillMask(layer) {
@@ -90,6 +99,7 @@ export const MaskEngine = {
     if (!layer._maskCanvas) this.initMask(layer);
     const ctx = layer._maskCanvas.getContext('2d');
     ctx.clearRect(0, 0, layer._maskCanvas.width, layer._maskCanvas.height);
+    this.bumpRevision(layer);
   },
 
   invertMask(layer) {
@@ -101,5 +111,6 @@ export const MaskEngine = {
       d[i+3] = 255 - d[i+3]; // invert alpha channel only
     }
     ctx.putImageData(px, 0, 0);
+    this.bumpRevision(layer);
   },
 };

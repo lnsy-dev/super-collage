@@ -509,7 +509,7 @@
       <div class="dialog-title">Edit Colors</div>
     </div>
     <div class="dialog-body">
-      <p style="font-size:1.25rem;line-height:1.6;margin-bottom:12px;">Add, remove, rename, and recolor the available palette. Project colors apply only to this project; global colors apply across all projects.</p>
+      <p style="font-size:1.25rem;line-height:1.6;margin-bottom:12px;">Add, remove, rename, and recolor the palette inks. Palette changes apply to the current project.</p>
       <div id="color-manager-list"></div>
       <button class="mac-btn" id="btn-add-color" style="margin-top:12px;width:100%;">+ Add Color</button>
     </div>
@@ -697,6 +697,10 @@
       </div>
     </div>
 
+    <!-- Left sidebar resize/collapse handle -->
+    <div class="sidebar-handle" id="left-sidebar-handle" role="separator" aria-orientation="vertical"
+         data-side="left" data-bar="toolbar-window" title="Drag to resize — click to toggle"></div>
+
     <!-- CANVAS WINDOW -->
     <div class="mac-window" id="canvas-window">
       <div class="titlebar">
@@ -728,6 +732,10 @@
         </div>
       </div>
     </div>
+
+    <!-- Right sidebar resize/collapse handle -->
+    <div class="sidebar-handle" id="right-sidebar-handle" role="separator" aria-orientation="vertical"
+         data-side="right" data-bar="right-panel" title="Drag to resize — click to toggle"></div>
 
     <!-- RIGHT PANEL -->
     <div id="right-panel">
