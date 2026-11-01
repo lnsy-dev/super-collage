@@ -459,9 +459,15 @@ async function onPointerDown(e) {
         State.selectedIds.splice(idx, 1);
         State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
       }
-    } else {
+    } else if (!State.selectedIds.includes(hit.id)) {
+      // A plain press on a layer outside the selection re-selects it alone.
       State.selectedId = hit.id;
       State.selectedIds = [hit.id];
+    } else if (State.selectedId !== hit.id) {
+      // A plain press on an already-selected member keeps the multi-selection
+      // (so a subsequent click-drag or handle resize transforms them all
+      // together) and promotes the pressed layer to primary.
+      State.selectedId = hit.id;
     }
     // Only start a drag if the hit layer is still selected after toggle/select.
     if (State.selectedIds.includes(hit.id)) {
