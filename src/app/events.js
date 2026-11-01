@@ -2017,13 +2017,13 @@ export function wireControls() {
 
   // ── File input & drag/drop ────────────────────────────────────────
   document.getElementById('file-input').addEventListener('change', async e => {
-    for (const file of e.target.files) await LayerManager.addFromFile(file);
+    for (const file of e.target.files) await PageManager.queueOp(() => LayerManager.addFromFile(file));
     e.target.value = '';
   });
 
   document.getElementById('color-sep-input').addEventListener('change', async e => {
     const file = e.target.files[0];
-    if (file) await LayerManager.addColorSeparation(file);
+    if (file) await PageManager.queueOp(() => LayerManager.addColorSeparation(file));
     e.target.value = '';
   });
 

@@ -56,6 +56,14 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   await page.click('#btn-create-next'); // Create
   // Wait for main app to be visible
   await expect(page.locator('#main-app')).toBeVisible();
+  // The create/open flow finishes its initial unit load asynchronously after
+  // #main-app becomes visible; anything that starts here (imports, page
+  // switches) must observe the settled state, so drain the pending page-op
+  // queue before returning.
+  await page.evaluate(async () => {
+    await PageManager.queueIdle();
+    if (!State.project) throw new Error('project did not finish opening');
+  });
   if (orientation === 'landscape') {
     await page.locator('#zoom-controls [data-action="orient-landscape"]').click();
   }
@@ -215,7 +223,16 @@ export async function setLayerColorDirect(page, colorHex) {
     layer._dirty = true;
     await DB.saveLayer(layer);
   }, colorHex);
-  await page.waitForTimeout(50);
+  // Verify the write is actually committed with the expected content — under
+  // load, proceeding on a blind timer used to let reads race uncommitted
+  // writes, so pages could resolve stale/default ink colors at export time.
+  await page.waitForFunction(async (color) => {
+    const { DB } = await import('/src/app/db.js');
+    const layer = State.layers.find(l => l.id === State.selectedId);
+    if (!layer) return false;
+    const rec = await DB.get('layers', layer.id);
+    return !!rec && rec.color === color;
+  }, colorHex, { timeout: 5000 });
 }
 
 import { deflateSync } from 'zlib';
@@ -406,6 +423,17 @@ export async function addSolidColorImage(page, colorHex, { width = 100, height =
     buffer,
   });
   await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+  // Verify the layer record is committed to the ACTIVE page before moving on.
+  // An import landing on a page other than State.pageId (page-op interleaving
+  // while a project opens) used to show up as missing plates / blank cells in
+  // export assertions far beyond this step.
+  await page.waitForFunction(async () => {
+    const { DB } = await import('/src/app/db.js');
+    const layer = State.layers.find(l => l.id === State.selectedId);
+    if (!layer) return false;
+    const rec = await DB.get('layers', layer.id);
+    return !!rec && rec.pageId === State.pageId;
+  }, null, { timeout: 5000 });
 }
 
 /**

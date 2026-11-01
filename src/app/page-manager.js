@@ -16,6 +16,10 @@ import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manag
 import { rebuildLayerSepPlates } from './separation-methods.js';
 
 export const PageManager = {
+  // Serialization state for page-level operations (see queueOp below).
+  _pageOpQueue: null,
+  _inQueuedOp: false,
+
   loadViewSettings(project) {
     const vs = project?.viewSettings || {};
     State.showMargins = !!vs.showMargins;
@@ -218,7 +222,41 @@ export const PageManager = {
     }
   },
 
+  /**
+   * Serialize page-navigation operations. An opening project finishes its
+   * initial unit load in the background after #main-app becomes visible; a
+   * page switch or layer add that lands in that window used to interleave
+   * with the open's trailing loadUnit, so content could be written against a
+   * page other than the one the caller switched to. queueOp() gives every
+   * page-level operation (loadPage, loadUnit, adds from the file import) a
+   * single ordered slot so opening, navigation and content writes cannot
+   * interleave. Nested calls made from inside a queued operation run
+   * directly instead of re-queuing (which would deadlock).
+   */
+  queueOp(fn) {
+    if (this._inQueuedOp) return fn();
+    // Lazily start the chain so the queue always represents live work.
+    if (!this._pageOpQueue) this._pageOpQueue = Promise.resolve();
+    const run = this._pageOpQueue.then(() => {
+      this._inQueuedOp = true;
+      return fn();
+    }).finally(() => { this._inQueuedOp = false; });
+    this._pageOpQueue = run.then(() => {}, () => {});
+    return run;
+  },
+
+  // Resolves once every page operation queued so far has finished. Used as a
+  // test readiness gate after triggering flows whose tail work is queued.
+  async queueIdle() {
+    if (!this._pageOpQueue) this._pageOpQueue = Promise.resolve();
+    await this._pageOpQueue;
+  },
+
   async loadPage(pageId) {
+    return this.queueOp(() => this._runLoadPage(pageId));
+  },
+
+  async _runLoadPage(pageId) {
     if (State.pageId === pageId && !State.spreadView) return;
 
     // Save current unit state before leaving.
@@ -255,6 +293,10 @@ export const PageManager = {
   },
 
   async loadUnit(unitId) {
+    return this.queueOp(() => this._runLoadUnit(unitId));
+  },
+
+  async _runLoadUnit(unitId) {
     if (!State.project || !State.project.pageOrder) return;
     if (State.unitId === unitId) return;
 
