@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB } from './helpers.js';
+import { clearIndexedDB, createProject } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
@@ -11,33 +11,21 @@ test.describe('Text layer integration', () => {
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
-
-    // Create a project
-    await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Create
-
-    // Wait for main app
-    await expect(page.locator('#main-app')).toBeVisible();
-
+    await createProject(page, 'Text Test');
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
     const editor = page.locator('.text-editor-input');
-    await expect(editor).toBeVisible();
+    await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Hello, type-set!');
     await page.keyboard.press('Escape');
     // Wait for layer to appear
-    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
 
-    // Wait for the async text render to produce a processed canvas
+    // Wait for the async text render to produce a processed canvas that
+    // matches the committed box size (waitForTextRender).
     try {
-      await page.waitForFunction(() => {
-        const layer = window.State.layers.find(l => l.isText);
-        return !!layer?._processedCanvas;
-      }, { timeout: 10000 });
+      await waitForTextRender(page);
     } catch (e) {
       errors.forEach(err => console.log('CONSOLE ERROR:', err));
       throw e;
@@ -73,28 +61,20 @@ test.describe('Text layer integration', () => {
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
-
-    // Create a project
-    await page.fill('#create-project-name', 'Text Test');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Create
-    await expect(page.locator('#main-app')).toBeVisible();
+    await createProject(page, 'Text Test');
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
     const editor = page.locator('.text-editor-input');
-    await expect(editor).toBeVisible();
+    await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Hello, type-set!');
     await page.keyboard.press('Escape');
 
     // Wait for the layer to render
-    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
-    await page.waitForFunction(() => {
-      const layer = window.State.layers.find(l => l.isText);
-      return !!layer?._processedCanvas;
-    }, { timeout: 10000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
+    // The processed canvas must match the committed box size: right after
+    // Escape the raster can still be the pre-commit size.
+    await waitForTextRender(page);
 
     // Change the text in the properties panel
     await page.fill('#prop-text', 'Goodbye, type-set!');
@@ -127,28 +107,20 @@ test.describe('Text layer integration', () => {
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
-
-    // Create a project
-    await page.fill('#create-project-name', 'Text Resize Test');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Create
-    await expect(page.locator('#main-app')).toBeVisible();
+    await createProject(page, 'Text Resize Test');
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
     const editor = page.locator('.text-editor-input');
-    await expect(editor).toBeVisible();
+    await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Hello, type-set!');
     await page.keyboard.press('Escape');
 
     // Wait for the layer to render
-    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
-    await page.waitForFunction(() => {
-      const layer = window.State.layers.find(l => l.isText);
-      return !!layer?._processedCanvas;
-    }, { timeout: 10000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
+    // The processed canvas must match the committed box size: right after
+    // Escape the raster can still be the pre-commit size.
+    await waitForTextRender(page);
 
     // Resize the text box via the W property input
     await page.fill('#prop-w', '600');
@@ -224,24 +196,18 @@ test.describe('Text layer integration', () => {
   });
 
   test('export processLayer returns 1x canvas sized to layer dimensions', async ({ page }) => {
-    await page.goto('/');
-    await page.fill('#create-project-name', 'Text Export Size Test');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Create
-    await expect(page.locator('#main-app')).toBeVisible();
+    await createProject(page, 'Text Export Size Test');
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
     const editor = page.locator('.text-editor-input');
-    await expect(editor).toBeVisible();
+    await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Export size test');
     await page.keyboard.press('Escape');
 
-    await page.waitForFunction(() => {
-      const layer = window.State.layers.find(l => l.isText);
-      return !!layer?._processedCanvas;
-    }, { timeout: 10000 });
+    // The processed canvas must match the committed box size: right after
+    // Escape the raster can still be the pre-commit size.
+    await waitForTextRender(page);
 
     // Simulate what the export engine does: call processLayer with forExport=true
     const result = await page.evaluate(async () => {
@@ -269,28 +235,22 @@ test.describe('Text layer integration', () => {
   test('variant dropdown lists weight/style combinations and updates layer', async ({ page }) => {
     const errors = [];
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
-    await page.goto('/');
-    await page.fill('#create-project-name', 'Text Variant Test');
-    await page.click('#btn-create-next'); // Units -> Page Size
-    await page.click('#btn-create-next'); // Page Size -> Pages
-    await page.click('#btn-create-next'); // Pages -> Create
-    await expect(page.locator('#main-app')).toBeVisible();
+    await createProject(page, 'Text Variant Test');
 
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
     const editor = page.locator('.text-editor-input');
-    await expect(editor).toBeVisible();
+    await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Hello, variant!');
     await page.keyboard.press('Escape');
 
-    await page.waitForFunction(() => {
-      const layer = window.State.layers.find(l => l.isText);
-      return !!layer?._processedCanvas;
-    }, { timeout: 10000 });
+    // The processed canvas must match the committed box size: right after
+    // Escape the raster can still be the pre-commit size.
+    await waitForTextRender(page);
 
     // Default font (IBM Plex Serif) has italic, so variant list should include italic combos.
     const variantSelect = page.locator('#prop-text-variant');
-    await expect(variantSelect).toBeVisible();
+    await expect(variantSelect).toBeVisible({ timeout: 15000 });
     await expect(variantSelect).toHaveValue('400:normal');
 
     const serifOptions = await variantSelect.evaluate(sel => [...sel.options].map(o => o.value));
@@ -411,11 +371,7 @@ function textPixelChecksum(page) {
 }
 
 async function addTextLayer(page, name, text) {
-  await page.fill('#create-project-name', name);
-  await page.click('#btn-create-next'); // Units -> Page Size
-  await page.click('#btn-create-next'); // Page Size -> Pages
-  await page.click('#btn-create-next'); // Pages -> Create
-  await expect(page.locator('#main-app')).toBeVisible();
+  await createProject(page, name);
 
   await page.click('[data-menu="file"]');
   await page.click('[data-action="add-text"]');
@@ -423,7 +379,7 @@ async function addTextLayer(page, name, text) {
   await expect(editor).toBeVisible();
   await editor.fill(text);
   await page.keyboard.press('Escape');
-  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible();
+  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
   await page.waitForFunction(() => !!window.State.layers.find(l => l.isText)?._processedCanvas,
     { timeout: 10000 });
   await waitForTextRender(page);
@@ -451,7 +407,6 @@ test.describe('Text scales with its block', () => {
     const errors = [];
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
     await addTextLayer(page, 'Text Scale Drag', 'Hello, type-set!');
     const before = await page.evaluate(measureTextLayer);
 
@@ -482,7 +437,6 @@ test.describe('Text scales with its block', () => {
     const errors = [];
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
     await addTextLayer(page, 'Text Scale Props', 'Hello, type-set!');
 
     // Non-zero letter spacing so its scaling is observable. Letter spacing
@@ -522,7 +476,6 @@ test.describe('Text scales with its block', () => {
     const errors = [];
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
 
-    await page.goto('/');
     await addTextLayer(page, 'Text Width Only', 'Hanging jog');
 
     // Squeeze the box height first. Text boxes only ever grow on a resize
@@ -553,7 +506,6 @@ test.describe('Text scales with its block', () => {
   });
 
   test('undoing a text resize restores the original type size', async ({ page }) => {
-    await page.goto('/');
     await addTextLayer(page, 'Text Scale Undo', 'Hello, type-set!');
     const before = await page.evaluate(measureTextLayer);
 

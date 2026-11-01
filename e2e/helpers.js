@@ -30,7 +30,9 @@ export async function clearIndexedDB(page) {
 export async function gotoApp(page) {
   await page.goto('/');
   await page.waitForFunction(() => window.__appReady === true, null, { timeout: 10000 });
-  await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible();
+  // Under load (WASM init + font loading) either dialog can take several
+  // seconds longer than the 5s action default to appear.
+  await expect(page.locator('#project-dialog:visible, #create-project-dialog:visible')).toBeVisible({ timeout: 15000 });
 }
 
 /**
@@ -54,8 +56,10 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
     await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
   }
   await page.click('#btn-create-next'); // Create
-  // Wait for main app to be visible
-  await expect(page.locator('#main-app')).toBeVisible();
+  // Wait for main app to be visible. The final click kicks off project
+  // creation (several IndexedDB writes + the serialized page-op queue +
+  // first render); under load it can outlast the 5s action default.
+  await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
   // The create/open flow finishes its initial unit load asynchronously after
   // #main-app becomes visible; anything that starts here (imports, page
   // switches) must observe the settled state, so drain the pending page-op
@@ -123,11 +127,14 @@ export async function addTextLayer(page, text = 'Hello') {
   await page.click('[data-menu="file"]');
   await page.click('[data-action="add-text"]');
   const editor = page.locator('.text-editor-input');
-  await expect(editor).toBeVisible();
+  // Opening the editor, and the Escape commit (IndexedDB save + re-render
+  // of the type-set bitmap), both depend on awaits that can stretch past
+  // the 5s action default under load.
+  await expect(editor).toBeVisible({ timeout: 15000 });
   if (text) await editor.fill(text);
   await page.keyboard.press('Escape');
   await expect(editor).toHaveCount(0);
-  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible();
+  await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T / })).toBeVisible({ timeout: 15000 });
 }
 
 /**
@@ -199,7 +206,9 @@ export async function reopenProject(page, name) {
   await page.reload();
   await page.locator('.project-entry', { hasText: name }).click();
   await page.click('#btn-open-project');
-  await expect(page.locator('#main-app')).toBeVisible();
+  // Opening a project queues serialized page ops and a full initial render;
+  // under load it can outlast the 5s action default.
+  await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
 }
 
 /**
