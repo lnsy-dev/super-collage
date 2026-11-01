@@ -86,6 +86,11 @@ test.describe('Color Manager', () => {
     await page.click('.project-entry');
     await page.click('#btn-open-project');
     await expect(page.locator('#main-app')).toBeVisible();
+    // Layer records hydrate asynchronously after the app shell shows; wait
+    // for the gradient record before reading the persisted value.
+    await page.waitForFunction(
+      () => window.State.layers[0]?.gradient?.centerY !== undefined,
+      null, { timeout: 10000 });
     const cyAfterReload = await page.evaluate(() => window.State.layers[0].gradient.centerY);
     expect(cyAfterReload).toBeCloseTo(0.25, 5);
   });
