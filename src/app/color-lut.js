@@ -18,8 +18,10 @@ export function rebuildColorSepLut() {
     if (rc.hex === '#FFFFFF') continue;
     const { r, g, b } = hexToRgb(rc.hex);
     risoColors.push(r, g, b);
-    if (risoColors.length >= 21) break; // LUT supports at most 7 non-white colors
   }
+  // The WASM LUT stores one weight byte per ink per cell, so it accepts
+  // palettes of any size; mixed colors separate into overlapping ink
+  // plates that blend back into the target color when printed.
   colorSepLut = buildColorLut(new Uint8Array(risoColors), 3, 16);
   window.colorSepLut = colorSepLut;
 }

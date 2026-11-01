@@ -125,6 +125,11 @@ test.describe('Imposition', () => {
     await expect(page.locator('#export-binding-row')).toBeHidden();
     await expect(page.locator('#export-layout-info')).toContainText('folio');
 
+    // quarto's 2×2 grid of half-letter pages needs a full tabloid sheet, so on
+    // letter the quarto option is disabled and tabloid must be chosen first.
+    await expect(page.locator('input[name="export-booklet-layout"][value="quarto"]')).toBeDisabled();
+    await page.locator('#export-target-size').selectOption('tabloid');
+    await expect(page.locator('input[name="export-booklet-layout"][value="quarto"]')).toBeEnabled();
     await page.locator('input[name="export-booklet-layout"][value="quarto"]').click();
     await expect(page.locator('#export-layout-info')).toContainText('quarto');
   });

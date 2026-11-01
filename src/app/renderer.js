@@ -183,6 +183,62 @@ export const Renderer = {
     return !(layerRight < viewLeft || layerLeft > viewRight || layerBottom < viewTop || layerTop > viewBottom);
   },
 
+  /**
+   * Visible viewport mapped into display-canvas coordinates and clamped to
+   * the canvas ({left, top, width, height}), or null when there is nothing
+   * meaningful to clip to. A small margin around the slice keeps antialiased
+   * slice borders seamless while panning.
+   */
+  _getViewportClipRect() {
+    const scroll = document.getElementById('canvas-scroll');
+    if (!scroll) return null;
+    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
+    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
+    const x0 = scroll.scrollLeft - canvasOffsetLeft;
+    const y0 = scroll.scrollTop  - canvasOffsetTop;
+    const x1 = x0 + scroll.clientWidth;
+    const y1 = y0 + scroll.clientHeight;
+    const MARGIN = 8;
+    // The clip rect must live in CSS/z-space like every other drawLayers
+    // coordinate; the backing store is scaled by _displayScale, so its px
+    // extent is larger in CSS terms than displayCanvas.width suggests.
+    const cssW = displayCanvas.width / this._displayScale;
+    const cssH = displayCanvas.height / this._displayScale;
+    const left = Math.max(0, Math.floor(x0 - MARGIN));
+    const top = Math.max(0, Math.floor(y0 - MARGIN));
+    const right = Math.min(cssW, Math.ceil(x1 + MARGIN));
+    const bottom = Math.min(cssH, Math.ceil(y1 + MARGIN));
+    const width = right - left, height = bottom - top;
+    if (width <= 0 || height <= 0) return null;
+    return { left, top, width, height };
+  },
+
+  /**
+   * Screen-space extent of a layer ({left, top, width, height} in canvas
+   * coordinates) used as the compositing extent: the layer's rotated
+   * bounding box, shrunk to the visible viewport slice when a clip rect is
+   * available. Returns null when the slice is empty. Draws without a clip
+   * (export, off-screen analysis, merge previews) pass clip = null and get
+   * the exact full bounding box — the pre-existing uncullable behavior.
+   */
+  _layerViewportSlice(layer, z, clip) {
+    const b = this._getLayerScreenBounds(layer, z);
+    if (!clip) {
+      return { left: b.left, top: b.top, width: b.width, height: b.height };
+    }
+    const left = Math.max(b.left, clip.left);
+    const top = Math.max(b.top, clip.top);
+    const right = Math.min(b.right, clip.left + clip.width);
+    const bottom = Math.min(b.bottom, clip.top + clip.height);
+    if (right <= left || bottom <= top) return null;
+    return {
+      left,
+      top,
+      width: Math.ceil(right - left) + 1,
+      height: Math.ceil(bottom - top) + 1,
+    };
+  },
+
   async draw() {
     this._beginDocTransform(dCtx, this._displayScale);
     await this.drawLayers(dCtx, State.layers, this._docSize().w, this._docSize().h, State.zoom);
@@ -197,6 +253,12 @@ export const Renderer = {
     targetCtx.clearRect(0, 0, width, height);
     targetCtx.fillStyle = '#fff';
     targetCtx.fillRect(0, 0, width, height);
+    // Culling: for on-screen draws only the visible viewport slice needs
+    // content (scrolling reschedules a draw, so the rest of the canvas is
+    // always repainted as it re-enters view). Clipping the context keeps
+    // every full-page blit from being rasterized outside the viewport, and
+    // lets masked layers build their intermediate buffers at slice size.
+    const clipRect = skipCulling ? null : this._getViewportClipRect();
 
     for (const layer of layers) {
       if (!layer.visible) continue;
@@ -208,11 +270,16 @@ export const Renderer = {
       if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       targetCtx.save();
+      if (clipRect) {
+        targetCtx.beginPath();
+        targetCtx.rect(clipRect.left, clipRect.top, clipRect.width, clipRect.height);
+        targetCtx.clip();
+      }
       if (layer.imageMaskIds?.length) {
-        await this._compositeLayerWithImageMask(targetCtx, layer, zoom, layers);
+        await this._compositeLayerWithImageMask(targetCtx, layer, zoom, layers, clipRect);
       } else {
         this._applyTransform(targetCtx, layer, zoom);
-        this._compositeLayer(targetCtx, layer, zoom);
+        this._compositeLayer(targetCtx, layer, zoom, clipRect);
       }
       targetCtx.restore();
     }
@@ -250,33 +317,73 @@ export const Renderer = {
     return cache;
   },
 
-  _compositeLayer(ctx, layer, z) {
+  _compositeLayer(ctx, layer, z, clip = null) {
     const dw = layer.width * z, dh = layer.height * z;
     ctx.globalCompositeOperation = 'multiply';
     const quality = ctx.imageSmoothingQuality;
     if (layer.isText) ctx.imageSmoothingQuality = 'high';
     if (!layer._maskCanvas) {
+      // The caller's viewport clip (when set) makes the browser rasterize
+      // only the visible slice of this full-layer blit.
       ctx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+      ctx.imageSmoothingQuality = quality;
+      return;
+    }
+    let comp = layer._maskComposite;
+    // Rebuild only when a source bitmap changed (they are replaced
+    // wholesale on each re-process / mask edit) or the mask rev moved.
+    if (
+      !comp ||
+      comp._srcRef !== layer._processedCanvas ||
+      comp._srcMask !== layer._maskCanvas ||
+      comp._srcMaskRev !== (layer._maskRev || 0)
+    ) {
+      comp = this._buildPaintedMaskComposite(layer);
+      layer._maskComposite = comp;
+      this._stats.paintedMaskBuilds++;
+    }
+    let rect = null;
+    if (clip) {
+      // Painted-mask compositing here draws through an intermediate buffer;
+      // size it to the visible slice instead of the whole layer. Combined
+      // with the zoom-invariant composite above, painting keeps buffer
+      // rebuild AND per-frame rasterization bounded to the viewport.
+      rect = this._layerViewportSlice(layer, z, clip);
+      if (!rect) { ctx.imageSmoothingQuality = quality; return; }
+    }
+    if (rect) {
+      const tmp = new OffscreenCanvas(Math.ceil(rect.width), Math.ceil(rect.height));
+      const tCtx = tmp.getContext('2d');
+      tCtx.imageSmoothingQuality = layer.isText ? 'high' : quality;
+      tCtx.save();
+      tCtx.translate(
+        ((layer.x + layer.width / 2) * z) - rect.left,
+        ((layer.y + layer.height / 2) * z) - rect.top
+      );
+      tCtx.rotate(layer.rotation * Math.PI / 180);
+      tCtx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
+      tCtx.translate(-layer.width / 2 * z, -layer.height / 2 * z);
+      tCtx.drawImage(comp, 0, 0, dw, dh);
+      tCtx.restore();
+      // Blit the slice in canvas coordinates; the caller's layer transform
+      // is neutralized for this draw and restored right after (drawLayers
+      // wraps every composite in save/restore). rect is in CSS/z-space, so
+      // the blit must re-apply the document scale the caller drew under.
+      ctx.save();
+      ctx.setTransform(this._displayScale, 0, 0, this._displayScale, 0, 0);
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.imageSmoothingQuality = layer.isText ? 'high' : quality;
+      ctx.drawImage(tmp, rect.left, rect.top);
+      ctx.restore();
     } else {
-      let comp = layer._maskComposite;
-      // Rebuild only when a source bitmap changed (they are replaced
-      // wholesale on each re-process / mask edit) or the mask rev moved.
-      if (
-        !comp ||
-        comp._srcRef !== layer._processedCanvas ||
-        comp._srcMask !== layer._maskCanvas ||
-        comp._srcMaskRev !== (layer._maskRev || 0)
-      ) {
-        comp = this._buildPaintedMaskComposite(layer);
-        layer._maskComposite = comp;
-        this._stats.paintedMaskBuilds++;
-      }
+      // Export / off-screen draws: comp covers the layer in local
+      // coordinates mapped by the caller's transform.
       ctx.drawImage(comp, 0, 0, dw, dh);
     }
     ctx.imageSmoothingQuality = quality;
   },
 
-  async _compositeLayerWithImageMask(ctx, layer, z, layerSet = State.layers) {
+  async _compositeLayerWithImageMask(ctx, layer, z, layerSet = State.layers, clip = null) {
     const maskLayers = (layer.imageMaskIds || [])
       .map(id => layerSet.find(l => l.id === id))
       .filter(ml => ml);
@@ -284,11 +391,16 @@ export const Renderer = {
     if (!maskLayers.length) {
       // No valid mask layers — fall back to normal rendering
       this._applyTransform(ctx, layer, z);
-      this._compositeLayer(ctx, layer, z);
+      this._compositeLayer(ctx, layer, z, clip);
       return;
     }
 
-    const b = this._getLayerScreenBounds(layer, z);
+    // Compositing extent: the layer's rotated bbox, shrunk to the visible
+    // viewport slice when a clip rect is available — the old full-bbox
+    // buffers (two per mask per frame, rasterized and read back fully) were
+    // a major share of the per-mask-paint cost at high zoom.
+    const b = this._layerViewportSlice(layer, z, clip);
+    if (!b) return;
     const cw = b.width, ch = b.height;
 
     // The composition below (base layer + alpha-inverted masks) is
@@ -305,7 +417,14 @@ export const Renderer = {
       ]),
     ];
     let cache = layer._imageMaskComposite;
-    if (cache && sameRefs(cache._srcRefs, currentRefs())) {
+    // The cache covers the compositing slice it was built for: its origin
+    // (which moves on scroll/pan) must match, otherwise the stale buffer
+    // would be blitted at the wrong place. Zoom drift within the band only
+    // rescales the same content, which is the fidelity band's job.
+    if (
+      cache && sameRefs(cache._srcRefs, currentRefs()) &&
+      cache._boundsLeft === b.left && cache._boundsTop === b.top
+    ) {
       const ratio = z / cache._zoomRef;
       if (!(ratio > 1.3 || ratio < 0.7)) {
         ctx.globalCompositeOperation = 'multiply';
@@ -336,9 +455,13 @@ export const Renderer = {
     lCtx.translate(-layer.width / 2 * z, -layer.height / 2 * z);
     const dw = layer.width * z, dh = layer.height * z;
     if (layer.isText) lCtx.imageSmoothingQuality = 'high';
+    // Painted mask applied directly in the slice-sized buffer (same
+    // transform as the layer) — no full-layer intermediate canvas needed.
+    lCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+    if (layer._maskCanvas) {
     if (layer._maskCanvas) {
       // Painted-mask composite is cached on the source bitmaps; scaling it
-      // into the mask buffer is all the per-frame work needed.
+      // into the slice-sized mask buffer is all the per-frame work needed.
       let comp = layer._maskComposite;
       if (
         !comp ||
@@ -353,6 +476,7 @@ export const Renderer = {
       lCtx.drawImage(comp, 0, 0, dw, dh);
     } else {
       lCtx.drawImage(layer._processedCanvas, 0, 0, dw, dh);
+    }
     }
     lCtx.restore();
 
@@ -403,6 +527,8 @@ export const Renderer = {
     cache = layerBuf;
     cache._srcRefs = currentRefs();
     cache._zoomRef = z;
+    cache._boundsLeft = b.left;
+    cache._boundsTop = b.top;
     layer._imageMaskComposite = cache;
     this._stats.imageMaskBuilds++;
     ctx.globalCompositeOperation = 'multiply';

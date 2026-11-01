@@ -15,6 +15,10 @@ export const State = {
   selectedIds: [],     // IDs for multi-select (shift+click)
   tool: 'select',
   brushSize: 30,
+  // Paint bucket (Color Layer): mixed ink hex + per-ink coverage (0-100)
+  // keyed by palette hex. Defaults to solid black ink.
+  bucketColor: '#010101',
+  bucketInks: { '#010101': 100 },
   zoom: 0.15,
   renderPending: false,
   zoomDebounceTimer: null,

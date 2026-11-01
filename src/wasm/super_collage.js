@@ -627,7 +627,8 @@ export function blend_subtractive_into(base, overlay) {
 /**
  * Build a 3-D RGB lookup table for fast color separation.
  * `grid_size` cells per channel (e.g. 16 → 16³ = 4096 cells).
- * Each cell stores 7 weight bytes (one per riso color, 0–255).
+ * Each cell stores one weight byte per ink in `riso_colors` (0–255),
+ * so the table supports any number of inks.
  * @param {Uint8Array} riso_colors
  * @param {number} max_mix
  * @param {number} grid_size

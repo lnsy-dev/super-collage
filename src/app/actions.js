@@ -12,7 +12,7 @@ import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } 
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
 import { ProjectIO } from './project-io.js';
 import { showScreentoneDialog } from './screentone-manager.js';
-import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, setRisoColors } from './constants.js';
+import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors } from './constants.js';
 import { rebuildColorSepLut } from './color-lut.js';
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
@@ -123,6 +123,18 @@ async function updateLayerColorsForPaletteChange(hexMap) {
   }
 }
 
+function buildColorManagerRow(color) {
+  const row = document.createElement('div');
+  row.className = 'color-manager-row';
+  row.dataset.originalHex = color.hex;
+  row.innerHTML = `
+    <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
+    <input type="color" class="color-manager-color" value="${color.hex}">
+    <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
+  `;
+  return row;
+}
+
 export async function showColorManagerDialog() {
   const dialog = document.getElementById('color-manager-dialog');
   const list = document.getElementById('color-manager-list');
@@ -132,18 +144,21 @@ export async function showColorManagerDialog() {
   list.innerHTML = '';
 
   for (const color of _colorManagerOriginal) {
-    const row = document.createElement('div');
-    row.className = 'color-manager-row';
-    row.dataset.originalHex = color.hex;
-    row.innerHTML = `
-      <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
-      <input type="color" class="color-manager-color" value="${color.hex}">
-      <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
-    `;
-    list.appendChild(row);
+    list.appendChild(buildColorManagerRow(color));
   }
 
   dialog.classList.remove('hidden');
+}
+
+// Restore the Edit Colors dialog rows to the factory default palette.
+// The user must click OK to apply the reset (Cancel keeps current colors).
+export function resetColorManagerToDefaults() {
+  const list = document.getElementById('color-manager-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const color of DEFAULT_RISO_COLORS) {
+    list.appendChild(buildColorManagerRow({ ...color }));
+  }
 }
 
 export function hideColorManagerDialog() {
@@ -172,10 +187,9 @@ export async function applyColorManagerChanges() {
     alert('At least one printable color is required.');
     return false;
   }
-  if (printableCount > 7) {
-    alert('The color separation engine supports at most 7 printable colors. Please remove or merge colors before saving.');
-    return false;
-  }
+  // No upper cap: the separation LUT is dynamic now, so any number of
+  // inks works — a mixed color separates into overlapping ink plates
+  // that blend back into it when printed.
 
   // The whole edited palette is scoped to the current project (or the global
   // fallback when no project is open). No per-project/global split anymore.
@@ -216,8 +230,7 @@ export async function addColorManagerRow() {
 /**
  * "+" button in the palette view: opens the ink selection (Color Manager)
  * with a fresh editable row pre-appended, so a new ink is picked through the
- * manager — which also enforces the separation engine's 7-printable-ink cap
- * at apply time.
+ * manager.
  */
 export async function showColorManagerAddRow() {
   await showColorManagerDialog();

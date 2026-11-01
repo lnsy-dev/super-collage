@@ -9,7 +9,7 @@ import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
 import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, formatPageSizeLabel, formatPxDimensions } from './constants.js';
 import { PageManager } from './page-manager.js';
-import { calculateLayout, calculateSingleImageLayout } from './imposition.js';
+import { calculateLayout, calculateBookletLayout, calculateSingleImageLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
 
 export let _selProjectId = null;
@@ -181,13 +181,167 @@ function _setProjectCanvasSize(project) {
   setCanvasSize(w, h);
 }
 
-export function updateExportLayoutInfo() {
-  const targetSize = document.getElementById('export-target-size')?.value || 'letter';
-  const customRow = document.getElementById('export-custom-size-row');
-  if (customRow) {
-    customRow.style.display = targetSize === 'custom' ? '' : 'none';
+const BOOKLET_LAYOUT_ORDER = ['folio', 'quarto', 'octavo'];
+const BOOKLET_PER_SIDE = { folio: 2, quarto: 4, octavo: 8 };
+const COPIES_ORDER = [
+  { value: '1up', copies: 1 },
+  { value: '2up', copies: 2 },
+  { value: '4up', copies: 4 },
+  { value: '8up', copies: 8 },
+];
+// Tolerance for "fits unscaled": paper and page dims are exact 600-dpi pixel
+// counts, so anything measurably below 1 is a real scale-down.
+const FIT_EPSILON = 1e-6;
+
+// True when `bookletLayout`'s fixed grid can hold a `pageW × pageH` page on
+// `targetSize` paper without scaling (100%).
+function bookletLayoutFits(pageW, pageH, bookletLayout, targetSize, customW = 0, customH = 0) {
+  return calculateBookletLayout(pageW, pageH, bookletLayout, targetSize, customW, customH).scale >= 1 - FIT_EPSILON;
+}
+
+function singleImageFits(pageW, pageH, copies, targetSize, customW = 0, customH = 0) {
+  return calculateSingleImageLayout(pageW, pageH, copies, targetSize, customW, customH).scale >= 1 - FIT_EPSILON;
+}
+
+// ── Shared option validation for both export dialogs ─────────────────────
+// A (target paper, booklet layout) pair is only offered when every page of
+// the layout's fixed grid fits the paper unscaled — small pages stay centered
+// on the sheet at 100%, and nothing is ever silently shrunk. Invalid booklet
+// layouts and paper options are disabled; when the current selection is one
+// of them the nearest valid option is selected instead. Returns
+// { targetSize, bookletLayout, notes, customWarning }.
+function validateBookletOptions(prefix, pageW, pageH) {
+  const sizeSelect = document.getElementById(`${prefix}-target-size`);
+  let targetSize = sizeSelect?.value || 'letter';
+  const customW = parseFloat(document.getElementById(`${prefix}-custom-width`)?.value || '0') * 600;
+  const customH = parseFloat(document.getElementById(`${prefix}-custom-height`)?.value || '0') * 600;
+  const customRow = document.getElementById(`${prefix}-custom-size-row`);
+  if (customRow) customRow.style.display = targetSize === 'custom' ? '' : 'none';
+
+  const notes = [];
+  let bookletLayout = document.querySelector(`input[name="${prefix}-booklet-layout"]:checked`)?.value || 'folio';
+
+  // 1. Disable booklet layouts that cannot fit the selected paper unscaled;
+  //    if the selected layout is one of them, fall back to the next-smaller
+  //    grid that fits.
+  for (const value of BOOKLET_LAYOUT_ORDER) {
+    const radio = document.querySelector(`input[name="${prefix}-booklet-layout"][value="${value}"]`);
+    if (radio) radio.disabled = !bookletLayoutFits(pageW, pageH, value, targetSize, customW, customH);
+  }
+  if (!bookletLayoutFits(pageW, pageH, bookletLayout, targetSize, customW, customH)) {
+    const fallback = BOOKLET_LAYOUT_ORDER
+      .filter(v => BOOKLET_PER_SIDE[v] <= BOOKLET_PER_SIDE[bookletLayout]
+        && bookletLayoutFits(pageW, pageH, v, targetSize, customW, customH))
+      .pop();
+    if (fallback) {
+      const radio = document.querySelector(`input[name="${prefix}-booklet-layout"][value="${fallback}"]`);
+      if (radio) radio.checked = true;
+      notes.push(`${bookletLayout} can't fit unscaled — switched to ${fallback}`);
+      bookletLayout = fallback;
+    } else {
+      notes.push(`${bookletLayout} pages will be scaled down to fit`);
+    }
   }
 
+  // 2. Disable papers that cannot fit the selected layout unscaled; if the
+  //    selected paper is one of them, auto-select the first fitting one.
+  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom') : [];
+  for (const o of paperOptions) o.disabled = !bookletLayoutFits(pageW, pageH, bookletLayout, o.value);
+  if (targetSize !== 'custom' && !bookletLayoutFits(pageW, pageH, bookletLayout, targetSize)) {
+    const firstFit = paperOptions.find(o => !o.disabled);
+    if (firstFit) {
+      sizeSelect.value = firstFit.value;
+      notes.push(`${targetSize} paper can't fit unscaled — switched to ${firstFit.value}`);
+      targetSize = firstFit.value;
+    }
+  }
+
+  // 3. A custom paper cannot be disabled from the dropdown — validate its
+  //    dimensions instead and let the caller block the export button.
+  let customWarning = null;
+  if (targetSize === 'custom') {
+    const scale = calculateBookletLayout(pageW, pageH, bookletLayout, 'custom', customW, customH).scale;
+    if (scale < 1 - FIT_EPSILON) {
+      customWarning = `Custom paper too small for ${bookletLayout} — pages would be scaled to ${Math.round(scale * 100)}%`;
+    }
+  }
+
+  return { targetSize, bookletLayout, customW, customH, notes, customWarning };
+}
+
+// Same rule for the single-image copies (1/2/4/8 per sheet): only copies and
+// papers that fit unscaled are offered.
+function validateSingleImageOptions(prefix, pageW, pageH) {
+  const sizeSelect = document.getElementById(`${prefix}-target-size`);
+  let targetSize = sizeSelect?.value || 'letter';
+  const customW = parseFloat(document.getElementById(`${prefix}-custom-width`)?.value || '0') * 600;
+  const customH = parseFloat(document.getElementById(`${prefix}-custom-height`)?.value || '0') * 600;
+  const customRow = document.getElementById(`${prefix}-custom-size-row`);
+  if (customRow) customRow.style.display = targetSize === 'custom' ? '' : 'none';
+
+  const notes = [];
+  let copiesValue = document.querySelector(`input[name="${prefix}-layout"]:checked`)?.value || '1up';
+
+  // 1. Disable copies options that cannot fit unscaled; fall back to fewer
+  //    copies per sheet when the selection is one of them.
+  for (const { value, copies } of COPIES_ORDER) {
+    const radio = document.querySelector(`input[name="${prefix}-layout"][value="${value}"]`);
+    if (radio) radio.disabled = !singleImageFits(pageW, pageH, copies, targetSize, customW, customH);
+  }
+  const selectedCopies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[copiesValue] || 1;
+  if (!singleImageFits(pageW, pageH, selectedCopies, targetSize, customW, customH)) {
+    const fallback = COPIES_ORDER
+      .filter(c => c.copies <= selectedCopies && singleImageFits(pageW, pageH, c.copies, targetSize, customW, customH))
+      .pop();
+    if (fallback) {
+      const radio = document.querySelector(`input[name="${prefix}-layout"][value="${fallback.value}"]`);
+      if (radio) radio.checked = true;
+      notes.push(`${copiesValue} can't fit unscaled — switched to ${fallback.value}`);
+      copiesValue = fallback.value;
+    } else {
+      notes.push(`${copiesValue} will be scaled down to fit`);
+    }
+  }
+
+  // 2. Disable papers that cannot fit a single copy unscaled.
+  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom') : [];
+  for (const o of paperOptions) o.disabled = !singleImageFits(pageW, pageH, 1, o.value);
+  if (targetSize !== 'custom' && !singleImageFits(pageW, pageH, 1, targetSize)) {
+    const firstFit = paperOptions.find(o => !o.disabled);
+    if (firstFit) {
+      sizeSelect.value = firstFit.value;
+      notes.push(`${targetSize} paper can't fit unscaled — switched to ${firstFit.value}`);
+      targetSize = firstFit.value;
+    }
+  }
+
+  // 3. Custom paper dimensions are validated, not disableable.
+  let customWarning = null;
+  if (targetSize === 'custom') {
+    const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[copiesValue] || 1;
+    const scale = calculateSingleImageLayout(pageW, pageH, copies, 'custom', customW, customH).scale;
+    if (scale < 1 - FIT_EPSILON) {
+      customWarning = `Custom paper too small — image would be scaled to ${Math.round(scale * 100)}%`;
+    }
+  }
+
+  return { targetSize, copiesValue, customW, customH, notes, customWarning };
+}
+
+function applyExportButton(prefix, customWarning) {
+  const btn = document.getElementById(prefix === 'export' ? 'btn-export-go' : 'btn-composite-go');
+  if (btn) btn.disabled = !!customWarning;
+  const info = document.getElementById(`${prefix}-layout-info`);
+  if (info) info.style.color = customWarning ? 'red' : '';
+}
+
+function describeFit(scale, rotated, noun = 'pages') {
+  const pct = Math.round(scale * 100);
+  const base = pct >= 100 ? `${noun} at 100%` : `${noun} scaled to ${pct}%`;
+  return rotated ? `${base}, rotated` : base;
+}
+
+export function updateExportLayoutInfo() {
   // The binding/booklet-layout rows only matter when there is more than one
   // page. The target-paper row applies to both single images and booklets.
   const isBooklet = State.pages.length > 1;
@@ -201,9 +355,6 @@ export function updateExportLayoutInfo() {
   const info = document.getElementById('export-layout-info');
   if (!info) return;
 
-  const customW = parseFloat(document.getElementById('export-custom-width')?.value || '0') * 600;
-  const customH = parseFloat(document.getElementById('export-custom-height')?.value || '0') * 600;
-
   // In spread view the canvas is two pages wide; layout calculation should use a single page.
   let pageW = CANVAS_W, pageH = CANVAS_H;
   if (State.spreadView && State.pageId) {
@@ -214,34 +365,46 @@ export function updateExportLayoutInfo() {
   if (!isBooklet) {
     // Single image: the Layout radios choose copies per sheet, imposed onto
     // the target paper (upright, centered, stacked vertically when they fit).
-    const layoutValue = document.querySelector('input[name="export-layout"]:checked')?.value || '1up';
-    const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[layoutValue] || 1;
+    // Only copies and papers that fit unscaled are selectable.
+    const { targetSize, copiesValue, customW, customH, notes, customWarning } =
+      validateSingleImageOptions('export', pageW, pageH);
+    applyExportButton('export', customWarning);
+    const copies = { '1up': 1, '2up': 2, '4up': 4, '8up': 8 }[copiesValue] || 1;
     const layout = calculateSingleImageLayout(pageW, pageH, copies, targetSize, customW, customH);
     const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
-    info.textContent = `${copies} per sheet, ${orientation}${layout.imageRotated ? ', image rotated' : ''}`;
+    let text = `${copies} per sheet, ${orientation}, ${describeFit(layout.scale, layout.imageRotated, 'image')}`;
+    if (customWarning) text = customWarning;
+    if (notes.length) text += ` — ${notes.join('; ')}`;
+    info.textContent = text;
     return;
   }
 
-  const layout = calculateLayout(pageW, pageH, targetSize, customW, customH);
-  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+  // Booklet: only (paper, layout) pairs that fit pages unscaled are offered.
+  const { targetSize, bookletLayout, customW, customH, notes, customWarning } =
+    validateBookletOptions('export', pageW, pageH);
+  applyExportButton('export', customWarning);
 
-  const bookletLayout = document.querySelector('input[name="export-booklet-layout"]:checked')?.value || 'folio';
-  const perSide = bookletLayout === 'folio' ? 2 : bookletLayout === 'quarto' ? 4 : 8;
-  info.textContent = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}`;
+  const layout = calculateBookletLayout(pageW, pageH, bookletLayout, targetSize, customW, customH);
+  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+  const perSide = BOOKLET_PER_SIDE[bookletLayout];
+  let text = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}, ${describeFit(layout.scale, layout.pageRotated)}`;
+  if (customWarning) text = customWarning;
+  if (notes.length) text += ` — ${notes.join('; ')}`;
+  info.textContent = text;
 }
 
 export function updateCompositeLayoutInfo() {
-  const targetSize = document.getElementById('composite-target-size')?.value || 'letter';
-  const customRow = document.getElementById('composite-custom-size-row');
-  if (customRow) {
-    customRow.style.display = targetSize === 'custom' ? '' : 'none';
+  const info = document.getElementById('composite-layout-info');
+
+  // The single-page composite export renders the canvas at its own size and
+  // ignores the target paper entirely — nothing to validate.
+  if (State.pages.length <= 1) {
+    applyExportButton('composite', null);
+    if (info) info.textContent = '1 page, no imposition — target paper not used';
+    return;
   }
 
-  const info = document.getElementById('composite-layout-info');
   if (!info) return;
-
-  const customW = parseFloat(document.getElementById('composite-custom-width')?.value || '0') * 600;
-  const customH = parseFloat(document.getElementById('composite-custom-height')?.value || '0') * 600;
 
   // In spread view the canvas is two pages wide; layout calculation should use a single page.
   let pageW = CANVAS_W, pageH = CANVAS_H;
@@ -249,12 +412,19 @@ export function updateCompositeLayoutInfo() {
     const page = State.pages.find(p => p.id === State.pageId);
     if (page) { pageW = page.width; pageH = page.height; }
   }
-  const layout = calculateLayout(pageW, pageH, targetSize, customW, customH);
-  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
 
-  const bookletLayout = document.querySelector('input[name="composite-booklet-layout"]:checked')?.value || 'folio';
-  const perSide = bookletLayout === 'folio' ? 2 : bookletLayout === 'quarto' ? 4 : 8;
-  info.textContent = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}`;
+  // Only (paper, layout) pairs that fit pages unscaled are offered.
+  const { targetSize, bookletLayout, customW, customH, notes, customWarning } =
+    validateBookletOptions('composite', pageW, pageH);
+  applyExportButton('composite', customWarning);
+
+  const layout = calculateBookletLayout(pageW, pageH, bookletLayout, targetSize, customW, customH);
+  const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
+  const perSide = BOOKLET_PER_SIDE[bookletLayout];
+  let text = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}, ${describeFit(layout.scale, layout.pageRotated)}`;
+  if (customWarning) text = customWarning;
+  if (notes.length) text += ` — ${notes.join('; ')}`;
+  info.textContent = text;
 }
 
 export async function showExportDialog() {

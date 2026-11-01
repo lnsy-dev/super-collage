@@ -136,6 +136,61 @@ export function calculateLayout(pageW, pageH, targetSheetSize, customTargetW, cu
           pageRotated: page.rotated,
           sheetW: sheet.w,
           sheetH: sheet.h,
+          pageW,
+          pageH,
+        };
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Compute the best paper orientation and page rotation for a booklet layout.
+ * Unlike calculateLayout — which is free to pick any N-up grid — a booklet
+ * layout's grid is fixed by its fold structure (folio = 2 cells side by side,
+ * quarto = 2×2, octavo = 4×2), so only the paper orientation and the page
+ * rotation can vary. Pages are never scaled above 100%; `scale` is 1 when
+ * every cell of the grid fits the page unscaled, and below 1 when the paper
+ * is too small (callers use that to disallow the combination).
+ * Returns { cols, rows, pageRotated, sheetW, sheetH, scale }.
+ */
+export function calculateBookletLayout(pageW, pageH, bookletLayout, targetSheetSize, customTargetW, customTargetH) {
+  const spec = BOOKLET_LAYOUTS[bookletLayout] || BOOKLET_LAYOUTS.folio;
+  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
+
+  let best = { cols: spec.cols, rows: spec.rows, pageRotated: false, sheetW: dims.w, sheetH: dims.h, scale: 0 };
+  let bestScore = -1;
+
+  const sheetConfigs = [
+    { w: dims.w, h: dims.h, natural: true },
+    { w: dims.h, h: dims.w, natural: false },
+  ];
+  const pageConfigs = [
+    { w: pageW, h: pageH, rotated: false },
+    { w: pageH, h: pageW, rotated: true },
+  ];
+
+  for (const sheet of sheetConfigs) {
+    for (const page of pageConfigs) {
+      const cellW = sheet.w / spec.cols;
+      const cellH = sheet.h / spec.rows;
+      const scale = Math.min(1, cellW / page.w, cellH / page.h);
+      // Prefer the largest scale, then upright pages, then the paper's
+      // natural orientation.
+      const score = scale * 100 + (page.rotated ? 0 : 10) + (sheet.natural ? 5 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          cols: spec.cols,
+          rows: spec.rows,
+          pageRotated: page.rotated,
+          sheetW: sheet.w,
+          sheetH: sheet.h,
+          pageW,
+          pageH,
+          scale,
         };
       }
     }
@@ -171,7 +226,9 @@ export function buildSheets(pages, options = {}) {
   if (!firstPage) return [];
   const pageW = firstPage.width;
   const pageH = firstPage.height;
-  const layout = calculateLayout(pageW, pageH, targetSheetSize, customTargetW, customTargetH);
+  const layout = binding === 'saddle-stitch'
+    ? calculateBookletLayout(pageW, pageH, bookletLayout, targetSheetSize, customTargetW, customTargetH)
+    : calculateLayout(pageW, pageH, targetSheetSize, customTargetW, customTargetH);
 
   const plan = computeSheetPlan(pages.length, layout, binding, bookletLayout, bleed);
   return plan.map(side => renderSheetSide(side, i => pages[i] || null));
@@ -191,47 +248,95 @@ export function computeSheetPlan(pageCount, layout, binding, bookletLayout, blee
   const { sheetW, sheetH, pageRotated } = layout;
   if (binding === 'saddle-stitch') {
     const spec = BOOKLET_LAYOUTS[bookletLayout] || BOOKLET_LAYOUTS.folio;
-    if (spec.zine) return _zineSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed);
-    return _bookletSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed);
+    if (spec.zine) return _zineSheetPlan(pageCount, spec, layout, bleed);
+    return _bookletSheetPlan(pageCount, spec, layout, bleed);
   }
   return _gridSheetPlan(pageCount, layout, bleed);
 }
 
-function _zineSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed) {
-  // Classic zine folio: 2 pages per side, cover sheet first.
+/**
+ * Fitted page footprint for a butted booklet grid. `fw × fh` is the page's
+ * footprint in sheet space (rotation swaps the axes); the page is scaled down
+ * only when it cannot fill its cell at 100%, preserving aspect ratio.
+ */
+function _buttedDrawSize(layout, cols, rows, bleed) {
+  const { sheetW, sheetH, pageRotated, pageW, pageH } = layout;
+  const fw = pageRotated ? pageH : pageW;
+  const fh = pageRotated ? pageW : pageH;
+  const gutter = bleed > 0 ? bleed : 0;
+  const cellW = sheetW / cols;
+  const cellH = sheetH / rows;
+  // Without page dims (layout built by calculateLayout for a plain grid)
+  // treat the cell itself as the footprint.
+  if (!fw || !fh) return { fw: cellW, fh: cellH, drawW: cellW, drawH: cellH };
+  const availW = Math.max(1, cellW - bleed / 2 - gutter);
+  const availH = Math.max(1, cellH - gutter);
+  const scale = Math.min(1, availW / fw, availH / fh);
+  return { fw, fh, drawW: fw * scale, drawH: fh * scale };
+}
+
+function _zineSheetPlan(pageCount, spec, layout, bleed) {
+  // Classic zine folio: 2 pages per side, cover sheet first. Pages butt
+  // against the centre fold — no gap at the fold — and the pair is centered
+  // on the sheet both horizontally and vertically.
   const order = saddleStitchOrder(pageCount);
+  const { sheetW, sheetH, pageRotated } = layout;
   const halfW = sheetW / 2;
+  const { drawW, drawH } = _buttedDrawSize(layout, spec.cols, spec.rows, bleed);
+  // Tight cells (plus a bleed gutter for drawPageInCell to trim inside) keep
+  // drawPageInCell's own centering from opening a fold gap.
+  const cellW = drawW + bleed;
+  const cellH = drawH + bleed;
+  const cellY = (sheetH - drawH) / 2 - bleed / 2;
   const sides = [];
   for (let i = 0; i < order.length; i += 2) {
     const cells = [];
     if (order[i] !== null) {
-      cells.push({ pageIndex: order[i], cellX: 0, cellY: 0, cellW: halfW - bleed / 2, cellH: sheetH, extraRotation: 0 });
+      cells.push({
+        pageIndex: order[i],
+        cellX: halfW - drawW - bleed / 2,
+        cellY,
+        cellW,
+        cellH,
+        extraRotation: 0,
+      });
     }
     if (order[i + 1] !== null) {
-      cells.push({ pageIndex: order[i + 1], cellX: halfW + bleed / 2, cellY: 0, cellW: halfW - bleed / 2, cellH: sheetH, extraRotation: 0 });
+      cells.push({
+        pageIndex: order[i + 1],
+        cellX: halfW - bleed / 2,
+        cellY,
+        cellW,
+        cellH,
+        extraRotation: 0,
+      });
     }
     sides.push({ sheetW, sheetH, pageRotated, bleed, cells });
   }
   return sides;
 }
 
-function _bookletSheetPlan(pageCount, spec, sheetW, sheetH, pageRotated, bleed) {
+function _bookletSheetPlan(pageCount, spec, layout, bleed) {
   // Center-out booklet layouts (quarto, octavo) adapted from bookbinder-js.
+  // Pages butt against their fold neighbours (both axes) and the whole grid
+  // is centered on the sheet.
   const k = spec.perSheet / 2;
   const padded = Math.ceil(pageCount / spec.perSheet) * spec.perSheet;
   const sheetCount = padded / spec.perSheet;
   const center = padded / 2;
-  const cellW = sheetW / spec.cols;
-  const cellH = sheetH / spec.rows;
+  const { sheetW, sheetH, pageRotated } = layout;
+  const { drawW, drawH } = _buttedDrawSize(layout, spec.cols, spec.rows, bleed);
+  const originX = (sheetW - spec.cols * drawW) / 2;
+  const originY = (sheetH - spec.rows * drawH) / 2;
 
   const mkSideCells = (block, indices) => indices.map((blockPos, i) => ({
     // `blockPos` indexes the front+back block of reader page slots; rotations
     // are keyed by the same block position (bookbinder-js convention).
     pageIndex: block[blockPos],
-    cellX: (i % spec.cols) * cellW,
-    cellY: Math.floor(i / spec.cols) * cellH,
-    cellW,
-    cellH,
+    cellX: originX + (i % spec.cols) * drawW - bleed / 2,
+    cellY: originY + Math.floor(i / spec.cols) * drawH - bleed / 2,
+    cellW: drawW + bleed,
+    cellH: drawH + bleed,
     extraRotation: (spec.rotations[blockPos] || 0) * Math.PI / 180,
   }));
 
@@ -364,8 +469,9 @@ export function calculateSingleImageLayout(imageW, imageH, copies, targetSheetSi
   const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
   const n = Math.max(1, Math.floor(copies) || 1);
 
-  let best = { cols: 1, rows: n, imageRotated: false, sheetW: dims.w, sheetH: dims.h };
+  let best = { cols: 1, rows: n, imageRotated: false, sheetW: dims.w, sheetH: dims.h, scale: 0 };
   let bestScore = -1;
+  let bestScale = 0;
 
   const sheetConfigs = [
     { w: dims.w, h: dims.h, natural: true },
@@ -388,13 +494,14 @@ export function calculateSingleImageLayout(imageW, imageH, copies, targetSheetSi
           + (rows >= cols ? 1 : 0);
         if (score > bestScore) {
           bestScore = score;
+          bestScale = scale;
           best = { cols, rows, imageRotated: image.rotated, sheetW: sheet.w, sheetH: sheet.h };
         }
       }
     }
   }
 
-  return best;
+  return { ...best, scale: bestScale };
 }
 
 /**

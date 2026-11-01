@@ -11,6 +11,7 @@
 
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
+import { DEFAULT_RISO_COLORS } from './constants.js';
 
 const FORMAT = 'super-collage-project';
 const VERSION = 1;
@@ -201,6 +202,28 @@ export const ProjectIO = {
     project.createdAt = now;
     project.updatedAt = now;
     await DB.put('projects', project);
+
+    // Colors that ship inside the project zip (saved with "Save Color")
+    // are folded into the user's global palette so they persist between
+    // projects, not just inside this one. Project colors keep their own
+    // copy, so the palette inside this project is unaffected.
+    const srcColors = Array.isArray(srcProject.colors) ? srcProject.colors : [];
+    if (srcColors.some(c => c?.hex)) {
+      const setting = await DB.getSetting('risoColors');
+      const globalColors = Array.isArray(setting?.value) ? setting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+      const known = new Set(globalColors.map(c => c.hex.toUpperCase()));
+      let changed = false;
+      for (const c of srcColors) {
+        if (!c?.hex) continue;
+        const key = c.hex.toUpperCase();
+        if (!known.has(key)) {
+          globalColors.push({ ...c, hex: key, pantone: c.pantone || '' });
+          known.add(key);
+          changed = true;
+        }
+      }
+      if (changed) await DB.putSetting('risoColors', globalColors);
+    }
 
     // ── Pages ──
     for (const srcPage of manifestPages) {

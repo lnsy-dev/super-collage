@@ -311,9 +311,9 @@ test.describe('Shapes', () => {
       const l = State.layers.find(x => x.id === State.selectedId);
       l.shapeHasFill = true;
       l.shapeHasStroke = true;
-      l.shapeFillColor = '#0078bf';
+      l.shapeFillColor = '#5ec8e5';
       l.shapeStrokeColor = '#f65058';
-      l.color = '#0078bf';
+      l.color = '#5ec8e5';
       await rerenderShapeLayer(l);
     });
 
@@ -338,8 +338,8 @@ test.describe('Shapes', () => {
     expect(fillLayer, 'expected a fill-only shape layer').toBeTruthy();
     expect(borderLayer, 'expected a border-only shape layer').toBeTruthy();
 
-    expect(fillLayer.fill).toBe('#0078bf');
-    expect(fillLayer.color).toBe('#0078bf');
+    expect(fillLayer.fill).toBe('#5ec8e5');
+    expect(fillLayer.color).toBe('#5ec8e5');
     expect(borderLayer.stroke).toBe('#f65058');
     expect(borderLayer.color).toBe('#f65058');
 
