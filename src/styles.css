@@ -585,6 +585,26 @@ input[type="number"]:focus { border-color: var(--ink); }
 .color-swatch.selected {
   box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--accent);
 }
+/* "+" add-ink button at the end of the palette view */
+.color-swatch-add {
+  width: 20px; height: 20px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--dark-gray);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.color-swatch-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 /* ─── STATUS BAR ─────────────────────────────────────────────────── */
 #status-bar {

@@ -121,7 +121,9 @@ export function refreshGradientEditor(layer) {
   const swatches = document.getElementById('color-swatches');
   const editor = document.getElementById('gradient-editor');
   if (!swatches || !editor) return;
-  swatches.style.display = (!layer || layer.colorMode === 'solid') ? '' : 'none';
+  // The ink palette stays visible in every color mode — gradient/pattern
+  // editors show alongside it instead of replacing it.
+  swatches.style.display = '';
   if (!isGradient) { editor.classList.add('hidden'); return; }
   editor.classList.remove('hidden');
 
@@ -244,6 +246,15 @@ export const UI = {
       sw.title = rc.name;
       container.appendChild(sw);
     }
+    // "+ ink" affordance at the end of the palette: opens the ink selection
+    // (Color Manager) with a fresh editable row so new colors can be added
+    // without leaving the right panel.
+    const addBtn = document.createElement('button');
+    addBtn.className = 'color-swatch-add';
+    addBtn.type = 'button';
+    addBtn.title = 'Add ink color…';
+    addBtn.textContent = '+';
+    container.appendChild(addBtn);
   },
 
   refreshLayerList() {
@@ -543,8 +554,26 @@ export const UI = {
 
   refreshProperties() {
     const layer = selectedLayer();
-    document.getElementById('no-selection-msg').style.display = layer ? 'none' : '';
-    document.getElementById('layer-props').style.display = layer ? '' : 'none';
+    const noSelMsg = document.getElementById('no-selection-msg');
+    const layerProps = document.getElementById('layer-props');
+    // The palette view (Riso Color section) is always visible: with no
+    // layer selected only that section shows, so inks stay reachable while
+    // nothing is selected.
+    const paletteSection = document.querySelector('#layer-props .prop-section:has(#color-swatches)');
+    layerProps.style.display = '';
+    if (!layer) {
+      noSelMsg.style.display = '';
+      for (const sec of layerProps.querySelectorAll('.prop-section')) {
+        sec.style.display = (sec === paletteSection) ? '' : 'none';
+      }
+    } else {
+      noSelMsg.style.display = 'none';
+      // Restore all sections first — the per-layer conditions below then
+      // hide whatever does not apply to the selected layer.
+      for (const sec of layerProps.querySelectorAll('.prop-section')) {
+        sec.style.display = '';
+      }
+    }
     this.refreshColorSwatches();
     if (!layer) { document.getElementById('status-layer').textContent = '—'; return; }
 
@@ -613,12 +642,6 @@ export const UI = {
     refreshGradientEditor(layer);
     refreshPatternEditor(layer);
     document.getElementById('status-layer').textContent = layer.name;
-
-    // Hide color picker UI for color-separation layers
-    const colorSection = document.querySelector('#properties-content .prop-section:has(#color-swatches)');
-    if (colorSection) {
-      colorSection.style.display = layer.isColorSeparation ? 'none' : '';
-    }
 
     // Shape Attributes panel
     if (layer && layer.isShape) this.refreshShapeProperties(layer);

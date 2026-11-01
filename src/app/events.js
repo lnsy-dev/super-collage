@@ -10,7 +10,7 @@ import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, showColorManagerAddRow, showColorManagerDialog } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -1202,7 +1202,14 @@ export function wireControls() {
 
   document.getElementById('color-swatches')?.addEventListener('click', async e => {
     const sw = e.target.closest('.color-swatch');
-    if (!sw) return;
+    if (!sw) {
+      // "+" at the end of the palette: add a new ink via the ink selection
+      // (Color Manager opens with a fresh editable row).
+      if (e.target.closest('.color-swatch-add')) {
+        await showColorManagerAddRow();
+      }
+      return;
+    }
     const l = selectedLayer(); if (!l) return;
     if (l.isShape && !l.isColorSeparation) {
       // Shape layers are single-ink (one part per layer): apply the swatch to

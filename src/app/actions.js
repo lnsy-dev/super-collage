@@ -226,6 +226,17 @@ export async function addColorManagerRow() {
   row.querySelector('.color-manager-name').focus();
 }
 
+/**
+ * "+" button in the palette view: opens the ink selection (Color Manager)
+ * with a fresh editable row pre-appended, so a new ink is picked through the
+ * manager — which also enforces the separation engine's 7-printable-ink cap
+ * at apply time.
+ */
+export async function showColorManagerAddRow() {
+  await showColorManagerDialog();
+  await addColorManagerRow();
+}
+
 // Rotate the whole page (canvas + all art) by delta degrees (-90 or 90).
 // The canvas dimensions are swapped and every layer's center is rotated
 // around the page center so the art stays pinned to the page.
