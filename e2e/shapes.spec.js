@@ -375,11 +375,14 @@ test.describe('Shapes', () => {
     await canvas.dragTo(canvas, { sourcePosition: { x: 200, y: 200 }, targetPosition: { x: 300, y: 300 } });
 
     // Body layer inked blue; selecting Border spawns the outline layer
-    // (selected), which we ink red.
-    await page.locator('#color-swatches .color-swatch[data-color="#0078bf"]').click();
+    // (selected), which we ink red. The panel can be mid-refresh after the
+    // drag, so use the same resilient swatch click as the body-and-border
+    // test (clickInkSwatch).
+    await page.waitForFunction(() => State.selectedId);
+    await clickInkSwatch(page, '#0078bf');
     await page.check('#prop-shape-border');
     await page.waitForFunction(() => State.layers.length === 2);
-    await page.locator('#color-swatches .color-swatch[data-color="#f65058"]').click();
+    await clickInkSwatch(page, '#f65058');
 
     // Shape edits persist asynchronously; wait for both single-ink records to
     // reach IndexedDB so the export reads them.
