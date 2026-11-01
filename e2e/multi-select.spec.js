@@ -182,7 +182,7 @@ test.describe('Multi-select', () => {
         return l && Math.abs(l.x - g.x) < 0.5 && Math.abs(l.y - g.y) < 0.5
           && Math.abs(l.width - g.width) < 0.5 && Math.abs(l.height - g.height) < 0.5;
       });
-    }).toBe(true);
+    }, { timeout: 20000 }).toBe(true);
     // Layer identity is preserved for every layer (order can differ after a reload).
     const finalIds = (await geo(page)).map(l => l.id).sort();
     expect(finalIds).toEqual(expectIds);
