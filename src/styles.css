@@ -1112,18 +1112,6 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   cursor: pointer;
   flex-shrink: 0;
 }
-.color-manager-scope {
-  font-size:1.15rem;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.color-manager-scope input[type="checkbox"] {
-  margin: 0;
-  accent-color: var(--accent);
-}
 .color-manager-remove {
   width: 22px;
   height: 22px;

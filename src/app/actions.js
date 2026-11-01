@@ -12,7 +12,7 @@ import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } 
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
 import { ProjectIO } from './project-io.js';
 import { showScreentoneDialog } from './screentone-manager.js';
-import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors } from './constants.js';
+import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, setRisoColors } from './constants.js';
 import { rebuildColorSepLut } from './color-lut.js';
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
@@ -128,25 +128,16 @@ export async function showColorManagerDialog() {
   const list = document.getElementById('color-manager-list');
   if (!dialog || !list) return;
 
-  const globalSetting = await DB.getSetting('risoColors');
-  const globalColors = Array.isArray(globalSetting?.value)
-    ? globalSetting.value
-    : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
-  const projectColors = State.project?.colors || [];
-  const projectHexes = new Set(projectColors.map(c => normalizeHex(c.hex)));
-
   _colorManagerOriginal = RISO_COLORS.map(c => ({ ...c }));
   list.innerHTML = '';
 
   for (const color of _colorManagerOriginal) {
-    const isProject = projectHexes.has(normalizeHex(color.hex));
     const row = document.createElement('div');
     row.className = 'color-manager-row';
     row.dataset.originalHex = color.hex;
     row.innerHTML = `
       <input type="text" class="mac-input color-manager-name" value="${color.name}" placeholder="Name">
       <input type="color" class="color-manager-color" value="${color.hex}">
-      <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${isProject ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
       <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
     `;
     list.appendChild(row);
@@ -163,19 +154,14 @@ export async function applyColorManagerChanges() {
   const list = document.getElementById('color-manager-list');
   const rows = list.querySelectorAll('.color-manager-row');
   const newColors = [];
-  const newGlobalColors = [];
-  const newProjectColors = [];
   const hexMap = new Map();
 
   for (const row of rows) {
     const name = row.querySelector('.color-manager-name').value.trim() || 'Untitled';
     const hex = normalizeHex(row.querySelector('.color-manager-color').value);
-    const isProject = row.querySelector('.color-manager-project').checked;
     const color = { name, hex, pantone: '' };
 
     newColors.push(color);
-    if (isProject) newProjectColors.push(color);
-    else newGlobalColors.push(color);
 
     const orig = normalizeHex(row.dataset.originalHex || '');
     if (orig && orig !== hex) hexMap.set(orig, hex);
@@ -191,11 +177,13 @@ export async function applyColorManagerChanges() {
     return false;
   }
 
-  await DB.putSetting('risoColors', newGlobalColors);
-
+  // The whole edited palette is scoped to the current project (or the global
+  // fallback when no project is open). No per-project/global split anymore.
   if (State.project) {
-    State.project.colors = newProjectColors;
+    State.project.colors = newColors;
     await DB.put('projects', { ...State.project, updatedAt: Date.now() });
+  } else {
+    await DB.putSetting('risoColors', newColors);
   }
 
   setRisoColors(newColors);
@@ -219,7 +207,6 @@ export async function addColorManagerRow() {
   row.innerHTML = `
     <input type="text" class="mac-input color-manager-name" value="New Color" placeholder="Name">
     <input type="color" class="color-manager-color" value="#000000">
-    <label class="color-manager-scope" title="Project-only color"><input type="checkbox" class="color-manager-project"${State.project ? ' checked' : ''}${!State.project ? ' disabled' : ''}> Project</label>
     <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
   `;
   list.appendChild(row);
