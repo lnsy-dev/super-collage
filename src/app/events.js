@@ -17,6 +17,7 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
+import { wireSidebars } from './sidebars.js';
 import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
@@ -2146,4 +2147,7 @@ export function wireControls() {
   window.addEventListener('blur', () => document.body.classList.remove('shift-held'));
 
   UI.updateBrushPopout();
+
+  // Sidebar resize / collapse handles
+  wireSidebars();
 }
