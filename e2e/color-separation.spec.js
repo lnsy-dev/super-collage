@@ -336,16 +336,20 @@ test.describe('Color Separation Calibration', () => {
 // Ink bounding box of every rebuilt separation plate (0 = full ink). Plates
 // are grayscale-on-white, so any channel < 250 marks ink.
 async function sepPlateInkBounds(page) {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const l = window.State.layers.find(x => x.isColorSeparation);
     if (!l || !l.separationPlates?.size) return null;
+    // Plates are stored packed grayscale ({data, width, height}); materialize
+    // each into a canvas to inspect its pixels.
+    const { sepPlateToCanvas } = await import('/src/app/separation-methods.js');
     const out = {};
     for (const [hex, plate] of l.separationPlates) {
-      const d = plate.getContext('2d').getImageData(0, 0, plate.width, plate.height).data;
+      const canvas = sepPlateToCanvas(plate);
+      const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       let minX = Infinity, maxX = -1, minY = Infinity, maxY = -1;
-      for (let y = 0; y < plate.height; y += 2) {
-        for (let x = 0; x < plate.width; x += 2) {
-          if (d[(y * plate.width + x) * 4] < 250) {
+      for (let y = 0; y < canvas.height; y += 2) {
+        for (let x = 0; x < canvas.width; x += 2) {
+          if (d[(y * canvas.width + x) * 4] < 250) {
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -353,7 +357,7 @@ async function sepPlateInkBounds(page) {
           }
         }
       }
-      if (maxX >= 0) out[hex] = { minX, maxX, minY, maxY, plateW: plate.width, plateH: plate.height };
+      if (maxX >= 0) out[hex] = { minX, maxX, minY, maxY, plateW: canvas.width, plateH: canvas.height };
     }
     return out;
   });
