@@ -461,7 +461,11 @@ export const PageManager = {
     const sCtx = sourceCanvas.getContext('2d');
     sCtx.fillStyle = 'white';
     sCtx.fillRect(0, 0, nw, nh);
-    sCtx.drawImage(bmp, 0, 0);
+    // Explicit destination dims: the stored blob can be larger than the
+    // layer's natural (decomposition-capped) size — e.g. an oversized
+    // separation source — which must be DOWNSCALED to the full artwork,
+    // not top-left cropped. Same guard as the plain-image hydrate path.
+    sCtx.drawImage(bmp, 0, 0, nw, nh);
     layer._originalCanvas = sourceCanvas;
 
     // Rebuild via the layer's chosen Spectrolite separation method
