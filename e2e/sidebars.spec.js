@@ -43,13 +43,13 @@ test.describe('Sidebar resize & collapse handles', () => {
 
   test('dragging the right handle resizes the right sidebar', async ({ page }) => {
     await createProject(page, 'Right Resize');
-    expect(await barWidth(page, '#right-panel')).toBe(286);
+    expect(await barWidth(page, '#right-panel')).toBe(336);
 
     // Drag the handle left: the right sidebar grows.
     await dragHandle(page, RIGHT_HANDLE, -100);
     const grown = await barWidth(page, '#right-panel');
-    expect(grown).toBeGreaterThanOrEqual(380);
-    expect(grown).toBeLessThanOrEqual(386);
+    expect(grown).toBeGreaterThanOrEqual(430);
+    expect(grown).toBeLessThanOrEqual(436);
 
     // Drag the handle right: the right sidebar shrinks.
     await dragHandle(page, RIGHT_HANDLE, 60);
@@ -65,7 +65,7 @@ test.describe('Sidebar resize & collapse handles', () => {
 
   test('clicking the right handle toggles the right sidebar', async ({ page }) => {
     await createProject(page, 'Right Toggle');
-    expect(await barWidth(page, '#right-panel')).toBe(286);
+    expect(await barWidth(page, '#right-panel')).toBe(336);
 
     // Click: collapse to zero width.
     const box = await page.locator(RIGHT_HANDLE).boundingBox();
@@ -77,7 +77,7 @@ test.describe('Sidebar resize & collapse handles', () => {
     // workspace edge as the canvas widens): restore the remembered width.
     const box2 = await page.locator(RIGHT_HANDLE).boundingBox();
     await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2);
-    await expect.poll(() => barWidth(page, '#right-panel')).toBe(286);
+    await expect.poll(() => barWidth(page, '#right-panel')).toBe(336);
   });
 
   test('dragging the left handle resizes the tool palette and clamps at its min', async ({ page }) => {

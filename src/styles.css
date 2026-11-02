@@ -271,8 +271,8 @@ body {
 
 /* ─── RIGHT PANELS ───────────────────────────────────────────────── */
 #right-panel {
-  width: 286px;
-  min-width: 286px;
+  width: 336px;   /* default 286px + 5em (root font-size 10px) per user request */
+  min-width: 336px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
