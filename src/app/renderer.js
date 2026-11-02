@@ -26,10 +26,6 @@ const oCtx            = overlayCanvas.getContext('2d');
  */
 const CANVAS_MAX_EDGE   = 8192;
 const CANVAS_MAX_PIXELS = 40 * 1024 * 1024; // ~40 MP per canvas
-// When a full-quality repaint starts less than this long ago, later zoom
-// steps get a cheap scaled-blit preview instead of a fresh full repaint;
-// the pending debounce paints full quality once the steps settle.
-const PAINT_COALESCE_MS = 100;
 // Draw cadence while a mask brush stroke is active (see schedule()): dabs
 // land on every pointermove, but the mask composites only re-render at
 // this interval. Lower number = smoother preview, higher CPU.
@@ -70,9 +66,13 @@ export const Renderer = {
   // brush-stroke frame coalescing.
   _lastDrawAt: 0,
   // Offline counters used by the zoom-performance test suite:
-  // how often each composite cache had to be rebuilt, and how many zoom
-  // steps were served with the cheap preview blit instead of a full repaint.
-  _stats: { imageMaskBuilds: 0, paintedMaskBuilds: 0, previewBlits: 0 },
+  // how often each composite cache had to be rebuilt, how many zoom
+  // steps were served with the cheap preview blit instead of a full repaint,
+  // and how often the backing stores were actually reallocated (zoom
+  // bursts must coalesce into one settle-time reallocation; the reported
+  // "zoomed-in projects crash the whole computer" came from allocating
+  // megapixel-class backing stores per zoom step, outpacing the GC).
+  _stats: { imageMaskBuilds: 0, paintedMaskBuilds: 0, previewBlits: 0, backingReallocs: 0 },
 
   init() { this.resize(); },
 
@@ -94,61 +94,58 @@ export const Renderer = {
     const dh = Math.round(CANVAS_H * z);
     const ow = Math.round((CANVAS_W + CANVAS_PAD * 2) * z);
     const oh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
-
-    this._displayScale = capScale(dw, dh);
-    this._overlayScale = capScale(ow, oh);
-    const dwB = Math.max(1, Math.round(dw * this._displayScale));
-    const dhB = Math.max(1, Math.round(dh * this._displayScale));
-    const owB = Math.max(1, Math.round(ow * this._overlayScale));
-    const ohB = Math.max(1, Math.round(oh * this._overlayScale));
-
-    // Snapshot the current frame first: resizing a canvas clears it. When a
-    // full-quality repaint already ran less than PAINT_COALESCE_MS ago this
-    // cheap scaled blit is all we show for now (drag-zoom / stepped zooming
-    // stays smooth), otherwise quality repaints immediately via schedule().
-    const snapshot = new OffscreenCanvas(
-      Math.max(1, displayCanvas.width), Math.max(1, displayCanvas.height));
-    snapshot.getContext('2d').drawImage(displayCanvas, 0, 0);
-
-    displayCanvas.width = dwB; displayCanvas.height = dhB;
-    displayCanvas.style.width = dw + 'px'; displayCanvas.style.height = dh + 'px';
-    overlayCanvas.width = owB; overlayCanvas.height = ohB;
-    overlayCanvas.style.width = ow + 'px'; overlayCanvas.style.height = oh + 'px';
     const padPx = Math.round(CANVAS_PAD * z);
+
+    // Zooming no longer reallocates/repaints per step (the reported cause
+    // of system-wide memory exhaustion on rapidly stepped zooms: every
+    // step allocated fresh display + overlay backing stores —
+    // megapixel-class buffers — plus a snapshot copy, outpacing the GC).
+    // A zoom step now only resizes the CSS box: the browser stretches the
+    // existing backing store into it for free, which IS the preview. The
+    // backing-store reallocation (and the full-quality repaint plus the
+    // per-layer quality reprocess that go with it) is debounced to the
+    // settle point — rapid zoom steps render only the final one.
+    displayCanvas.style.width = dw + 'px';
+    displayCanvas.style.height = dh + 'px';
+    overlayCanvas.style.width = ow + 'px';
+    overlayCanvas.style.height = oh + 'px';
     overlayCanvas.style.top = -padPx + 'px';
     overlayCanvas.style.left = -padPx + 'px';
     this._overlaySize = { w: ow, h: oh };
     // The mask stroke overlay canvas is display:none and is never drawn;
     // skip its full-document reallocation on every zoom step.
-
-    // Cheap preview: stretch the previous frame over the new geometry.
-    dCtx.setTransform(this._displayScale, 0, 0, this._displayScale, 0, 0);
-    dCtx.drawImage(snapshot, 0, 0, dw, dh);
-    if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
-    State.zoomDebounceTimer = setTimeout(() => {
-      for (const layer of State.layers) {
-        if (!layer._processedAtZoom) { layer._dirty = true; continue; }
-        const ratio = State.zoom / layer._processedAtZoom;
-        if (ratio > 1.3 || ratio < 0.7) {
-          layer._dirty = true;
-        }
-      }
-      this.schedule();
-    }, 150);
+    this._stats.previewBlits++;
 
     // On-canvas text editing caret must track zoom — commit the edit.
     document.dispatchEvent(new CustomEvent('sc-zoom'));
 
-    const now = performance.now();
-    if (now - this._lastFullPaintAt < PAINT_COALESCE_MS) {
-      // rapid zoom sequence: keep the preview, let the debounce above paint
-      // full quality when the steps settle. New snapshots during the window
-      // build on the preview blits already on screen.
-      this._stats.previewBlits++;
-      return;
-    }
-    this._lastFullPaintAt = now;
-    this.schedule();
+    // Backing stores + full repaint belong to the settle point only.
+    if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
+    State.zoomDebounceTimer = setTimeout(() => {
+      const zz = State.zoom;
+      const w = Math.round(CANVAS_W * zz);
+      const h = Math.round(CANVAS_H * zz);
+      const oW = Math.round((CANVAS_W + CANVAS_PAD * 2) * zz);
+      const oH = Math.round((CANVAS_H + CANVAS_PAD * 2) * zz);
+      const dScale = capScale(w, h);
+      const oScale = capScale(oW, oH);
+      this._displayScale = dScale;
+      this._overlayScale = oScale;
+      displayCanvas.width = Math.max(1, Math.round(w * dScale));
+      displayCanvas.height = Math.max(1, Math.round(h * dScale));
+      overlayCanvas.width = Math.max(1, Math.round(oW * oScale));
+      overlayCanvas.height = Math.max(1, Math.round(oH * oScale));
+      this._stats.backingReallocs++;
+      for (const layer of State.layers) {
+        if (!layer._processedAtZoom) { layer._zoomRefreshNeeded = true; continue; }
+        const ratio = zz / layer._processedAtZoom;
+        if (ratio > 1.3 || ratio < 0.7) {
+          layer._zoomRefreshNeeded = true;
+        }
+      }
+      this._lastFullPaintAt = performance.now();
+      this.schedule();
+    }, 150);
   },
 
   // Reset the scaled document-coordinate transform on a display-area context
@@ -318,7 +315,7 @@ export const Renderer = {
       // overlay; skip its (stale) rasterization until the edit commits.
       if (layer.id === State.textEditingId) continue;
       if (viewRect && this._layerCulledByClip(layer, zoom, viewRect)) continue;
-      if (layer._dirty) await ImageProcessor.processLayer(layer);
+      if (layer._dirty || layer._zoomRefreshNeeded) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       targetCtx.save();
       if (clipRect) {

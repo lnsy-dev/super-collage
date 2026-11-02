@@ -196,6 +196,40 @@ test.describe('Zoom Performance', () => {
     expect(after.builds, 'no rebuilds across zoom-stable redrawing').toBe(builds);
   });
 
+  test('rapid zoom bursts coalesce backing-store reallocation to the settle only', async ({ page }) => {
+    await createProject(page, 'Zoom Realloc Coalesce');
+    await page.setInputFiles('#file-input', LARGE_IMAGE);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+    await page.waitForTimeout(500);
+
+    await page.evaluate(() => { Renderer._stats.backingReallocs = 0; });
+    // Hammer 10 zoom steps with no settle time in between: each step used
+    // to reallocate fresh megapixel-class backing stores (the reported
+    // system-wide crash); now only the settled final step reallocates.
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate((n) => {
+        State.zoom = Math.min(2, 0.25 + n * 0.2);
+        Renderer.resize();
+        UI.refreshZoom();
+      }, i);
+      await page.waitForTimeout(25);
+    }
+    await page.waitForTimeout(600); // let the settle land
+    const { reallocs, zoom, backingPixels } = await page.evaluate(() => {
+      const c = document.getElementById('display-canvas');
+      return {
+        reallocs: Renderer._stats.backingReallocs,
+        zoom: State.zoom,
+        backingPixels: c.width * c.height,
+      };
+    });
+    expect(reallocs, 'zoom bursts reallocate once at the settle, not per step').toBeLessThanOrEqual(2);
+    expect(reallocs, 'the settled step did reallocate for full quality').toBeGreaterThanOrEqual(1);
+    expect(zoom).toBeGreaterThan(1.5);
+    expect(backingPixels, 'capped backing envelope respected')
+      .toBeLessThanOrEqual(40 * 1024 * 1024 + 65536);
+  });
+
   test('rapid multi-step zooming coalesces into preview blits', async ({ page }) => {
     await createProject(page, 'Coalesce Test');
     await page.setInputFiles('#file-input', LARGE_IMAGE);

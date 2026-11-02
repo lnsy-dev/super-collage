@@ -219,6 +219,21 @@ export const ImageProcessor = {
     // Export/display targets derive from geometry that can outgrow the
     // browser canvas cap (resized text/SVG layers); allocate live only.
     ({ w: targetW, h: targetH } = fitTarget(targetW, targetH));
+    // A zoom-band refresh (_zoomRefreshNeeded, set when the zoom settled
+    // outside a layer's processed fidelity band) is NOT a content change:
+    // when the processed resolution lands identical across the crossing
+    // (display targets stop growing at the natural-size cap), reprocessing
+    // would only allocate a fresh canvas holding identical pixels — churn
+    // that also invalidates every composite cache keyed on this bitmap.
+    // Real content changes ride the regular _dirty flag and reprocess.
+    if (!forExport && !layer.isSvg && layer._zoomRefreshNeeded && !layer._dirty &&
+        layer._processedCanvas &&
+        layer._processedCanvas.width === targetW &&
+        layer._processedCanvas.height === targetH) {
+      layer._processedAtZoom = State.zoom;
+      layer._zoomRefreshNeeded = false;
+      return layer._processedCanvas;
+    }
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d', { willReadFrequently: true });
     if (isTwoToneShape(layer)) {
@@ -239,6 +254,7 @@ export const ImageProcessor = {
       layer._processedCanvas = out;
       layer._processedAtZoom = State.zoom;
       layer._dirty = false;
+      layer._zoomRefreshNeeded = false;
       return out;
     }
     if (layer.isSvg && layer._svgImage) {
@@ -314,6 +330,7 @@ export const ImageProcessor = {
     layer._processedCanvas = work;
     layer._processedAtZoom = State.zoom;
     layer._dirty = false;
+    layer._zoomRefreshNeeded = false;
     return work;
   },
 
@@ -684,6 +701,7 @@ export const ImageProcessor = {
       layer._processedCanvas = out;
       layer._processedAtZoom = State.zoom;
       layer._dirty = false;
+      layer._zoomRefreshNeeded = false;
       return out;
     }
 
@@ -718,6 +736,7 @@ export const ImageProcessor = {
     layer._processedCanvas = work;
     layer._processedAtZoom = State.zoom;
     layer._dirty = false;
+    layer._zoomRefreshNeeded = false;
     return work;
   },
 
@@ -822,6 +841,7 @@ export const ImageProcessor = {
     layer._processedCanvas = work;
     layer._processedAtZoom = State.zoom;
     layer._dirty = false;
+    layer._zoomRefreshNeeded = false;
     return work;
   },
 };
