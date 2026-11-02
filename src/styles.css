@@ -279,10 +279,41 @@ body {
   gap: 6px;
   overflow: hidden;
 }
-#layers-window { flex: 0 0 auto; }
+#layers-window { flex: 0 0 auto; position: relative; }
 #pages-window { flex: 0 0 auto; }
 #properties-window { flex: 1; overflow: hidden; }
 #properties-window .window-content { min-height: 0; }
+/* Extending the Layers view with its bottom-edge grip: once the column
+   outgrows the page it scrolls, so windows below stay reachable, moved
+   down for the height the Layers window gained. */
+#right-panel.has-expanded-row { overflow-y: auto; }
+
+/* ─── PANEL ROW RESIZE HANDLES ───────────────────────────────────── */
+/* A slim grip along the bottom edge of a stacked panel window (Layers
+   view): drag it vertically to extend that window's height; the other
+   windows in the column move down for the height it gains. */
+.panel-row-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  cursor: row-resize;
+  z-index: 5;
+}
+.panel-row-handle::before {
+  content: '';
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: 1px;
+  height: 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.panel-row-handle:hover::before,
+.panel-row-handle.dragging::before { background: var(--rule-strong); }
 
 /* ─── SIDEBAR RESIZE HANDLES ─────────────────────────────────────── */
 /* A grip in the vertical middle of each side bar's canvas-facing edge:
