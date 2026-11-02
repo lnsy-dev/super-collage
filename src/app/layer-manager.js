@@ -8,6 +8,7 @@ import { Layer } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
+import { clampDims, isAllocatable } from './canvas-limits.js';
 import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
@@ -23,6 +24,26 @@ import { defaultSepAngles, rebuildLayerSepPlates, makeSepPlate, sepPlateToCanvas
 // Long-edge cap for flatten's mask/bbox working resolution. Matches
 // MaskEngine's mask cap so a painted mask can be read back 1:1.
 const FLATTEN_MAX_DIM = 4096;
+// Long-edge cap for the *baked* flatten output. A layer resized past the
+// browser's canvas envelope used to hit flatten with multi-gigapixel
+// bakes — the pipeline (render cache + processed copy + bake raster +
+// crop, several canvases alive at once) then ran out of renderer memory
+// and crashed the tab. An 8192-long-edge bake (≤67 MP) fits any real
+// print while keeping the pipeline a few hundred MB instead of many GB.
+const FLATTEN_BAKE_MAX_DIM = 8192;
+
+/** Clamp a bake/print target into the bounded flatten envelope. */
+function fitBakeDims(width, height) {
+  let w = Math.max(1, Math.round(width));
+  let h = Math.max(1, Math.round(height));
+  const long = Math.max(w, h);
+  if (long > FLATTEN_BAKE_MAX_DIM) {
+    const s = FLATTEN_BAKE_MAX_DIM / long;
+    w = Math.max(1, Math.floor(w * s));
+    h = Math.max(1, Math.floor(h * s));
+  }
+  return { w, h };
+}
 
 export const LayerManager = {
   async addText(defaultText, x, y, w, h, { textMode = 'box' } = {}) {
@@ -1022,9 +1043,28 @@ export const LayerManager = {
       return;
     }
 
-    const nw = baseLayer.naturalWidth;
-    const nh = baseLayer.naturalHeight;
+    let nw = baseLayer.naturalWidth;
+    let nh = baseLayer.naturalHeight;
     if (!nw || !nh) return;
+    // Defensive: never allocate a flatten canvas outside the browser's
+    // allocation envelope (stale records could hold oversized naturals,
+    // which used to surface as dead 0×0 canvases + IndexSizeError). The
+    // displayed size is independent of the bitmap resolution, so only
+    // the stored natural size gets corrected.
+    const clipped = fitBakeDims(nw, nh);
+    if (clipped.w !== nw || clipped.h !== nh) {
+      baseLayer.setNaturalSize(clipped.w, clipped.h);
+    }
+    nw = clipped.w; nh = clipped.h;
+
+    // The canvas allocation envelope is a hard Chromium limit too (a
+    // stale record could still carry oversized naturals that used to
+    // surface as dead 0×0 canvases) — clampDims is enforced by both.
+    if (!isAllocatable(nw, nh)) {
+      const al = clampDims(nw, nh);
+      baseLayer.setNaturalSize(al.w, al.h);
+      nw = al.w; nh = al.h;
+    }
 
     // Visibility map (0 = hidden, 255 = visible).
     //
@@ -1230,8 +1270,13 @@ export const LayerManager = {
    * nothing else.
    */
   async _bakeSvgToRaster(layer) {
-    const nw = layer.naturalWidth;
-    const nh = layer.naturalHeight;
+    let nw = layer.naturalWidth;
+    let nh = layer.naturalHeight;
+    // A layer resized past the browser's canvas envelope would otherwise
+    // bake into a dead 0×0 raster whose every readback throws; clamp here
+    // and keep the layer's stored natural size in step with its pixels.
+    ({ w: nw, h: nh } = fitBakeDims(nw, nh));
+    layer.setNaturalSize(nw, nh);
     if (!nw || !nh || !layer._svgImage) return false;
 
     const orig = new OffscreenCanvas(nw, nh);
@@ -1257,9 +1302,14 @@ export const LayerManager = {
    * After this, normal flatten logic (mask baking + crop) applies unchanged.
    */
   async _bakeTextToRaster(layer) {
-    const nw = layer.naturalWidth;
-    const nh = layer.naturalHeight;
+    let nw = layer.naturalWidth;
+    let nh = layer.naturalHeight;
+    // A text box resized past the browser's canvas envelope used to bake
+    // into a dead 0×0 raster whose every readback/encode threw (the
+    // resize-then-flatten crash); clamp raster and stored natural size.
+    ({ w: nw, h: nh } = fitBakeDims(nw, nh));
     if (!nw || !nh) return false;
+    layer.setNaturalSize(nw, nh);
 
     // Render at export quality: full pipeline (grayscale/brightness/halftone/
     // colorize) applied, transparent background.

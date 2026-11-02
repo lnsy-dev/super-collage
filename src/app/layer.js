@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State } from './state.js';
-import { isAllocatable } from './canvas-limits.js';
+import { isAllocatable, fitCanvasDims } from './canvas-limits.js';
 
 export class Layer {
   constructor(data = {}) {
@@ -20,13 +20,7 @@ export class Layer {
     // Clamp intrinsic size to the browser's canvas allocation envelope:
     // oversized dimensions silently produce dead 0×0 mask/processed
     // canvases whose every readback or encode throws IndexSizeError.
-    this.naturalWidth = data.naturalWidth || data.width || 100;
-    this.naturalHeight = data.naturalHeight || data.height || 100;
-    if (!isAllocatable(this.naturalWidth, this.naturalHeight)) {
-      const s = Math.sqrt(268435456 / (this.naturalWidth * this.naturalHeight));
-      this.naturalWidth = Math.max(1, Math.floor(this.naturalWidth * s));
-      this.naturalHeight = Math.max(1, Math.floor(this.naturalHeight * s));
-    }
+    this.setNaturalSize(data.naturalWidth || data.width || 100, data.naturalHeight || data.height || 100);
     this.rotation = data.rotation ?? 0;
     this.flipH = data.flipH || false;
     this.flipV = data.flipV || false;
@@ -115,6 +109,27 @@ export class Layer {
 
   markDirty() {
     this._dirty = true;
+  }
+
+  /**
+   * Set the intrinsic (natural) bitmap size, clamped into the browser's
+   * canvas allocation envelope — the same guard the constructor applied.
+   * Text layers grow natural size after construction on every box
+   * resize/refit, so they must go through this: an oversized natural
+   * silently produces dead 0×0 processed/render canvases whose readbacks
+   * throw (the resize-then-flatten crash).
+   */
+  setNaturalSize(w, h) {
+    // Allocatable sizes pass through untouched: text resizes must be able
+    // to store fractional/exact dimensions exactly as before the guard.
+    if (w > 0 && h > 0 && isAllocatable(w, h)) {
+      this.naturalWidth = w;
+      this.naturalHeight = h;
+      return;
+    }
+    const fit = fitCanvasDims(w, h);
+    this.naturalWidth = Math.max(1, fit.w);
+    this.naturalHeight = Math.max(1, fit.h);
   }
 
   toRecord() {

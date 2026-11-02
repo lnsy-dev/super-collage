@@ -53,6 +53,18 @@ export function isAllocatable(width, height) {
 }
 
 /**
+ * Shrink (width, height) into the browser's canvas allocation envelope,
+ * preserving aspect: the same guard clampDims applies, without the extra
+ * metadata. Use this wherever a layer's natural size is written *after*
+ * construction (text box growth, resize) — an oversized natural silently
+ * produces dead 0×0 canvases in processLayer / flatten.
+ */
+export function fitCanvasDims(width, height) {
+  const dims = clampDims(width, height);
+  return { w: dims.w, h: dims.h };
+}
+
+/**
  * Create an OffscreenCanvas at the requested size, or null if that size
  * exceeds the browser's canvas allocation limits (a canvas constructed
  * anyway would be a dead 0×0 backing store whose every readback throws).

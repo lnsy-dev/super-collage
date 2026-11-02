@@ -329,13 +329,15 @@ async function refitTextLayer(layer) {
     let changed = false;
     const needH = Math.ceil(lastBaseline + layer.textFontSize * 0.35);
     if (needH > layer.height) {
-      layer.height = layer.naturalHeight = needH;
+      layer.height = needH;
+      layer.setNaturalSize(layer.width, layer.height);
       changed = true;
     }
     if (layer.textMode === 'line') {
       const needW = Math.ceil(maxX + layer.textFontSize * 0.05);
       if (needW > layer.width) {
-        layer.width = layer.naturalWidth = needW;
+        layer.width = needW;
+        layer.setNaturalSize(layer.width, layer.height);
         changed = true;
       }
     }
@@ -668,8 +670,7 @@ function onPointerMove(e) {
   } else if (State.drag.type === 'resize') {
     applyResize(layer, snap, State.drag.resizeMeta, x, y, z);
     if (layer.isText) {
-      layer.naturalWidth = layer.width;
-      layer.naturalHeight = layer.height;
+      layer.setNaturalSize(layer.width, layer.height);
     }
     // Multi-selected layers follow the primary's own motion: same scale
     // factor and the same position delta.
@@ -690,8 +691,7 @@ function onPointerMove(e) {
       el.x = es.x + posDx;
       el.y = es.y + posDy;
       if (el.isText) {
-        el.naturalWidth = el.width;
-        el.naturalHeight = el.height;
+        el.setNaturalSize(el.width, el.height);
         scaleTextMetrics(el, es, scaleX, scaleY);
       }
     }
@@ -710,8 +710,7 @@ function onPointerMove(e) {
       el.x = anchor.x + scaleX * (es.x + es.width / 2 - anchor.x) - el.width / 2;
       el.y = anchor.y + scaleY * (es.y + es.height / 2 - anchor.y) - el.height / 2;
       if (el.isText) {
-        el.naturalWidth = el.width;
-        el.naturalHeight = el.height;
+        el.setNaturalSize(el.width, el.height);
         scaleTextMetrics(el, es, scaleX, scaleY);
       }
     }
@@ -835,13 +834,11 @@ async function onPointerUp(e) {
       for (const es of (State.drag.extraSnaps || [])) addTextLayer(State.layers.find(l => l.id === es.id));
       for (const es of (State.drag.maskSnaps || [])) addTextLayer(State.layers.find(l => l.id === es.id));
       for (const tl of textLayers) {
-        tl.naturalWidth = tl.width;
-        tl.naturalHeight = tl.height;
+        tl.setNaturalSize(tl.width, tl.height);
       }
       await Promise.all(textLayers.map(tl => refitTextLayer(tl)));
       for (const tl of textLayers) {
-        tl.naturalWidth = tl.width;
-        tl.naturalHeight = tl.height;
+        tl.setNaturalSize(tl.width, tl.height);
         tl._dirty = true;
       }
     }
@@ -1128,8 +1125,7 @@ export function wireControls() {
       l[field] = parseFloat(e.target.value) || 0;
       const isSizeField = field === 'width' || field === 'height';
       if (l.isText && isSizeField) {
-        l.naturalWidth = l.width;
-        l.naturalHeight = l.height;
+        l.setNaturalSize(l.width, l.height);
         l._dirty = true;
       }
       // Text layers whose box is changing: font scales with the block,
@@ -1161,8 +1157,7 @@ export function wireControls() {
             el.x = cx - el.width / 2;
             el.y = cy - el.height / 2;
             if (el.isText) {
-              el.naturalWidth = el.width;
-              el.naturalHeight = el.height;
+              el.setNaturalSize(el.width, el.height);
               el._dirty = true;
               textLayers.push(el);
             }

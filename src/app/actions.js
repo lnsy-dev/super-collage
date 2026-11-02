@@ -311,7 +311,16 @@ export async function handleAction(action, value = null) {
     case 'generate-outline':
       if (layer) await generateOutline(layer.id);
       break;
-    case 'flatten-layer': if (layer) await LayerManager.flatten(layer.id); break;
+    case 'flatten-layer':
+      // Flatten mutates layer state in place; any unexpected canvas
+      // allocation failure (e.g. a layer resized past the browser's
+      // canvas envelope) must not surface as an uncaught rejection that
+      // kills the page's error state — log it and leave the layer alone.
+      if (layer) {
+        try { await LayerManager.flatten(layer.id); }
+        catch (e) { console.error('flatten failed:', e); }
+      }
+      break;
     case 'split-color-separation':
       if (layer?.isColorSeparation) await LayerManager.splitColorSeparation(layer.id);
       else if (isTwoToneShape(layer)) await LayerManager.splitTwoToneShape(layer.id);

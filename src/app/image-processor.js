@@ -9,6 +9,22 @@ import { BAYER8 } from './constants.js';
 import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
 import { sepAngleFor, ditherMethodIndex, toImageData, sepPlateToCanvas } from './separation-methods.js';
+import { clampDims } from './canvas-limits.js';
+
+/**
+ * Cap a processing target into the browser's canvas allocation envelope.
+ * Layer natural sizes are clamped at allocation time, but text layers
+ * grow their natural size on every box resize/refit and SVG/raster targets
+ * derive from display geometry — any of these can exceed the canvas cap,
+ * which allocates a dead 0×0 backing store whose every readback throws
+ * (the resize-then-flatten crash).
+ */
+function fitTarget(width, height) {
+  const fit = clampDims(width, height);
+  // Keep at least a tiny live target so the layer still renders even if
+  // the caller requested something pathological.
+  return { w: Math.max(1, fit.w), h: Math.max(1, fit.h) };
+}
 
 /* ─── GRADIENT CANVAS GENERATOR ─────────────────────────────────── */
 export function generateGradientCanvas(width, height, gradient) {
@@ -192,16 +208,17 @@ export const ImageProcessor = {
         targetW = tw;
         targetH = th;
       }
+    } else if (forExport) {
+      targetW = nw;
+      targetH = nh;
     } else {
-      if (forExport) {
-        targetW = nw;
-        targetH = nh;
-      } else {
-        const res = this.getDisplayResolution(layer);
-        targetW = res.w;
-        targetH = res.h;
-      }
+      const res = this.getDisplayResolution(layer);
+      targetW = res.w;
+      targetH = res.h;
     }
+    // Export/display targets derive from geometry that can outgrow the
+    // browser canvas cap (resized text/SVG layers); allocate live only.
+    ({ w: targetW, h: targetH } = fitTarget(targetW, targetH));
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d', { willReadFrequently: true });
     if (isTwoToneShape(layer)) {
@@ -586,11 +603,26 @@ export const ImageProcessor = {
   async processTextLayer(layer, forExport) {
     // Supersample text for display so zoomed-out previews stay sharp.
     // Export renders at 1x (full canvas coords); display renders at 2x for sharpness.
-    const renderScale = forExport ? 1 : 2;
     const layoutW = layer.naturalWidth;
     const layoutH = layer.naturalHeight;
-    const targetW = Math.round(layoutW * renderScale);
-    const targetH = Math.round(layoutH * renderScale);
+    const renderScale = forExport ? 1 : 2;
+    // A text box resized past the browser's canvas envelope used to
+    // allocate dead 0×0 canvases here (their readbacks threw the
+    // resize-then-flatten crash). Clamp the target into the allocatable
+    // envelope and shrink the supersample scale to match, keeping the
+    // text layout in layout units.
+    const fit = clampDims(
+      Math.max(1, Math.round(layoutW * renderScale)),
+      Math.max(1, Math.round(layoutH * renderScale)),
+    );
+    const shrink = Math.min(
+      1,
+      fit.w / Math.max(1, Math.round(layoutW * renderScale)),
+      fit.h / Math.max(1, Math.round(layoutH * renderScale)),
+    );
+    const targetW = Math.max(1, Math.round(layoutW * renderScale * shrink));
+    const targetH = Math.max(1, Math.round(layoutH * renderScale * shrink));
+    const drawScale = renderScale * shrink;
 
     // Use separate base-render caches for display (2x) and export (1x) to prevent invalidation.
     const cacheKey = forExport ? '_exportOriginalCanvas' : '_originalCanvas';
@@ -620,7 +652,7 @@ export const ImageProcessor = {
         useHyphenation: false,
       });
       const canvas = new OffscreenCanvas(targetW, targetH);
-      await renderer.renderToCanvas(canvas, { width: layoutW, height: layoutH, clear: true, dpr: renderScale });
+      await renderer.renderToCanvas(canvas, { width: layoutW, height: layoutH, clear: true, dpr: drawScale });
       const tCtx = canvas.getContext('2d');
       tCtx.globalCompositeOperation = 'destination-over';
       tCtx.fillStyle = 'white';

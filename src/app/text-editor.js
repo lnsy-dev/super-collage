@@ -214,9 +214,10 @@ export const TextEditor = {
     if (layer.textMode === 'line') {
       // Point type: single line that grows horizontally. Enter commits.
       const wDoc = this.measureWidth(layer);
-      layer.naturalWidth = layer.width = Math.max(MIN_W_DOC, Math.ceil(wDoc));
+      layer.width = Math.max(MIN_W_DOC, Math.ceil(wDoc));
       const h = Math.ceil(layer.textFontSize * layer.textLineHeight * 1.25);
-      layer.naturalHeight = layer.height = h;
+      layer.height = h;
+      layer.setNaturalSize(layer.width, layer.height);
       // Grow to the right (or left when right-aligned) around the anchor point.
       // Keep it simple: keep top-left fixed; users can drag afterwards.
       ta.style.height = (h * State.zoom) + 'px';
@@ -225,7 +226,8 @@ export const TextEditor = {
       const neededH = ta.scrollHeight / State.zoom;
       const hDoc = Math.max(MIN_H_DOC, Math.ceil(neededH));
       if (Math.abs(hDoc - layer.height) > 1) {
-        layer.naturalHeight = layer.height = hDoc;
+        layer.height = hDoc;
+        layer.setNaturalSize(layer.width, layer.height);
         layer._originalCanvas = null;
         layer._dirty = true;
       }
