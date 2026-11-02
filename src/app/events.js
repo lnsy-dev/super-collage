@@ -435,6 +435,9 @@ async function onPointerDown(e) {
     // mask composite rebuilds to viewport-slice caches for the length of
     // the stroke (ended in onPointerUp — endBrushStroke).
     Renderer.beginBrushStroke();
+    // Shift-drag draws a straight line snapped to a 45° multiple: the
+    // anchor is the stroke's start point (cleared again in onPointerUp).
+    State.maskShiftAnchor = e.shiftKey ? { x, y } : null;
     const group = getLinkGroup(layer);
     for (const l of group) pushUndoWithMask(l);
     for (const l of group) {
@@ -604,9 +607,34 @@ function onPointerMove(e) {
     const layer = selectedLayer();
     if (!layer) return;
     const isErasing = State.tool === 'mask-erase';
+    // Shift while stroking draws a straight line locked to a 45° angle:
+    // the pointer is re-anchored onto the stroke's start point (or, when
+    // shift is pressed mid-stroke, onto the most recent dab point) and
+    // constrained to one of the 8 snap directions from that anchor.
+    // A shift-free stroke is unchanged.
+    let tx = x, ty = y;
+    if (e.shiftKey && !State.maskShiftAnchor) {
+      // Shift pressed mid-stroke (anchor not yet set): anchor at the last dab.
+      State.maskShiftAnchor = State.lastMaskPagePt
+        ? { x: (State.lastMaskPagePt.x + CANVAS_PAD) * State.zoom,
+            y: (State.lastMaskPagePt.y + CANVAS_PAD) * State.zoom }
+        : { x, y };
+    }
+    if (e.shiftKey) {
+      const anchor = State.maskShiftAnchor;
+      const dx = x - anchor.x, dy = y - anchor.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.5) {
+        const oct = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        tx = anchor.x + Math.cos(oct) * len;
+        ty = anchor.y + Math.sin(oct) * len;
+      }
+    } else if (State.maskShiftAnchor) {
+      State.maskShiftAnchor = null; // shift released: back to a free stroke
+    }
     const group = getLinkGroup(layer);
     for (const l of group) {
-      const local = Transform.toLocal(x, y, l, State.zoom);
+      const local = Transform.toLocal(tx, ty, l, State.zoom);
       const lx = local.x * (l.naturalWidth / l.width);
       const ly = local.y * (l.naturalHeight / l.height);
       // Brush size is in screen pixels; convert to natural pixels for painting.
@@ -622,7 +650,7 @@ function onPointerMove(e) {
         MaskEngine._paint(l, lx, ly, naturalRadius, isErasing);
       }
     }
-    State.lastMaskPagePt = overlayToPage(x, y, State.zoom);
+    State.lastMaskPagePt = overlayToPage(tx, ty, State.zoom);
     Renderer.schedule();
     return;
   }
@@ -811,6 +839,7 @@ async function onPointerUp(e) {
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     State.lastMaskPt = null;
     State.lastMaskPagePt = null;
+    State.maskShiftAnchor = null;
     const layer = selectedLayer();
     if (layer) {
       const group = getLinkGroup(layer);
