@@ -287,6 +287,11 @@ body {
    outgrows the page it scrolls, so windows below stay reachable, moved
    down for the height the Layers window gained. */
 #right-panel.has-expanded-row { overflow-y: auto; }
+/* When the Layers view has been extended, the windows below it must keep
+   their full content height instead of flexing to fill (and clip) the
+   remaining space, so the column scrolls and every property control stays
+   reachable. */
+#right-panel.has-expanded-row #properties-window { min-height: max-content; }
 
 /* ─── PANEL ROW RESIZE HANDLES ───────────────────────────────────── */
 /* A slim grip along the bottom edge of a stacked panel window (Layers
