@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════
    Sidebar resize & collapse handles
    ═══════════════════════════════════════════════════════════════════
-   The tool palette (#toolbar-window, left) and the panel column
-   (#right-panel, right) each get a grip handle sitting in the vertical
-   middle of their canvas-facing edge:
+   The panel column (#right-panel, right) gets a grip handle sitting in the
+   vertical middle of its canvas-facing edge:
+   (The tool palette #toolbar-window on the left has a fixed width and no
+   resize handle.)
 
    - Drag it to resize the side bar.
    - Click it to toggle (collapse / restore) that side bar.
@@ -14,7 +15,6 @@
  */
 
 const SIDEBAR_LIMITS = {
-  'toolbar-window': { min: 52, max: 160 },
   'right-panel': { min: 200, max: 520 },
 };
 

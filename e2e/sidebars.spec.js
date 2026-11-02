@@ -5,7 +5,6 @@ test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
 });
 
-const LEFT_HANDLE = '#left-sidebar-handle';
 const RIGHT_HANDLE = '#right-sidebar-handle';
 
 async function workspaceBox(page) {
@@ -33,7 +32,7 @@ test.describe('Sidebar resize & collapse handles', () => {
 
     const ws = await workspaceBox(page);
     const wsCenterY = ws.y + ws.height / 2;
-    for (const sel of [LEFT_HANDLE, RIGHT_HANDLE]) {
+    for (const sel of [RIGHT_HANDLE]) {
       const box = await page.locator(sel).boundingBox();
       expect(box).not.toBeNull();
       const centerY = box.y + box.height / 2;
@@ -80,34 +79,4 @@ test.describe('Sidebar resize & collapse handles', () => {
     await expect.poll(() => barWidth(page, '#right-panel')).toBe(336);
   });
 
-  test('dragging the left handle resizes the tool palette and clamps at its min', async ({ page }) => {
-    await createProject(page, 'Left Resize');
-    expect(await barWidth(page, '#toolbar-window')).toBe(52);
-
-    // Drag right: the palette grows.
-    await dragHandle(page, LEFT_HANDLE, 50);
-    const grown = await barWidth(page, '#toolbar-window');
-    expect(grown).toBeGreaterThanOrEqual(97);
-    expect(grown).toBeLessThanOrEqual(102);
-
-    // Drag left again: when the size would fall below the min width the
-    // palette stays clamped at 52px.
-    await dragHandle(page, LEFT_HANDLE, -200);
-    expect(await barWidth(page, '#toolbar-window')).toBe(52);
-  });
-
-  test('clicking the left handle toggles the tool palette', async ({ page }) => {
-    await createProject(page, 'Left Toggle');
-    expect(await barWidth(page, '#toolbar-window')).toBe(52);
-
-    const box = await page.locator(LEFT_HANDLE).boundingBox();
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await expect.poll(() => barWidth(page, '#toolbar-window')).toBe(0);
-    await expect(page.locator('#toolbar-window')).toHaveClass(/collapsed/);
-
-    // Click again (re-query: the handle shifts with the widened canvas).
-    const box2 = await page.locator(LEFT_HANDLE).boundingBox();
-    await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height / 2);
-    await expect.poll(() => barWidth(page, '#toolbar-window')).toBe(52);
-  });
 });
