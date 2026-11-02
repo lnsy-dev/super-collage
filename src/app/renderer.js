@@ -30,6 +30,10 @@ const CANVAS_MAX_PIXELS = 40 * 1024 * 1024; // ~40 MP per canvas
 // steps get a cheap scaled-blit preview instead of a fresh full repaint;
 // the pending debounce paints full quality once the steps settle.
 const PAINT_COALESCE_MS = 100;
+// Draw cadence while a mask brush stroke is active (see schedule()): dabs
+// land on every pointermove, but the mask composites only re-render at
+// this interval. Lower number = smoother preview, higher CPU.
+const MASK_STROKE_FRAME_MS = 32;
 
 function capScale(cssW, cssH) {
   const edge = Math.min(1, CANVAS_MAX_EDGE / Math.max(cssW, cssH));
@@ -62,6 +66,9 @@ export const Renderer = {
   // layer — which made the brush stop responding on projects with many
   // diffed masks.
   _brushDepth: 0,
+  // Wall timestamp of the last completed draw; used by schedule()'s
+  // brush-stroke frame coalescing.
+  _lastDrawAt: 0,
   // Offline counters used by the zoom-performance test suite:
   // how often each composite cache had to be rebuilt, and how many zoom
   // steps were served with the cheap preview blit instead of a full repaint.
@@ -152,7 +159,21 @@ export const Renderer = {
   schedule() {
     if (State.renderPending) return;
     State.renderPending = true;
-    requestAnimationFrame(async () => { await this.draw(); State.renderPending = false; });
+    // Brush strokes coalesce frames: dabs keep landing in the mask bitmap
+    // on every pointermove (cheap), while the mask-composite rebuilds only
+    // rendered at MASK_STROKE_FRAME_MS — an intentionally choppier but
+    // smooth-feeding preview, so a heavy frame can't starve the input
+    // loop that makes masks feel slow.
+    const delay = this._brushDepth > 0
+      ? Math.max(0, MASK_STROKE_FRAME_MS - (performance.now() - this._lastDrawAt))
+      : 0;
+    const run = async () => {
+      await this.draw();
+      State.renderPending = false;
+      this._lastDrawAt = performance.now();
+    };
+    if (delay > 0) setTimeout(() => requestAnimationFrame(run), delay);
+    else requestAnimationFrame(run);
   },
 
   _getLayerScreenBounds(layer, z) {
@@ -175,23 +196,17 @@ export const Renderer = {
     };
   },
 
-  _layerIntersectsViewport(layer, z) {
-    const scroll = document.getElementById('canvas-scroll');
-    if (!scroll) return true;
-    // Layer bounds are relative to the canvas top-left.
-    // Convert to scroll-container space by adding the canvas's offset within the container.
-    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
-    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
+  /**
+   * Whether a layer's screen bounds fall entirely outside the viewport
+   * rect (computed once per draw and passed in). Derived purely from
+   * geometry — no DOM reads per layer (culling used to re-read
+   * canvas-scroll geometry per layer per frame, one forced-layout pass
+   * per intersect test).
+   */
+  _layerCulledByClip(layer, z, clip) {
     const b = this._getLayerScreenBounds(layer, z);
-    const layerLeft   = b.left   + canvasOffsetLeft;
-    const layerTop    = b.top    + canvasOffsetTop;
-    const layerRight  = b.right  + canvasOffsetLeft;
-    const layerBottom = b.bottom + canvasOffsetTop;
-    const viewLeft   = scroll.scrollLeft;
-    const viewTop    = scroll.scrollTop;
-    const viewRight  = viewLeft + scroll.clientWidth;
-    const viewBottom = viewTop  + scroll.clientHeight;
-    return !(layerRight < viewLeft || layerLeft > viewRight || layerBottom < viewTop || layerTop > viewBottom);
+    return b.right < clip.left || b.left > clip.left + clip.width ||
+      b.bottom < clip.top || b.top > clip.top + clip.height;
   },
 
   /**
@@ -222,6 +237,27 @@ export const Renderer = {
     const width = right - left, height = bottom - top;
     if (width <= 0 || height <= 0) return null;
     return { left, top, width, height };
+  },
+
+  /**
+   * Visible viewport in display-canvas coordinates, UNCLAMPED to the
+   * canvas — scroll positions past the document must still cull layers
+   * that live inside the canvas (the viewport "overlooks" it there).
+   * Read once per draw and passed to per-layer tests so no per-layer
+   * forced-layout reads remain; culling used to re-read the scroll
+   * container geometry per layer per frame.
+   */
+  _viewportRect() {
+    const scroll = document.getElementById('canvas-scroll');
+    if (!scroll) return null;
+    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
+    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
+    return {
+      left: scroll.scrollLeft - canvasOffsetLeft,
+      top: scroll.scrollTop - canvasOffsetTop,
+      width: scroll.clientWidth,
+      height: scroll.clientHeight,
+    };
   },
 
   /**
@@ -269,7 +305,11 @@ export const Renderer = {
     // always repainted as it re-enters view). Clipping the context keeps
     // every full-page blit from being rasterized outside the viewport, and
     // lets masked layers build their intermediate buffers at slice size.
+    // Culling reads the scroll viewport ONCE (unclamped to the canvas:
+    // scroll positions past the document still overlook canvas content)
+    // and per-layer tests avoid any forced-layout reads.
     const clipRect = skipCulling ? null : this._getViewportClipRect();
+    const viewRect = skipCulling ? null : this._viewportRect();
 
     for (const layer of layers) {
       if (!layer.visible) continue;
@@ -277,7 +317,7 @@ export const Renderer = {
       // A text layer being edited on-canvas is represented by its live editor
       // overlay; skip its (stale) rasterization until the edit commits.
       if (layer.id === State.textEditingId) continue;
-      if (!skipCulling && !this._layerIntersectsViewport(layer, zoom)) continue;
+      if (viewRect && this._layerCulledByClip(layer, zoom, viewRect)) continue;
       if (layer._dirty) await ImageProcessor.processLayer(layer);
       if (!layer._processedCanvas) continue;
       targetCtx.save();
