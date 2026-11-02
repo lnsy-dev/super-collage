@@ -37,6 +37,8 @@ export async function gotoApp(page) {
 
 /**
  * Create a new project from the create-new modal.
+ * Empty libraries land on the project splash (with an upload hint) —
+ * click through to the wizard with Create New, or stay there otherwise.
  */
 export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1 } = {}) {
   await gotoApp(page);

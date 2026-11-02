@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, gotoApp, createProject, addImage } from './helpers.js';
+import { clearIndexedDB, gotoApp, createProject, addImage, reopenProject } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -45,8 +45,18 @@ test.describe('Project Management', () => {
     await expect(page.locator('#project-dialog .dialog-title')).toContainText('Super Collage — Projects');
   });
 
-  test('empty library opens create dialog directly', async ({ page }) => {
+  test('empty library opens the splash with the project list and an upload hint', async ({ page }) => {
     await gotoApp(page);
+    // The splash stays up on an empty library (keep the upload option at
+    // hand), with a notification pointing at Upload / Create New.
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('#project-dialog .project-entry')).toContainText('No projects yet');
+    await expect(page.locator('.project-empty-hint')).toBeVisible();
+    await expect(page.locator('.project-empty-hint')).toContainText('Upload');
+    await expect(page.locator('#btn-upload-project')).toBeVisible();
+    await expect(page.locator('#btn-create-new')).toBeVisible();
+    // Create New still opens the wizard from the splash.
+    await page.click('#btn-create-new');
     await expect(page.locator('#create-project-dialog')).toBeVisible();
     await expect(page.locator('#create-project-dialog .dialog-title')).toContainText('Super Collage — Create New');
   });
@@ -250,12 +260,8 @@ test.describe('Project Management', () => {
     expect(afterRotation.layerX).toBe(4950);
     expect(afterRotation.layerY).toBe(-50);
 
-    // Reload and reopen the project.
-    await page.reload();
-    await expect(page.locator('#project-dialog')).toBeVisible();
-    await expect(page.locator('.project-entry')).toContainText('Rotation Persistence Test');
-    await page.locator('.project-entry', { hasText: 'Rotation Persistence Test' }).dblclick();
-    await expect(page.locator('#main-app')).toBeVisible();
+    await reopenProject(page, 'Rotation Persistence Test');
+    await page.waitForFunction(() => State.layers.length > 0, null, { timeout: 20000 });
 
     const afterReload = await page.evaluate(async () => {
       // @ts-ignore
@@ -332,7 +338,9 @@ test.describe('Project Management', () => {
 
   test('create dialog is not cancellable when no project is open', async ({ page }) => {
     await gotoApp(page);
-    // Empty library opens directly into create; no project behind it → no close/back affordance.
+    // From the empty splash, Create New has no project behind it → no
+    // close/back affordance.
+    await page.click('#btn-create-new');
     await expect(page.locator('#create-project-dialog')).toBeVisible();
     await expect(page.locator('#btn-create-project-close')).toBeHidden();
     await expect(page.locator('#btn-create-back')).toBeHidden();

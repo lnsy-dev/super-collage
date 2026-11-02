@@ -86,10 +86,17 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
     // Wipe all local state — simulate a fresh browser / different machine.
     await clearIndexedDB(page);
     await page.reload();
-    await expect(page.locator('#create-project-dialog')).toBeVisible();
+    // The empty splash keeps the project list (and its Upload affordance).
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    await expect(page.locator('.project-empty-hint')).toBeVisible();
 
-    // Upload via the create dialog's hidden input (wired to #btn-upload-project in the manager).
-    await page.setInputFiles('#project-import-input', {
+    // Upload: the splash's Upload button opens the project file chooser...
+    // then the chosen ZIP replaces the empty library and opens directly.
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.click('#btn-upload-project'),
+    ]);
+    await chooser.setFiles({
       name: 'complex-doc.zip',
       mimeType: 'application/zip',
       buffer,

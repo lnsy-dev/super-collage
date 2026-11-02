@@ -364,6 +364,15 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; -webkit-user-sele
 
 /* ─── LAYER LIST ─────────────────────────────────────────────────── */
 #layer-list { flex: 1; overflow-y: auto; max-height: 160px; }
+/* Splash (project manager) empty-state hint: nudges the user to upload
+   a project ZIP or create a new one while the list itself stays visible. */
+.project-empty-hint {
+  color: var(--dark-gray);
+  font-size: 1.05rem;
+  line-height: 1.9;
+  text-align: center;
+  padding: 10px 4px;
+}
 .layer-row {
   display: flex;
   align-items: center;

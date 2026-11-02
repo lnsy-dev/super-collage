@@ -82,10 +82,12 @@ export async function loadProjectList() {
   const list = document.getElementById('project-list');
   list.innerHTML = '';
   if (!projects.length) {
-    list.innerHTML = '<div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>';
-    if (!State.project) {
-      showCreateDialog();
-    }
+    // Empty library: stay on the project manager (splash) — it offers the
+    // Upload button and the Create New action, and nudges the user to
+    // upload a project ZIP here instead of dropping into the wizard.
+    list.innerHTML = `
+      <div class="project-entry" style="color:var(--dark-gray);justify-content:center;">No projects yet</div>
+      <div class="project-empty-hint">Make something with “Create New” —<br>or bring your work along with “Upload” (a .zip from “Download Project”).</div>`;
     return;
   }
   for (const p of projects) {
