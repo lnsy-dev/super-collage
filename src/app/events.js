@@ -429,6 +429,10 @@ async function onPointerDown(e) {
   if (State.tool === 'mask-draw' || State.tool === 'mask-erase') {
     if (!layer) return;
     const isErasing = State.tool === 'mask-erase';
+    // Mark the brush stroke active: the renderer switches its per-frame
+    // mask composite rebuilds to viewport-slice caches for the length of
+    // the stroke (ended in onPointerUp — endBrushStroke).
+    Renderer.beginBrushStroke();
     const group = getLinkGroup(layer);
     for (const l of group) pushUndoWithMask(l);
     for (const l of group) {
@@ -737,6 +741,10 @@ function refreshPropertiesThrottled() {
 async function onPointerUp(e) {
   activePointers.delete(e.pointerId);
   if (activePointers.size === 0) suppressUntilLift = false;
+
+  // Any pointer session ending ends a brush stroke: no-op when none is
+  // active (e.g. a select-drag), and safe if the tool changed mid-stroke.
+  Renderer.endBrushStroke();
 
   // End (or step down from) a two-finger pan.
   if (panState) {
