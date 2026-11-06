@@ -26,10 +26,15 @@
    render and export correctly — just sampled, never crashed.
  */
 
-// 2^28 px² — Chromium's per-canvas backing-store area cap.
-export const MAX_CANVAS_PIXELS = 268435456;
-// Chromium's per-side cap (well above the area cap in practice).
-export const MAX_CANVAS_SIDE = 65535;
+// 2^26 px² — Firefox-safe per-canvas backing-store area. Chromium allows up
+// to 2^28, but Firefox OOM-crashes when several such canvases (base render +
+// processed copy + fast-path output) coexist during text scaling; 2^26 keeps
+// the three-copy pipeline under ~1 GB total instead of ~3 GB. Display/export
+// resample to independent targets, so shrinking here never loses content.
+export const MAX_CANVAS_PIXELS = 67108864;
+// Firefox's per-side canvas cap (Chromium's is 65535, but Firefox throws
+// IndexSizeError / allocates a dead backing store beyond 32767).
+export const MAX_CANVAS_SIDE = 32767;
 
 export function clampDims(width, height) {
   let w = Math.max(1, Math.round(width));
