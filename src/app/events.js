@@ -29,6 +29,8 @@ import { BucketTool } from './color-layer.js';
    Tracks every active pointer on the canvas overlay so we can detect a
    two-finger gesture and pan the viewport instead of manipulating layers. */
 const activePointers = new Map();
+let _lastPointerDown = null;
+let _dragMoved = false;
 let panState = null;
 // While a multi-touch gesture is active, suppress single-pointer actions until
 // every finger has lifted, so a leftover finger after a pan doesn't paint/drag.
@@ -377,6 +379,35 @@ async function onPointerDown(e) {
     await TextEditor.commit();
   }
 
+  // Manual double-click detection. Firefox suppresses the native `dblclick`
+  // event when preventDefault() is called on pointerdown (above), so the
+  // native listener never fired there. Timing-based detection works in
+  // every browser.
+  const now = Date.now();
+  const last = _lastPointerDown;
+  const isDouble =
+    !!last &&
+    now - last.time < 600 &&
+    Math.hypot(x - last.x, y - last.y) < 8;
+  if (isDouble) {
+    _lastPointerDown = null;
+    if (State.tool === 'paint-bucket') {
+      BucketTool.onDoubleClick();
+      return;
+    }
+    const hit = Renderer.hitTestLayer(x, y);
+    if (hit && hit.isText && !hit.locked) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      await TextEditor.beginEdit(hit);
+      return;
+    }
+  }
+  _lastPointerDown = { time: now, x, y };
+  _dragMoved = false;
+
   if (State.tool.startsWith('shape-')) {
     // Anchor the shape's first corner on a grid intersection so both its
     // origin and far corner land on grid lines while the grid is visible.
@@ -656,6 +687,10 @@ function onPointerMove(e) {
   }
 
   if (!State.drag) return;
+  if (!_dragMoved) {
+    const _dx = x - State.drag.startX, _dy = y - State.drag.startY;
+    if (Math.hypot(_dx, _dy) > 4) _dragMoved = true;
+  }
   const layer = selectedLayer();
   if (!layer) return;
   const z = State.zoom;
@@ -884,6 +919,7 @@ async function onPointerUp(e) {
       Renderer.schedule();
     }
   }
+  if (_dragMoved) _lastPointerDown = null;
   State.drag = null;
 }
 
@@ -898,27 +934,9 @@ export function wireControls() {
   overlayCanvas.addEventListener('pointercancel', onPointerUp);
   overlayCanvas.addEventListener('pointerleave', e => { if (!(e.buttons & 1)) onPointerUp(e); });
 
-  // Double-click a text layer to edit it in place.
-  overlayCanvas.addEventListener('dblclick', async e => {
-    // Paint bucket: double-click fills the entire layer (whole page)
-    // regardless of what is drawn on it — regardless of region edges.
-    if (State.tool === 'paint-bucket') {
-      BucketTool.onDoubleClick();
-      return;
-    }
-    // The pointerdown that precedes this may already have opened the editor
-    // (Type tool over text) — don't commit-and-reopen it.
-    if (TextEditor.isActive()) return;
-    const { x, y } = getCanvasXY(e);
-    const hit = Renderer.hitTestLayer(x, y);
-    if (hit && hit.isText) {
-      State.selectedId = hit.id;
-      State.selectedIds = [hit.id];
-      UI.refreshLayerList();
-      UI.refreshProperties();
-      await TextEditor.beginEdit(hit);
-    }
-  });
+  // Double-click handling is done manually in onPointerDown (see above):
+  // Firefox suppresses the native `dblclick` event when preventDefault() is
+  // called on pointerdown, so relying on it missed every double-click there.
 
   /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
   const layerList = document.getElementById('layer-list');
