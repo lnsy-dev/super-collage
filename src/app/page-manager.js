@@ -285,10 +285,8 @@ export const PageManager = {
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
 
-    for (const rec of layerRecords) {
-      const layer = await this.hydrateLayer(rec);
-      if (layer) State.layers.push(layer);
-    }
+    const hydrated = await Promise.all(layerRecords.map(rec => this.hydrateLayer(rec)));
+    for (const layer of hydrated) if (layer) State.layers.push(layer);
 
     this._refreshAfterPageSwitch(page);
   },
@@ -331,10 +329,8 @@ export const PageManager = {
         const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
         return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
       });
-      for (const rec of layerRecords) {
-        const layer = await this.hydrateLayer(rec);
-        if (layer) State.layers.push(layer);
-      }
+      const _h = await Promise.all(layerRecords.map(rec => this.hydrateLayer(rec)));
+      for (const layer of _h) if (layer) State.layers.push(layer);
 
       this._refreshAfterPageSwitch(page);
       return;
@@ -363,10 +359,8 @@ export const PageManager = {
       const ai = leftOrder.indexOf(a.id), bi = leftOrder.indexOf(b.id);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-    for (const rec of leftRecords) {
-      const layer = await this.hydrateLayer(rec);
-      if (layer) State.layers.push(layer);
-    }
+    const _left = await Promise.all(leftRecords.map(rec => this.hydrateLayer(rec)));
+    for (const layer of _left) if (layer) State.layers.push(layer);
 
     const rightRecords = await DB.getByIndex('layers', 'by-page', rightPage.id);
     const rightOrder = rightPage.layerOrder || [];
@@ -374,8 +368,8 @@ export const PageManager = {
       const ai = rightOrder.indexOf(a.id), bi = rightOrder.indexOf(b.id);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-    for (const rec of rightRecords) {
-      const layer = await this.hydrateLayer(rec);
+    const _right = await Promise.all(rightRecords.map(rec => this.hydrateLayer(rec)));
+    for (const layer of _right) {
       if (!layer) continue;
       layer.x += leftPage.width;
       State.layers.push(layer);
@@ -400,12 +394,8 @@ export const PageManager = {
 
   async loadPageLayers(pageId) {
     const layerRecords = await this.loadPageLayerRecords(pageId);
-    const layers = [];
-    for (const rec of layerRecords) {
-      const layer = await this.hydrateLayer(rec);
-      if (layer) layers.push(layer);
-    }
-    return layers;
+    const hydrated = await Promise.all(layerRecords.map(rec => this.hydrateLayer(rec)));
+    return hydrated.filter(Boolean);
   },
 
   async hydrateLayer(rec) {
@@ -644,9 +634,9 @@ export const PageManager = {
     const units = computeViewUnits(State.project.pageOrder, State.project.booklet?.binding);
     const lookup = SpreadManager.buildSpreadLookup(units);
 
-    for (const pageId of State.project.pageOrder) {
+    await Promise.all(State.project.pageOrder.map(async (pageId) => {
       const page = await DB.get('pages', pageId);
-      if (!page) continue;
+      if (!page) return;
       const info = lookup.get(pageId);
       if (info) {
         page.spread = true;
@@ -660,7 +650,7 @@ export const PageManager = {
       }
       page.updatedAt = Date.now();
       await DB.put('pages', page);
-    }
+    }));
   },
 
   _refreshAfterPageSwitch(page, rightPage = null) {
