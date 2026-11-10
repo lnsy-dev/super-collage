@@ -218,7 +218,7 @@ export const TextEditor = {
     layer.height = h;
     layer.setNaturalSize(layer.width, layer.height);
     ta.style.height = (h * State.zoom) + 'px';
-  }
+  },
 
   measureWidth(layer) {
     const c = this._measureCtx ??= document.createElement('canvas').getContext('2d');
@@ -226,7 +226,7 @@ export const TextEditor = {
     const text = (this._ta?.value || '').replace(/[\r\n]+/g, ' ');
     const maxW = c.measureText(text).width;
     return maxW + layer.textLetterSpacing * Math.max(0, text.length) + MIN_W_DOC;
-  }
+  },
 
   _onKeyDown(e) {
     const layer = this.editingLayer();
@@ -246,7 +246,7 @@ export const TextEditor = {
       e.preventDefault();
       this.commit();
     }
-  }
+  },
 
   /** Finish editing: persist, restore the rasterized layer, clean up. */
   async commit() {
