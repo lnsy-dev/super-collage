@@ -14,6 +14,7 @@ import { renderShapeLayerBitmap } from './shape-utils.js';
 import { loadSvgImage } from './svg-utils.js';
 import { decodeImageBlob } from './image-decode.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
+import { evenGridSize } from './grid-snap.js';
 import { rebuildLayerSepPlates } from './separation-methods.js';
 
 export const PageManager = {
@@ -28,6 +29,13 @@ export const PageManager = {
     State.margins = vs.margins || { top: 300, right: 300, bottom: 300, left: 300 };
     State.grid = vs.grid || { size: 150, type: 'standard' };
     State.spreadSplitX = 0;
+  },
+
+
+  _adjustGridToPage(pageW, pageH) {
+    if (!State.grid || State.grid.type !== 'standard') return;
+    const target = State.grid.size || 150;
+    State.grid.size = evenGridSize(pageW, pageH, target);
   },
 
   async saveViewSettings() {
@@ -277,6 +285,7 @@ export const PageManager = {
     State.redoStack = [];
 
     setCanvasSize(page.width, page.height);
+    this._adjustGridToPage(page.width, page.height);
 
     const layerRecords = await DB.getByIndex('layers', 'by-page', pageId);
     const order = page.layerOrder || [];
@@ -322,6 +331,7 @@ export const PageManager = {
       State.redoStack = [];
 
       setCanvasSize(page.width, page.height);
+      this._adjustGridToPage(page.width, page.height);
 
       const layerRecords = await DB.getByIndex('layers', 'by-page', page.id);
       const order = page.layerOrder || [];
@@ -352,6 +362,7 @@ export const PageManager = {
     State.redoStack = [];
 
     setCanvasSize(leftPage.width + rightPage.width, Math.max(leftPage.height, rightPage.height));
+    this._adjustGridToPage(leftPage.width, leftPage.height);
 
     const leftRecords = await DB.getByIndex('layers', 'by-page', leftPage.id);
     const leftOrder = leftPage.layerOrder || [];

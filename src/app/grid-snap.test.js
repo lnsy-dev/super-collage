@@ -25,6 +25,7 @@ import {
   snapOverlayPoint,
   snapMoveCorrection,
   snapDragRect,
+  evenGridSize,
 } from './grid-snap.js';
 import { CANVAS_PAD } from './constants.js';
 
@@ -315,4 +316,33 @@ test('regression: snapping is NOT offset by the overlay pad (CANVAS_PAD % gridSi
     // pad-relative formula moved page 0 by (1000 % g).
     assert.equal(snapPageValue(3 * g, g), 3 * g);
   }
+});
+
+
+/* ─── evenGridSize: paper-adjusted grid defaults ───────────────────── */
+
+test('evenGridSize divides page into even squares near the default', () => {
+  // Letter 8.5x11 @ 600dpi: 5100x6600, gcd 300 -> 150 divides both (34x44).
+  assert.equal(evenGridSize(5100, 6600, 150), 150);
+  assert.equal(5100 % evenGridSize(5100, 6600, 150), 0);
+  assert.equal(6600 % evenGridSize(5100, 6600, 150), 0);
+});
+
+test('evenGridSize stays close to target while dividing both dimensions', () => {
+  // Half-letter 3300x5100, gcd 300 -> 150.
+  assert.equal(evenGridSize(3300, 5100, 150), 150);
+  // 4x6 2400x3600, gcd 1200 -> 150.
+  assert.equal(evenGridSize(2400, 3600, 150), 150);
+});
+
+test('evenGridSize picks nearest common divisor when target does not fit', () => {
+  // 1000x1500, gcd 500, target 150 -> 125 or 100? divisors of 500: 1,2,4,5,10,20,25,50,100,125,250,500; closest to 150 is 125 or 100 (both 50 away, 100 picked first? check stable)
+  const s = evenGridSize(1000, 1500, 150);
+  assert.equal(1000 % s, 0);
+  assert.equal(1500 % s, 0);
+  assert.ok(Math.abs(s - 150) <= 50);
+});
+
+test('evenGridSize falls back to target when dimensions share no divisor', () => {
+  assert.equal(evenGridSize(4961, 7016, 150), 150);
 });

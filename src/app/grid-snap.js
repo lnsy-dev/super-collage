@@ -94,3 +94,38 @@ export function snapDragRect(startX, startY, endX, endY, zoom, gridSize, enabled
   const b = snapOverlayPoint(endX, endY, zoom, gridSize, enabled);
   return { startX: a.x, startY: a.y, endX: b.x, endY: b.y, snapped: a.snapped && b.snapped };
 }
+
+/**
+ * Choose a square grid size near `target` that divides the page into a whole
+ * number of cells in both directions (even squares). Uses common divisors of
+ * the page dimensions so width and height are both integer multiples of the
+ * returned size; falls back to `target` when no suitable divisor exists.
+ */
+export function evenGridSize(pageW, pageH, target = 150) {
+  const w = Math.max(1, Math.round(pageW));
+  const h = Math.max(1, Math.round(pageH));
+  const t = Math.max(1, Math.round(target));
+  const gcd = (a, b) => {
+    a = Math.abs(a);
+    b = Math.abs(b);
+    while (b) { const r = a % b; a = b; b = r; }
+    return a || 1;
+  };
+  const g = gcd(w, h);
+  if (g <= 1) return t;
+  let best = g;
+  let bestScore = Infinity;
+  const consider = (d) => {
+    if (!(d > 0)) return;
+    // Prefer sizes closest to target, with a mild bias toward keeping cells
+    // reasonably sized (not extremely tiny or huge).
+    const score = Math.abs(d - t) + (d < 20 ? (20 - d) * 10 : 0);
+    if (score < bestScore) { bestScore = score; best = d; }
+  };
+  for (let d = 1; d * d <= g; d++) {
+    if (g % d !== 0) continue;
+    consider(d);
+    consider(g / d);
+  }
+  return best;
+}
