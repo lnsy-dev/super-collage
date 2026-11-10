@@ -113,7 +113,6 @@ export async function selectTool(page, toolName) {
     toolName === 'mask-erase' ? 'Mask Erase' :
     toolName === 'paint-bucket' ? 'Color Layer' :
     toolName === 'eyedropper' ? 'Eyedropper' :
-    toolName === 'text-box' ? 'Type — Paragraph Box' :
     toolName === 'text-line' ? 'Type — Single Line' :
     toolName === 'shape-rect' ? 'Rectangle' :
     toolName === 'shape-ellipse' ? 'Ellipse' :

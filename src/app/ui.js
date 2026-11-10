@@ -740,7 +740,7 @@ export const UI = {
       'mask-draw': 'Mask Draw', 'mask-erase': 'Mask Erase',
       'paint-bucket': 'Color Layer — Fill Bucket',
       eyedropper: 'Eyedropper — Pick Ink',
-      'text-box': 'Type — Paragraph Box', 'text-line': 'Type — Single Line',
+      'text-line': 'Type — Single Line',
       'shape-rect': 'Rectangle', 'shape-ellipse': 'Ellipse', 'shape-poly': 'Polygon',
       zoom: 'Zoom',
     };

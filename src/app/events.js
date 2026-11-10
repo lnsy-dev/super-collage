@@ -440,9 +440,9 @@ async function onPointerDown(e) {
     return;
   }
 
-  // Type tools: clicking directly on an existing text layer edits it
+  // Type tool: clicking directly on an existing text layer edits it
   // (Adobe Type-tool behavior); clicking empty canvas creates new text.
-  if (State.tool === 'text-box' || State.tool === 'text-line') {
+  if (State.tool === 'text-line') {
     const hit = Renderer.hitTestLayer(x, y);
     if (hit && hit.isText && !hit.locked) {
       State.selectedId = hit.id;
@@ -452,7 +452,7 @@ async function onPointerDown(e) {
       TextEditor.beginEdit(hit);
       return;
     }
-    // Anchor the box's first corner on a grid intersection (same as shapes).
+    // Place a new single line of text at the click point.
     const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
       isSnapEnabled(State.showGrid, State.grid));
     State.textDrag = { startX: s.x, startY: s.y };
@@ -846,27 +846,15 @@ async function onPointerUp(e) {
     const { x, y } = getCanvasXY(e);
     const s = snapOverlayPoint(x, y, State.zoom, State.grid.size,
       isSnapEnabled(State.showGrid, State.grid));
-    const { startX, startY } = State.textDrag;
+    const { startX } = State.textDrag;
     State.textDrag = null;
     Renderer.drawOverlay();
-    const isLine = State.tool === 'text-line';
-    let cx, cy, cw, ch;
-    const sw = Math.abs(s.x - startX), sh = Math.abs(s.y - startY);
-    if (!isLine && sw >= 8 && sh >= 8) {
-      // Dragged out an explicit paragraph box.
-      cx = Math.round(Math.min(startX, s.x) / State.zoom - CANVAS_PAD);
-      cy = Math.round(Math.min(startY, s.y) / State.zoom - CANVAS_PAD);
-      cw = Math.max(1, Math.round(sw / State.zoom));
-      ch = Math.max(1, Math.round(sh / State.zoom));
-    } else {
-      // Click (or tiny drag): place default-size type at the click point.
-      cx = Math.max(0, Math.min(Math.round(startX / State.zoom - CANVAS_PAD), CANVAS_W - 200));
-      cy = Math.max(0, Math.min(Math.round(startY / State.zoom - CANVAS_PAD), CANVAS_H - 100));
-      if (isLine) { cw = Math.min(CANVAS_W - cx, 1600); ch = 150; }
-      else { cw = Math.min(CANVAS_W - cx, 1200); ch = Math.min(CANVAS_H - cy, 400); }
-    }
-    const newLayer = await LayerManager.addText('', cx, cy, cw, ch,
-      { textMode: isLine ? 'line' : 'box' });
+    // Click: place a single line of text at the click point.
+    let cx = Math.max(0, Math.min(Math.round(startX / State.zoom - CANVAS_PAD), CANVAS_W - 200));
+    let cy = Math.max(0, Math.min(Math.round(s.y / State.zoom - CANVAS_PAD), CANVAS_H - 100));
+    const cw = Math.min(CANVAS_W - cx, 1600);
+    const ch = 150;
+    const newLayer = await LayerManager.addText('', cx, cy, cw, ch, { textMode: 'line' });
     UI.setTool('select');
     await TextEditor.beginEdit(newLayer, { isNew: true });
     return;
@@ -2263,7 +2251,7 @@ export function wireControls() {
       if (e.key === 'e' || e.key === 'E') setToolSafe('mask-erase');
       if (e.key === 'g' || e.key === 'G') setToolSafe('paint-bucket');
       if (e.key === 'i' || e.key === 'I') setToolSafe('eyedropper');
-      if (e.key === 't' || e.key === 'T') setToolSafe(e.shiftKey ? 'text-line' : 'text-box');
+      if (e.key === 't' || e.key === 'T') setToolSafe('text-line');
       if (e.key === 'r' || e.key === 'R') setToolSafe('shape-rect');
       if (e.key === 'o' || e.key === 'O') UI.setTool('shape-ellipse');
       if (e.key === 'p' || e.key === 'P') UI.setTool('shape-poly');

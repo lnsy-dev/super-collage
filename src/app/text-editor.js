@@ -208,41 +208,25 @@ export const TextEditor = {
     this._sync();
   },
 
-  /** Grow box height / line width to fit content while typing. */
+  /** Grow line width/height to fit content while typing. */
   _autoSize(layer) {
     const ta = this._ta;
-    if (layer.textMode === 'line') {
-      // Point type: single line that grows horizontally. Enter commits.
-      const wDoc = this.measureWidth(layer);
-      layer.width = Math.max(MIN_W_DOC, Math.ceil(wDoc));
-      const h = Math.ceil(layer.textFontSize * layer.textLineHeight * 1.25);
-      layer.height = h;
-      layer.setNaturalSize(layer.width, layer.height);
-      // Grow to the right (or left when right-aligned) around the anchor point.
-      // Keep it simple: keep top-left fixed; users can drag afterwards.
-      ta.style.height = (h * State.zoom) + 'px';
-    } else {
-      // Paragraph box: fixed width, grow height to fit.
-      const neededH = ta.scrollHeight / State.zoom;
-      const hDoc = Math.max(MIN_H_DOC, Math.ceil(neededH));
-      if (Math.abs(hDoc - layer.height) > 1) {
-        layer.height = hDoc;
-        layer.setNaturalSize(layer.width, layer.height);
-        layer._originalCanvas = null;
-        layer._dirty = true;
-      }
-    }
-  },
+    // Single line text: grows horizontally. Enter commits.
+    const wDoc = this.measureWidth(layer);
+    layer.width = Math.max(MIN_W_DOC, Math.ceil(wDoc));
+    const h = Math.ceil(layer.textFontSize * layer.textLineHeight * 1.25);
+    layer.height = h;
+    layer.setNaturalSize(layer.width, layer.height);
+    ta.style.height = (h * State.zoom) + 'px';
+  }
 
   measureWidth(layer) {
     const c = this._measureCtx ??= document.createElement('canvas').getContext('2d');
     c.font = `${layer.textFontStyle} ${layer.textFontWeight} ${layer.textFontSize}px "${layer.textFontFamily}"`;
-    let maxW = 0;
-    for (const line of (this._ta?.value || '').split('\n')) {
-      maxW = Math.max(maxW, c.measureText(line).width);
-    }
-    return maxW + layer.textLetterSpacing * Math.max(0, (this._ta?.value.length || 0)) + MIN_W_DOC;
-  },
+    const text = (this._ta?.value || '').replace(/[\r\n]+/g, ' ');
+    const maxW = c.measureText(text).width;
+    return maxW + layer.textLetterSpacing * Math.max(0, text.length) + MIN_W_DOC;
+  }
 
   _onKeyDown(e) {
     const layer = this.editingLayer();
@@ -253,7 +237,7 @@ export const TextEditor = {
       this.commit();
       return;
     }
-    if (e.key === 'Enter' && layer.textMode === 'line' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       this.commit();
       return;
@@ -262,7 +246,7 @@ export const TextEditor = {
       e.preventDefault();
       this.commit();
     }
-  },
+  }
 
   /** Finish editing: persist, restore the rasterized layer, clean up. */
   async commit() {

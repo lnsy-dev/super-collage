@@ -912,7 +912,6 @@ input[type="number"]:focus { border-color: var(--ink); }
 body.tool-select #interaction-overlay { cursor: default; }
 body.tool-mask-draw #interaction-overlay { cursor: none; }
 body.tool-mask-erase #interaction-overlay { cursor: none; }
-body.tool-text-box #interaction-overlay,
 body.tool-text-line #interaction-overlay { cursor: text; }
 body.tool-zoom #interaction-overlay { cursor: zoom-in; }
 body.tool-zoom.shift-held #interaction-overlay { cursor: zoom-out; }
@@ -946,6 +945,8 @@ body.tool-paint-bucket #interaction-overlay { cursor: crosshair; }
   margin: 0;
   caret-color: #000;
   pointer-events: auto;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 #brush-cursor {

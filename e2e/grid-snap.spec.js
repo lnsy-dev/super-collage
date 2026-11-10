@@ -372,27 +372,24 @@ test.describe('Grid snapping (grid visible → pointer results snap to the drawn
     }
   });
 
-  test('text: dragging out a paragraph box snaps it to the grid', async ({ page }) => {
-    await createProjectClean(page, 'Snap Text Box');
+  test('text: placing a line of text snaps its position to the grid', async ({ page }) => {
+    await createProjectClean(page, 'Snap Text Line');
     const spot = await parkSpot(page);
-    await selectTool(page, 'text-box');
+    await selectTool(page, 'text-line');
     await enableGridViaMenu(page);
 
-    const z = await page.evaluate(() => window.State.zoom);
     const from = await clientForPage(page, spot.x, spot.y);
-    await dragMouse(page, from, { x: from.x + 220 * z, y: from.y + 160 * z });
+    await page.mouse.click(from.x, from.y);
     await settle(page);
-
-    // Assert the committed box geometry BEFORE the text editor commit can
-    // reflow it (the editor adjusts height to fit type metrics).
-    const l = await getLayer(page);
-    expect(l.isText).toBe(true);
-    for (const [k, v] of [['x', l.x], ['y', l.y], ['width', l.width], ['height', l.height]]) {
-      expect(multipleOf(v, G), `${k}=${v}`).toBeLessThan(0.03); // editor reflow rounding
-    }
 
     const editor = page.locator('.text-editor-input');
     await expect(editor).toBeVisible();
+    const l = await getLayer(page);
+    expect(l.isText).toBe(true);
+    for (const [k, v] of [['x', l.x], ['y', l.y]]) {
+      expect(multipleOf(v, G), `${k}=${v}`).toBeLessThan(EPS);
+    }
+
     await editor.fill('Hi');
     await page.keyboard.press('Escape'); // commit
     await settle(page);

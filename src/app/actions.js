@@ -271,11 +271,11 @@ export async function handleAction(action, value = null) {
     case 'add-image':     document.getElementById('file-input').click(); break;
     case 'add-screentone': showScreentoneDialog(); break;
     case 'add-text': {
-      // Adobe-style: drop a paragraph box at the page center and edit in place.
+      // Drop a single line of text at the page center and edit in place.
       const { CANVAS_W, CANVAS_H } = await import('./constants.js');
       const w = Math.min(CANVAS_W, 1200);
-      const h = Math.min(CANVAS_H, 400);
-      const newLayer = await LayerManager.addText('', Math.round((CANVAS_W - w) / 2), Math.round((CANVAS_H - h) / 2), w, h, { textMode: 'box' });
+      const h = 150;
+      const newLayer = await LayerManager.addText('', Math.round((CANVAS_W - w) / 2), Math.round((CANVAS_H - h) / 2), w, h, { textMode: 'line' });
       const { TextEditor } = await import('./text-editor.js');
       UI.setTool('select');
       await TextEditor.beginEdit(newLayer, { isNew: true });

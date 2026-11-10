@@ -78,7 +78,7 @@ export class Layer {
     // bucket clicks merge into the selected layer instead of spawning one.
     this.isColorFill = data.isColorFill || false;
     this.isText = data.isText || false;
-    this.textMode = data.textMode || 'box'; // 'box' = paragraph box, 'line' = single line
+    this.textMode = this.isText ? 'line' : (data.textMode || 'line');
     this.text = data.text || '';
     this.textFontFamily = data.textFontFamily || 'IBM Plex Serif';
     this.textFontSize = data.textFontSize ?? 96;

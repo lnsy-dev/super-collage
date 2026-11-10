@@ -46,12 +46,12 @@ function fitBakeDims(width, height) {
 }
 
 export const LayerManager = {
-  async addText(defaultText, x, y, w, h, { textMode = 'box' } = {}) {
+  async addText(defaultText, x, y, w, h, { textMode = 'line' } = {}) {
     pushUndoState();
     const layer = new Layer({
       name: 'Text',
       isText: true,
-      textMode,
+      textMode: 'line',
       text: defaultText,
       x, y, width: w, height: h,
       naturalWidth: w, naturalHeight: h,
