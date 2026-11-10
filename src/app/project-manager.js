@@ -247,9 +247,12 @@ function validateBookletOptions(prefix, pageW, pageH) {
 
   // 2. Disable papers that cannot fit the selected layout unscaled; if the
   //    selected paper is one of them, auto-select the first fitting one.
-  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom') : [];
+  //    "Current image size" is always valid as a target (sheet == page).
+  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom' && o.value !== 'image') : [];
   for (const o of paperOptions) o.disabled = !bookletLayoutFits(pageW, pageH, bookletLayout, o.value);
-  if (targetSize !== 'custom' && !bookletLayoutFits(pageW, pageH, bookletLayout, targetSize)) {
+  const imageOpt = sizeSelect ? [...sizeSelect.options].find(o => o.value === 'image') : null;
+  if (imageOpt) imageOpt.disabled = false;
+  if (targetSize !== 'custom' && targetSize !== 'image' && !bookletLayoutFits(pageW, pageH, bookletLayout, targetSize)) {
     const firstFit = paperOptions.find(o => !o.disabled);
     if (firstFit) {
       sizeSelect.value = firstFit.value;
@@ -306,9 +309,12 @@ function validateSingleImageOptions(prefix, pageW, pageH) {
   }
 
   // 2. Disable papers that cannot fit a single copy unscaled.
-  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom') : [];
+  //    "Current image size" is always valid as a target (sheet == page).
+  const paperOptions = sizeSelect ? [...sizeSelect.options].filter(o => o.value !== 'custom' && o.value !== 'image') : [];
   for (const o of paperOptions) o.disabled = !singleImageFits(pageW, pageH, 1, o.value);
-  if (targetSize !== 'custom' && !singleImageFits(pageW, pageH, 1, targetSize)) {
+  const imageOpt = sizeSelect ? [...sizeSelect.options].find(o => o.value === 'image') : null;
+  if (imageOpt) imageOpt.disabled = false;
+  if (targetSize !== 'custom' && targetSize !== 'image' && !singleImageFits(pageW, pageH, 1, targetSize)) {
     const firstFit = paperOptions.find(o => !o.disabled);
     if (firstFit) {
       sizeSelect.value = firstFit.value;
@@ -435,11 +441,10 @@ export async function showExportDialog() {
     : `Exports one PNG per risograph color at ${CANVAS_W}×${CANVAS_H} px (600 dpi). Each plate: black ink on white.`;
   document.getElementById('export-dims-text').textContent = dimsText;
 
-  // Default the imposition target paper to the project's saved choice.
+  // Plate export always defaults to the current image size.
   const targetSelect = document.getElementById('export-target-size');
-  const savedTarget = State.project?.booklet?.targetSheetSize;
-  if (targetSelect && savedTarget && [...targetSelect.options].some(o => o.value === savedTarget)) {
-    targetSelect.value = savedTarget;
+  if (targetSelect && [...targetSelect.options].some(o => o.value === 'image')) {
+    targetSelect.value = 'image';
   }
 
   updateExportLayoutInfo();

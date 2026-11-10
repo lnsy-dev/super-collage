@@ -245,3 +245,28 @@ describe('calculateSingleImageLayout', () => {
     assert.equal(layout.imageRotated, false);
   });
 });
+
+describe('current image size target', () => {
+  const IMAGE_W = 4252, IMAGE_H = 2953;
+
+  it('single-image layout treats image target as the page sheet at 100%', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 1, 'image');
+    assert.equal(layout.sheetW, IMAGE_W);
+    assert.equal(layout.sheetH, IMAGE_H);
+    assert.equal(layout.cols, 1);
+    assert.equal(layout.rows, 1);
+    assert.equal(layout.scale, 1);
+  });
+
+  it('cannot fit multiple copies unscaled on the image-sized sheet', () => {
+    const layout = calculateSingleImageLayout(IMAGE_W, IMAGE_H, 2, 'image');
+    assert.ok(layout.scale < 1);
+  });
+
+  it('booklet layout treats image target as the page sheet', () => {
+    const layout = calculateBookletLayout(IMAGE_W, IMAGE_H, 'folio', 'image');
+    assert.equal(layout.sheetW, IMAGE_W);
+    assert.equal(layout.sheetH, IMAGE_H);
+    assert.ok(layout.scale < 1);
+  });
+});

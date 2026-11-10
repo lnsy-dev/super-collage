@@ -86,9 +86,12 @@ export function saddleStitchOrder(pageCount) {
   return order;
 }
 
-function getSheetDims(targetSheetSize, customW, customH) {
+function getSheetDims(targetSheetSize, customW, customH, pageW, pageH) {
   if (targetSheetSize === 'custom' && customW && customH) {
     return { w: customW, h: customH };
+  }
+  if (targetSheetSize === 'image' && pageW && pageH) {
+    return { w: pageW, h: pageH };
   }
   return SHEET_SIZE_DIMS[targetSheetSize] || SHEET_SIZE_DIMS['letter'];
 }
@@ -101,7 +104,7 @@ function getSheetDims(targetSheetSize, customW, customH) {
  * Returns { cols, rows, pagesPerSheet, pageRotated, sheetW, sheetH }.
  */
 export function calculateLayout(pageW, pageH, targetSheetSize, customTargetW, customTargetH) {
-  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
+  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH, pageW, pageH);
 
   let best = { cols: 1, rows: 1, pagesPerSheet: 1, pageRotated: false, sheetW: dims.w, sheetH: dims.h };
   let bestScore = -1;
@@ -158,7 +161,7 @@ export function calculateLayout(pageW, pageH, targetSheetSize, customTargetW, cu
  */
 export function calculateBookletLayout(pageW, pageH, bookletLayout, targetSheetSize, customTargetW, customTargetH) {
   const spec = BOOKLET_LAYOUTS[bookletLayout] || BOOKLET_LAYOUTS.folio;
-  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
+  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH, pageW, pageH);
 
   let best = { cols: spec.cols, rows: spec.rows, pageRotated: false, sheetW: dims.w, sheetH: dims.h, scale: 0 };
   let bestScore = -1;
@@ -466,7 +469,7 @@ export function drawPageInCell(ctx, page, cell, pageRotated, bleed = 0, extraRot
  * Returns { cols, rows, imageRotated, sheetW, sheetH }.
  */
 export function calculateSingleImageLayout(imageW, imageH, copies, targetSheetSize, customTargetW, customTargetH) {
-  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH);
+  const dims = getSheetDims(targetSheetSize, customTargetW, customTargetH, imageW, imageH);
   const n = Math.max(1, Math.floor(copies) || 1);
 
   let best = { cols: 1, rows: n, imageRotated: false, sheetW: dims.w, sheetH: dims.h, scale: 0 };
