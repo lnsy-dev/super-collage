@@ -311,4 +311,70 @@ test.describe('Layer System', () => {
     await overlay.click({ position: clickPositions[1], modifiers: ['Shift'] });
     await expect(page.locator('.layer-row.selected')).toHaveCount(1);
   });
+
+  test('drag down lock column locks multiple layers with consistent state', async ({ page }) => {
+    await createProject(page, 'Lock Drag Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    const locks = page.locator('#layer-list .layer-lock');
+    await expect(locks.nth(0)).not.toHaveClass(/locked/);
+    await expect(locks.nth(1)).not.toHaveClass(/locked/);
+    await expect(locks.nth(2)).not.toHaveClass(/locked/);
+
+    const b0 = await locks.nth(0).boundingBox();
+    const b2 = await locks.nth(2).boundingBox();
+    expect(b0).not.toBeNull();
+    expect(b2).not.toBeNull();
+    await page.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2, { steps: 8 });
+    await page.mouse.up();
+
+    await expect(locks.nth(0)).toHaveClass(/locked/);
+    await expect(locks.nth(1)).toHaveClass(/locked/);
+    await expect(locks.nth(2)).toHaveClass(/locked/);
+    await expect(page.locator('#layer-list .layer-row.locked-row')).toHaveCount(3);
+
+    const allLocked = await page.evaluate(() => window.State.layers.every(l => l.locked === true));
+    expect(allLocked).toBe(true);
+  });
+
+  test('drag down lock column unlocks multiple layers', async ({ page }) => {
+    await createProject(page, 'Unlock Drag Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    // Lock all layers first.
+    await page.evaluate(() => {
+      for (const l of window.State.layers) l.locked = true;
+      window.State.selectedId = null;
+      window.State.selectedIds = [];
+      window.UI.refreshLayerList();
+      window.UI.refreshProperties();
+      window.Renderer.drawOverlay();
+    });
+    const locks = page.locator('#layer-list .layer-lock');
+    await expect(locks.nth(0)).toHaveClass(/locked/);
+    await expect(locks.nth(2)).toHaveClass(/locked/);
+
+    const b0 = await locks.nth(0).boundingBox();
+    const b2 = await locks.nth(2).boundingBox();
+    await page.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2, { steps: 8 });
+    await page.mouse.up();
+
+    await expect(locks.nth(0)).not.toHaveClass(/locked/);
+    await expect(locks.nth(1)).not.toHaveClass(/locked/);
+    await expect(locks.nth(2)).not.toHaveClass(/locked/);
+    await expect(page.locator('#layer-list .layer-row.locked-row')).toHaveCount(0);
+
+    const allUnlocked = await page.evaluate(() => window.State.layers.every(l => l.locked === false));
+    expect(allUnlocked).toBe(true);
+  });
 });
