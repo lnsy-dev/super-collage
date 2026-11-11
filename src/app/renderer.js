@@ -77,7 +77,12 @@ export const Renderer = {
   init() { this.resize(); },
 
   // Brush-stroke session tracking: see _brushDepth above.
-  beginBrushStroke() { this._brushDepth++; },
+  beginBrushStroke() {
+    // Mask painting composites at State.zoom; if a zoom step is still pending
+    // the backing store would be at the old scale, causing the layer to jump.
+    if (State.zoomDebounceTimer) this._settleZoom();
+    this._brushDepth++;
+  },
   endBrushStroke() { if (this._brushDepth > 0) this._brushDepth--; },
 
   // CSS-pixel size of the document area (independent of the backing scale)
@@ -96,15 +101,13 @@ export const Renderer = {
     const oh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
     const padPx = Math.round(CANVAS_PAD * z);
 
-    // Zooming no longer reallocates/repaints per step (the reported cause
-    // of system-wide memory exhaustion on rapidly stepped zooms: every
-    // step allocated fresh display + overlay backing stores —
-    // megapixel-class buffers — plus a snapshot copy, outpacing the GC).
-    // A zoom step now only resizes the CSS box: the browser stretches the
-    // existing backing store into it for free, which IS the preview. The
-    // backing-store reallocation (and the full-quality repaint plus the
-    // per-layer quality reprocess that go with it) is debounced to the
-    // settle point — rapid zoom steps render only the final one.
+    // A zoom step resizes the CSS box immediately so the browser can stretch
+    // the existing backing store as a cheap preview. The backing-store
+    // reallocation and per-layer quality reprocess are debounced to settle —
+    // but while zoom is pending, any draw (scroll, mask brush strokes) would
+    // composite State.zoom geometry into the old-sized backing store and make
+    // layers appear to jump. Callers that need correct interactive rendering
+    // (e.g. mask brush strokes) force a settle via _settleZoom() first.
     displayCanvas.style.width = dw + 'px';
     displayCanvas.style.height = dh + 'px';
     overlayCanvas.style.width = ow + 'px';
@@ -112,40 +115,55 @@ export const Renderer = {
     overlayCanvas.style.top = -padPx + 'px';
     overlayCanvas.style.left = -padPx + 'px';
     this._overlaySize = { w: ow, h: oh };
-    // The mask stroke overlay canvas is display:none and is never drawn;
-    // skip its full-document reallocation on every zoom step.
-    this._stats.previewBlits++;
 
     // On-canvas text editing caret must track zoom — commit the edit.
     document.dispatchEvent(new CustomEvent('sc-zoom'));
 
-    // Backing stores + full repaint belong to the settle point only.
     if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
-    State.zoomDebounceTimer = setTimeout(() => {
-      const zz = State.zoom;
-      const w = Math.round(CANVAS_W * zz);
-      const h = Math.round(CANVAS_H * zz);
-      const oW = Math.round((CANVAS_W + CANVAS_PAD * 2) * zz);
-      const oH = Math.round((CANVAS_H + CANVAS_PAD * 2) * zz);
-      const dScale = capScale(w, h);
-      const oScale = capScale(oW, oH);
-      this._displayScale = dScale;
-      this._overlayScale = oScale;
-      displayCanvas.width = Math.max(1, Math.round(w * dScale));
-      displayCanvas.height = Math.max(1, Math.round(h * dScale));
-      overlayCanvas.width = Math.max(1, Math.round(oW * oScale));
-      overlayCanvas.height = Math.max(1, Math.round(oH * oScale));
+    State.zoomDebounceTimer = setTimeout(() => this._settleZoom(), 150);
+  },
+
+  /**
+   * Realize the backing stores at the current State.zoom. Safe to call when
+   * no settle is pending. Used by the zoom debounce and by interactions that
+   * require the backing store and State.zoom to be consistent immediately
+   * (mask brush strokes), preventing visual jumps while zoomed/scrolled.
+   */
+  _settleZoom() {
+    if (State.zoomDebounceTimer) {
+      clearTimeout(State.zoomDebounceTimer);
+      State.zoomDebounceTimer = null;
+    }
+    const zz = State.zoom;
+    const w = Math.round(CANVAS_W * zz);
+    const h = Math.round(CANVAS_H * zz);
+    const oW = Math.round((CANVAS_W + CANVAS_PAD * 2) * zz);
+    const oH = Math.round((CANVAS_H + CANVAS_PAD * 2) * zz);
+    const dScale = capScale(w, h);
+    const oScale = capScale(oW, oH);
+    this._displayScale = dScale;
+    this._overlayScale = oScale;
+    const dw = Math.max(1, Math.round(w * dScale));
+    const dh = Math.max(1, Math.round(h * dScale));
+    const ow = Math.max(1, Math.round(oW * oScale));
+    const oh = Math.max(1, Math.round(oH * oScale));
+    if (displayCanvas.width !== dw || displayCanvas.height !== dh ||
+        overlayCanvas.width !== ow || overlayCanvas.height !== oh) {
+      displayCanvas.width = dw;
+      displayCanvas.height = dh;
+      overlayCanvas.width = ow;
+      overlayCanvas.height = oh;
       this._stats.backingReallocs++;
-      for (const layer of State.layers) {
-        if (!layer._processedAtZoom) { layer._zoomRefreshNeeded = true; continue; }
-        const ratio = zz / layer._processedAtZoom;
-        if (ratio > 1.3 || ratio < 0.7) {
-          layer._zoomRefreshNeeded = true;
-        }
+    }
+    for (const layer of State.layers) {
+      if (!layer._processedAtZoom) { layer._zoomRefreshNeeded = true; continue; }
+      const ratio = zz / layer._processedAtZoom;
+      if (ratio > 1.3 || ratio < 0.7) {
+        layer._zoomRefreshNeeded = true;
       }
-      this._lastFullPaintAt = performance.now();
-      this.schedule();
-    }, 150);
+    }
+    this._lastFullPaintAt = performance.now();
+    this.schedule();
   },
 
   // Reset the scaled document-coordinate transform on a display-area context
