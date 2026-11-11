@@ -30,8 +30,8 @@ test.describe('Text layer integration', () => {
     await expect(editor).toBeVisible({ timeout: 15000 });
     await editor.fill('Hello, type-set!');
     await page.keyboard.press('Escape');
-    // Wait for layer to appear
-    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
+    // Wait for layer to appear and reflect the text-derived name.
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Hello, type-set!/ })).toBeVisible({ timeout: 15000 });
 
     // Wait for the async text render to produce a processed canvas that
     // matches the committed box size (waitForTextRender).
@@ -82,18 +82,19 @@ test.describe('Text layer integration', () => {
     await page.keyboard.press('Escape');
 
     // Wait for the layer to render
-    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Hello, type-set!/ })).toBeVisible({ timeout: 15000 });
     await waitForTextRender(page);
 
     // Change the text in the properties panel
     await page.fill('#prop-text', 'Goodbye, type-set!');
     await page.locator('#prop-text').blur();
 
-    // Wait for re-render and verify the new text is stored
+    // Wait for re-render and verify the new text and derived name are stored
     await page.waitForFunction(() => {
       const layer = window.State.layers.find(l => l.isText);
-      return layer?.text === 'Goodbye, type-set!';
+      return layer?.text === 'Goodbye, type-set!' && layer?.name === 'Goodbye, type-set!';
     }, { timeout: 10000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Goodbye, type-set!/ })).toBeVisible({ timeout: 15000 });
     await waitForTextRender(page);
 
     const pixelStats = await page.evaluate(() => {
@@ -110,6 +111,44 @@ test.describe('Text layer integration', () => {
     });
     expect(pixelStats.opaque).toBeGreaterThan(0);
     expect(pixelStats.transparent).toBeGreaterThan(0);
+  });
+
+  test('text layer name tracks text content (truncation, normalization, empty)', async ({ page }) => {
+    await createProject(page, 'Text Name Test');
+
+    await page.click('[data-menu="file"]');
+    await page.click('[data-action="add-text"]');
+    const editor = page.locator('.text-editor-input');
+    await expect(editor).toBeVisible({ timeout: 15000 });
+
+    // New/empty text keeps a sensible default name.
+    await expect.poll(async () => page.evaluate(() => window.State.layers.find(l => l.isText)?.name), { timeout: 10000 }).toBe('Text');
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text$/ })).toBeVisible();
+
+    // Short text becomes the name.
+    await editor.fill('Hi');
+    await expect.poll(async () => page.evaluate(() => window.State.layers.find(l => l.isText)?.name), { timeout: 10000 }).toBe('Hi');
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Hi$/ })).toBeVisible();
+
+    // Long text is truncated to the first 20 characters.
+    await editor.fill('abcdefghijklmnopqrstuvwxyz');
+    await expect.poll(async () => page.evaluate(() => window.State.layers.find(l => l.isText)?.name), { timeout: 10000 }).toBe('abcdefghijklmnopqrst');
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T abcdefghijklmnopqrst$/ })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await waitForTextRender(page);
+
+    // Whitespace/newlines normalize to a single space in the name; property edits update it.
+    await page.fill('#prop-text', '  Hello   world  again  ');
+    await page.locator('#prop-text').blur();
+    await page.waitForFunction(() => window.State.layers.find(l => l.isText)?.name === 'Hello world again', { timeout: 10000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Hello world again$/ })).toBeVisible();
+
+    // Clearing text falls back to the sensible default name.
+    await page.fill('#prop-text', '   ');
+    await page.locator('#prop-text').blur();
+    await page.waitForFunction(() => window.State.layers.find(l => l.isText)?.name === 'Text', { timeout: 10000 });
+    await expect(page.locator('.layer-row .layer-name').filter({ hasText: /^T Text$/ })).toBeVisible();
   });
 
 

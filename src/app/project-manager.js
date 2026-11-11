@@ -44,7 +44,11 @@ export async function showCreateDialog() {
   document.getElementById('project-dialog').classList.add('hidden');
   document.getElementById('create-project-dialog').classList.remove('hidden');
   document.getElementById('btn-create-project-close').style.display = State.project ? '' : 'none';
-  document.getElementById('btn-create-back').style.display = State.project ? '' : 'none';
+  const backBtn = document.getElementById('btn-create-back');
+  if (backBtn) {
+    backBtn.style.display = '';
+    backBtn.disabled = true;
+  }
 
   // Reset the wizard and clear the name synchronously, before any await: the
   // saved unit loads asynchronously, and clearing the input after resuming

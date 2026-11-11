@@ -24,6 +24,7 @@ import { TypeSetRenderer } from 'type-set';
 import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
 import { isSnapEnabled, snapPageValue, snapOverlayPoint, snapMoveCorrection } from './grid-snap.js';
 import { BucketTool, showBucketMixDialog } from './color-layer.js';
+import { textLayerName } from './layer.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1418,6 +1419,7 @@ export function wireControls() {
     let parsed = parser(value);
     if (field === 'text') parsed = String(parsed).replace(/[\r\n]+/g, ' ');
     l[field] = parsed;
+    if (field === 'text') l.name = textLayerName(l.text);
     if (field === 'text' || field === 'textFontFamily' || field === 'textFontSize' ||
         field === 'textFontWeight' || field === 'textFontStyle' ||
         field === 'textLetterSpacing' || field === 'textLineHeight') {
@@ -1434,11 +1436,22 @@ export function wireControls() {
       DB.saveLayer(l);
     }
     UI.refreshProperties();
+    UI.refreshLayerList();
     Renderer.schedule();
   }
 
-  document.getElementById('prop-text')?.addEventListener('input', e => {
+  const onPropTextChange = e => {
     updateTextField('text', e.target.value);
+  };
+  const propText = document.getElementById('prop-text');
+  propText?.addEventListener('input', onPropTextChange);
+  propText?.addEventListener('change', onPropTextChange);
+  propText?.addEventListener('blur', onPropTextChange);
+  document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'prop-text') onPropTextChange(e);
+  });
+  document.addEventListener('focusout', e => {
+    if (e.target && e.target.id === 'prop-text') onPropTextChange(e);
   });
   document.getElementById('prop-text-font')?.addEventListener('change', e => {
     const font = e.target.value;
@@ -1908,6 +1921,8 @@ export function wireControls() {
     steps.forEach((s, i) => s.classList.toggle('active', i === index));
     const nextBtn = document.getElementById('btn-create-next');
     if (nextBtn) nextBtn.textContent = index === steps.length - 1 ? 'Create' : 'Next';
+    const backBtn = document.getElementById('btn-create-back');
+    if (backBtn) backBtn.disabled = index === 0;
   }
 
   // Initialize options with the default unit.
@@ -1938,9 +1953,7 @@ export function wireControls() {
 
   document.getElementById('btn-create-back').addEventListener('click', () => {
     const current = getActiveWizardStepIndex();
-    if (current <= 0) {
-      hideCreateDialog();
-    } else {
+    if (current > 0) {
       showWizardStep(current - 1);
     }
   });
