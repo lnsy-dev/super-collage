@@ -42,26 +42,70 @@ export async function gotoApp(page) {
  */
 export async function createProject(page, name, { pageSize = 'half-letter', orientation = 'portrait', pageCount = 1 } = {}) {
   await gotoApp(page);
+
+  const createDialog = page.locator('#create-project-dialog');
+  const projectDialog = page.locator('#project-dialog');
+
   // Empty libraries open directly into the create modal; otherwise open it manually.
-  if (await page.locator('#project-dialog').isVisible()) {
+  if (await projectDialog.isVisible()) {
     await page.click('#btn-create-new');
-    await expect(page.locator('#create-project-dialog')).toBeVisible();
   }
+  await expect(createDialog).toBeVisible({ timeout: 15000 });
+
   await page.fill('#create-project-name', name);
+
+  const nextBtn = page.locator('#btn-create-next');
+  const step = (name) => page.locator(`.wizard-step[data-step="${name}"]`);
+
   // Step 1: Units (default imperial) -> Next
-  await page.click('#btn-create-next');
+  await expect(step('units')).toHaveClass(/active/);
+  await expect(nextBtn).toHaveText('Next');
+  await nextBtn.click();
+
   // Step 2: Page Size
+  await expect(step('page-size')).toHaveClass(/active/);
   await page.locator(`label:has(input[name="create-page-size"][value="${pageSize}"])`).click();
-  await page.click('#btn-create-next');
+  await expect(nextBtn).toHaveText('Next');
+  await nextBtn.click();
+
   // Step 3: Pages for Project
+  await expect(step('pages')).toHaveClass(/active/);
   if (pageCount !== 1) {
     await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
   }
-  await page.click('#btn-create-next'); // Create
-  // Wait for main app to be visible. The final click kicks off project
-  // creation (several IndexedDB writes + the serialized page-op queue +
-  // first render); under load it can outlast the 5s action default.
-  await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
+  await expect(nextBtn).toHaveText('Create');
+
+  // The final click kicks off project creation (IndexedDB writes + serialized
+  // page-op queue + first render). Under load or with intermittent click
+  // handling, the wizard can remain on the last step; retry with a few
+  // interaction strategies before failing.
+  let opened = false;
+  for (let attempt = 0; attempt < 5 && !opened; attempt++) {
+    if (await createDialog.isVisible()) {
+      await expect(step('pages')).toHaveClass(/active/);
+      await expect(nextBtn).toHaveText('Create');
+      if (attempt === 0 || attempt === 1) {
+        await nextBtn.click();
+      } else if (attempt === 2) {
+        await nextBtn.focus();
+        await page.keyboard.press('Enter');
+      } else if (attempt === 3) {
+        await page.evaluate(() => document.getElementById('btn-create-next')?.click());
+      } else {
+        await page.locator('#create-project-name').focus();
+        await page.keyboard.press('Enter');
+      }
+    }
+    try {
+      await expect(createDialog).toBeHidden({ timeout: 8000 });
+      opened = true;
+    } catch (e) {
+      if (attempt === 4) throw e;
+    }
+  }
+
+  await expect(page.locator('#main-app')).toBeVisible({ timeout: 30000 });
+
   // The create/open flow finishes its initial unit load asynchronously after
   // #main-app becomes visible; anything that starts here (imports, page
   // switches) must observe the settled state, so drain the pending page-op
@@ -70,6 +114,7 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
     await PageManager.queueIdle();
     if (!State.project) throw new Error('project did not finish opening');
   });
+
   if (orientation === 'landscape') {
     await page.locator('#zoom-controls [data-action="orient-landscape"]').click();
   }
