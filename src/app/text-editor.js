@@ -14,6 +14,7 @@ import { Renderer } from './renderer.js';
 import { DB } from './db.js';
 import { UI } from './ui.js';
 import { pushUndo, snapshotLayer } from './undo.js';
+import { textLayerName } from './layer.js';
 import { TypeSetRenderer } from 'type-set';
 
 const MIN_W_DOC = 40;   // minimum layer width, document px
@@ -200,12 +201,14 @@ export const TextEditor = {
     const layer = this.editingLayer();
     if (!layer || !this._ta) return;
     layer.text = this._ta.value;
+    layer.name = textLayerName(layer.text);
     // Invalidate raster caches; the bitmap re-renders once, on commit.
     layer._originalCanvas = null;
     layer._exportOriginalCanvas = null;
     layer._dirty = true;
     this._autoSize(layer);
     this._sync();
+    UI.refreshLayerList();
   },
 
   /** Grow line width/height to fit content while typing. */
@@ -254,6 +257,7 @@ export const TextEditor = {
     if (!layer) return;
 
     if (this._ta) layer.text = this._ta.value;
+    layer.name = textLayerName(layer.text);
     this._teardown();
 
     if (this._isNew && !(layer.text || '').trim()) {
@@ -271,6 +275,7 @@ export const TextEditor = {
     layer._exportOriginalCanvas = null;
     layer._dirty = true;
     await DB.saveLayer(layer);
+    UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
   },

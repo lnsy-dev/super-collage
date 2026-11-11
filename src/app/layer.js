@@ -5,6 +5,11 @@
 import { State } from './state.js';
 import { isAllocatable, fitCanvasDims } from './canvas-limits.js';
 
+export function textLayerName(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  return normalized ? normalized.slice(0, 20) : 'Text';
+}
+
 export class Layer {
   constructor(data = {}) {
     this.id = data.id || crypto.randomUUID();
@@ -87,6 +92,7 @@ export class Layer {
     this.textLetterSpacing = data.textLetterSpacing ?? 0;
     this.textLineHeight = data.textLineHeight ?? 1.2;
     this.textAlign = data.textAlign || 'left';
+    if (this.isText) this.name = textLayerName(this.text);
     this.separationColors = data.separationColors || [];
     this.separationPlates = new Map();
     this.isShape = data.isShape || false;

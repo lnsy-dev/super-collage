@@ -4,7 +4,7 @@
 
 import { State } from './state.js';
 import { DB } from './db.js';
-import { Layer } from './layer.js';
+import { Layer, textLayerName } from './layer.js';
 import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
@@ -49,7 +49,7 @@ export const LayerManager = {
   async addText(defaultText, x, y, w, h, { textMode = 'line' } = {}) {
     pushUndoState();
     const layer = new Layer({
-      name: 'Text',
+      name: textLayerName(defaultText),
       isText: true,
       textMode: 'line',
       text: defaultText,

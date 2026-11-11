@@ -11,6 +11,7 @@ import { computeViewUnits } from './spread-manager.js';
 import { FONT_WEIGHTS, italicWeights, snapWeight } from 'type-set';
 import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { isTwoToneShape } from './shape-utils.js';
+import { textLayerName } from './layer.js';
 
 const ALL_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium', 600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black' };
@@ -266,6 +267,7 @@ export const UI = {
     }
     for (let i = State.layers.length - 1; i >= 0; i--) {
       const l = State.layers[i];
+      if (l.isText) l.name = textLayerName(l.text);
       let rowClass = 'layer-row';
       if (State.selectedIds.includes(l.id)) rowClass += ' selected';
       if (l.isMaskFor)          rowClass += ' layer-row--mask';
@@ -576,6 +578,8 @@ export const UI = {
     }
     this.refreshColorSwatches();
     if (!layer) { document.getElementById('status-layer').textContent = '—'; return; }
+
+    if (layer.isText) layer.name = textLayerName(layer.text);
 
     document.getElementById('prop-x').value   = Math.round(layer.x);
     document.getElementById('prop-y').value   = Math.round(layer.y);
