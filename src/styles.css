@@ -381,8 +381,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; -webkit-user-sele
 .layer-row {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 6px;
+  gap: 6px;
+  min-height: 46px;
+  padding: 6px 8px;
   cursor: pointer;
   border-bottom: 1px solid var(--rule);
   font-size:1.15rem;
@@ -390,11 +391,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; -webkit-user-sele
 }
 .layer-row:hover { background: var(--hover-wash); }
 .layer-row.selected { background: var(--ink); color: var(--paper); }
-.layer-row--mask { padding-left: 16px; }
+.layer-row--mask { padding-left: 20px; }
 .layer-row--masked { border-left: 2px solid var(--accent); }
 .layer-row--linked { border-right: 2px solid var(--accent); }
-.layer-vis { cursor: pointer; font-size: 1.9rem; line-height: 1; padding: 2px 3px; flex-shrink: 0; }
-.layer-lock { cursor: pointer; font-size: 1.9rem; line-height: 1; padding: 2px 3px; flex-shrink: 0; opacity: 0.5; }
+.layer-vis { cursor: pointer; font-size: 2.5rem; line-height: 1; padding: 2px 4px; flex-shrink: 0; }
+.layer-lock { cursor: pointer; font-size: 2.5rem; line-height: 1; padding: 2px 4px; flex-shrink: 0; opacity: 0.5; }
 .layer-lock:hover { opacity: 1; }
 .layer-lock.locked { opacity: 1; }
 .layer-row.locked-row { opacity: 0.6; }

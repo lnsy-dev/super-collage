@@ -32,6 +32,26 @@ test.describe('Layer System', () => {
     await expect(visBtn).toHaveText('◉');
   });
 
+  test('layer row and lock icon have increased size', async ({ page }) => {
+    await createProject(page, 'Layer Sizing Test');
+    await addImage(page, TEST_IMAGE);
+
+    const row = page.locator('#layer-list .layer-row').first();
+    const lockBtn = page.locator('.layer-lock').first();
+    const visBtn = page.locator('.layer-vis').first();
+
+    await expect(row).toBeVisible();
+    const rowBox = await row.boundingBox();
+    expect(rowBox).not.toBeNull();
+    expect(rowBox.height).toBeGreaterThanOrEqual(44);
+
+    const lockFontSize = await lockBtn.evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+    expect(lockFontSize).toBeGreaterThanOrEqual(24);
+
+    const visFontSize = await visBtn.evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+    expect(visFontSize).toBeGreaterThanOrEqual(24);
+  });
+
   test('toggle layer lock', async ({ page }) => {
     await createProject(page, 'Lock Test');
     await addImage(page, TEST_IMAGE);
@@ -206,7 +226,8 @@ test.describe('Layer System', () => {
     // Also verify dragging the base row moves the whole group
     const baseRow = page.locator('.layer-row').nth(1);
     const topRow = page.locator('.layer-row').nth(2);
-    await baseRow.dragTo(topRow, { targetPosition: { x: 10, y: 18 } });
+    const topBox = await topRow.boundingBox();
+    await baseRow.dragTo(topRow, { targetPosition: { x: 10, y: (topBox?.height || 46) - 4 } });
 
     const namesAfterBaseDrag = await page.locator('#layer-list .layer-name').allTextContents();
     expect(namesAfterBaseDrag).toEqual(['Top', '⬦ Mask', 'Base']);
