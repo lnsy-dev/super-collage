@@ -1909,6 +1909,8 @@ export function wireControls() {
     steps.forEach((s, i) => s.classList.toggle('active', i === index));
     const nextBtn = document.getElementById('btn-create-next');
     if (nextBtn) nextBtn.textContent = index === steps.length - 1 ? 'Create' : 'Next';
+    const backBtn = document.getElementById('btn-create-back');
+    if (backBtn) backBtn.disabled = index === 0;
   }
 
   // Initialize options with the default unit.
@@ -1939,9 +1941,7 @@ export function wireControls() {
 
   document.getElementById('btn-create-back').addEventListener('click', () => {
     const current = getActiveWizardStepIndex();
-    if (current <= 0) {
-      hideCreateDialog();
-    } else {
+    if (current > 0) {
       showWizardStep(current - 1);
     }
   });
