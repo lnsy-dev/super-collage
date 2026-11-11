@@ -112,6 +112,30 @@ function groupInfo(page) {
 
 test.describe('Import Menu Project', () => {
 
+  test('import-project-layers input accepts .collage and .zip archives', async ({ page }) => {
+    await createProject(page, 'Accept Target', { pageSize: 'half-letter' });
+    const accept = await page.locator('#import-project-layers-input').getAttribute('accept');
+    expect(accept).toContain('.collage');
+    expect(accept).toContain('.zip');
+  });
+
+  test('menu command imports a .collage archive as one linked, centered group', async ({ page }) => {
+    const zip = await buildSourceZip(page, [
+      { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
+      { color: '#0078bf', colorMode: 'solid', x: 500, y: 400, width: 200, height: 200 },
+    ]);
+    await page.setInputFiles('#import-project-layers-input', {
+      name: 'source-project.collage',
+      mimeType: 'application/zip',
+      buffer: zip,
+    });
+    await page.waitForFunction(() => window.State.layers.length === 2, null, { timeout: 15000 });
+    const info = await groupInfo(page);
+    expect(info.total).toBe(2);
+    expect(info.gids.length).toBe(1);
+    expect(info.linkSymmetryOk).toBe(true);
+  });
+
   test('menu command imports source layers as one linked, centered group', async ({ page }) => {
     const zip = await buildSourceZip(page, [
       { color: '#f65058', colorMode: 'solid', x: 100, y: 100, width: 300, height: 200 },
