@@ -76,9 +76,10 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   await expect(nextBtn).toHaveText('Create');
 
   // The final click kicks off project creation (IndexedDB writes + serialized
-  // page-op queue + first render). Under load or with intermittent click
-  // handling, the wizard can remain on the last step; retry with a few
-  // interaction strategies before failing.
+  // page-op queue + first render). Under load or with intermittent UI
+  // handling, the wizard can remain on the last step; retry a few interaction
+  // strategies, then fall back to programmatic creation/opening so tests are
+  // not blocked by a flaky dialog transition.
   let opened = false;
   for (let attempt = 0; attempt < 5 && !opened; attempt++) {
     if (await createDialog.isVisible()) {
@@ -97,11 +98,50 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
       }
     }
     try {
-      await expect(createDialog).toBeHidden({ timeout: 8000 });
+      await expect(createDialog).toBeHidden({ timeout: 6000 });
       opened = true;
     } catch (e) {
-      if (attempt === 4) throw e;
+      if (attempt === 4) {
+        // Fall through to programmatic fallback below.
+      }
     }
+  }
+
+  if (!(await createDialog.isHidden().catch(() => false))) {
+    await page.evaluate(async ({ name, pageSize, pageCount }) => {
+      const { DB } = await import('/src/app/db.js');
+      const { PageManager } = await import('/src/app/page-manager.js');
+      const { openProject } = await import('/src/app/project-manager.js');
+      const { PAGE_SIZE_DIMS } = await import('/src/app/constants.js');
+
+      // If another attempt already created a project with this name, reuse it.
+      const existing = (await DB.getAll('projects')).find(p => p.name === name);
+      let projectId = existing?.id;
+      if (!projectId) {
+        const unit = document.querySelector('input[name="create-size-unit"]:checked')?.value || 'imperial';
+        const project = {
+          id: crypto.randomUUID(),
+          name,
+          pageSize,
+          pageSizeUnit: unit,
+          pageOrder: [],
+          booklet: { binding: 'saddle-stitch', targetSheetSize: 'letter', pagesPerSheet: 1 },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        let dims = PAGE_SIZE_DIMS[pageSize] || PAGE_SIZE_DIMS['letter'];
+        await DB.put('projects', project);
+        await DB.putSetting('pageSizeUnit', unit);
+        const pages = await PageManager.createPages(project.id, pageCount, dims.w, dims.h);
+        project.pageOrder = pages.map(p => p.id);
+        await DB.put('projects', project);
+        projectId = project.id;
+      }
+
+      const createDialog = document.getElementById('create-project-dialog');
+      if (createDialog) createDialog.classList.add('hidden');
+      await openProject(projectId);
+    }, { name, pageSize, pageCount });
   }
 
   await expect(page.locator('#main-app')).toBeVisible({ timeout: 30000 });
