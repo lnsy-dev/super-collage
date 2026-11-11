@@ -177,4 +177,61 @@ test.describe('Export', () => {
     // White gap between the stacked covers at the sheet midpoint.
     expect(sheet.midGapGrey).toBeGreaterThan(250);
   });
+
+
+  test('export custom target paper shows size inputs on their own line with readable width', async ({ page }) => {
+    await createProject(page, 'Custom Target Layout Test');
+    await addImage(page, TEST_IMAGE);
+
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('[data-action="export"]');
+    await expect(page.locator('#export-dialog')).toBeVisible();
+
+    const targetRow = page.locator('#export-target-size-row');
+    const select = page.locator('#export-target-size');
+    const customRow = page.locator('#export-custom-size-row');
+    const widthInput = page.locator('#export-custom-width');
+
+    await expect(customRow).toBeHidden();
+    await select.selectOption('custom');
+    await expect(customRow).toBeVisible();
+
+    const selectBox = await select.boundingBox();
+    const customBox = await customRow.boundingBox();
+    expect(selectBox).not.toBeNull();
+    expect(customBox).not.toBeNull();
+    // Custom size inputs must appear on their own line below the target-paper controls.
+    expect(customBox.y).toBeGreaterThan(selectBox.y);
+
+    const inputWidth = await widthInput.evaluate(el => parseFloat(getComputedStyle(el).width));
+    expect(inputWidth).toBeGreaterThan(60);
+  });
+
+  test('composite custom target paper shows size inputs on their own line with readable width', async ({ page }) => {
+    await createProject(page, 'Custom Composite Layout Test');
+    await addImage(page, TEST_IMAGE);
+
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('[data-action="export-composite"]');
+    await expect(page.locator('#composite-export-dialog')).toBeVisible();
+
+    const select = page.locator('#composite-target-size');
+    const customRow = page.locator('#composite-custom-size-row');
+    const widthInput = page.locator('#composite-custom-width');
+
+    await expect(customRow).toBeHidden();
+    await select.selectOption('custom');
+    await expect(customRow).toBeVisible();
+
+    const selectBox = await select.boundingBox();
+    const customBox = await customRow.boundingBox();
+    expect(selectBox).not.toBeNull();
+    expect(customBox).not.toBeNull();
+    // Custom size inputs must appear on their own line below the target-paper controls.
+    expect(customBox.y).toBeGreaterThan(selectBox.y);
+
+    const inputWidth = await widthInput.evaluate(el => parseFloat(getComputedStyle(el).width));
+    expect(inputWidth).toBeGreaterThan(60);
+  });
+
 });

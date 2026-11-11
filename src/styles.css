@@ -1242,6 +1242,20 @@ body.tool-mask-erase #brush-cursor { border: 1.5px solid rgba(255, 255, 255, 0.7
   html { font-size: 12px; }
 }
 
+/* ─── Target paper custom size (export dialogs) ─────────────────── */
+.target-paper-controls { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.custom-target-size-row {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  margin-left: 0;
+}
+.custom-target-size-field { display: inline-flex; align-items: center; gap: 6px; }
+.custom-target-size-input { width: 72px; min-width: 72px; font-size: 1.25rem; }
+.custom-target-size-unit { font-size: 1.25rem; }
+.target-layout-info { display: block; margin-top: 4px; margin-left: 0; color: var(--dark-gray); }
+
 /* ─── EXPORT PROGRESS ────────────────────────────────────────────── */
 /* Determinate bar + status label + live metrics (elapsed / ETA / size). */
 .export-progress-bar {

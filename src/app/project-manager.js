@@ -223,7 +223,7 @@ function validateBookletOptions(prefix, pageW, pageH) {
   const customW = parseFloat(document.getElementById(`${prefix}-custom-width`)?.value || '0') * 600;
   const customH = parseFloat(document.getElementById(`${prefix}-custom-height`)?.value || '0') * 600;
   const customRow = document.getElementById(`${prefix}-custom-size-row`);
-  if (customRow) customRow.style.display = targetSize === 'custom' ? '' : 'none';
+  if (customRow) customRow.style.display = targetSize === 'custom' ? 'flex' : 'none';
 
   const notes = [];
   let bookletLayout = document.querySelector(`input[name="${prefix}-booklet-layout"]:checked`)?.value || 'folio';
@@ -287,7 +287,7 @@ function validateSingleImageOptions(prefix, pageW, pageH) {
   const customW = parseFloat(document.getElementById(`${prefix}-custom-width`)?.value || '0') * 600;
   const customH = parseFloat(document.getElementById(`${prefix}-custom-height`)?.value || '0') * 600;
   const customRow = document.getElementById(`${prefix}-custom-size-row`);
-  if (customRow) customRow.style.display = targetSize === 'custom' ? '' : 'none';
+  if (customRow) customRow.style.display = targetSize === 'custom' ? 'flex' : 'none';
 
   const notes = [];
   let copiesValue = document.querySelector(`input[name="${prefix}-layout"]:checked`)?.value || '1up';
@@ -408,6 +408,10 @@ export function updateExportLayoutInfo() {
 
 export function updateCompositeLayoutInfo() {
   const info = document.getElementById('composite-layout-info');
+  const sizeSelect = document.getElementById('composite-target-size');
+  const customRow = document.getElementById('composite-custom-size-row');
+  const targetSize = sizeSelect?.value || 'letter';
+  if (customRow) customRow.style.display = targetSize === 'custom' ? 'flex' : 'none';
 
   // The single-page composite export renders the canvas at its own size and
   // ignores the target paper entirely — nothing to validate.
@@ -427,7 +431,7 @@ export function updateCompositeLayoutInfo() {
   }
 
   // Only (paper, layout) pairs that fit pages unscaled are offered.
-  const { targetSize, bookletLayout, customW, customH, notes, customWarning } =
+  const { bookletLayout, customW, customH, notes, customWarning } =
     validateBookletOptions('composite', pageW, pageH);
   applyExportButton('composite', customWarning);
 
