@@ -938,6 +938,11 @@ export function wireControls() {
   }
 
   layerList.addEventListener('dragstart', e => {
+    // Dragging down the lock column toggles lock state; do not start a row reorder.
+    if (e.target.closest('.layer-lock')) {
+      e.preventDefault();
+      return;
+    }
     const row = e.target.closest('.layer-row');
     if (!row) return;
     const layer = State.layers.find(l => l.id === row.dataset.layerId);

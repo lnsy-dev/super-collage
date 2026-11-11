@@ -221,7 +221,90 @@ export function refreshPatternEditor(layer) {
   if (angleEl) { angleEl.value = p.angle || 0; document.getElementById('val-pat-angle').textContent = (p.angle || 0) + '°'; }
 }
 
+let _lockDrag = null;
+
+function layerRowForId(id) {
+  return document.querySelector(`#layer-list .layer-row[data-layer-id="${id}"]`);
+}
+
+function syncLockRowDom(layer) {
+  const row = layerRowForId(layer.id);
+  if (!row) return;
+  row.classList.toggle('locked-row', !!layer.locked);
+  row.draggable = !layer.locked;
+  const lock = row.querySelector('.layer-lock');
+  if (lock) {
+    lock.classList.toggle('locked', !!layer.locked);
+    lock.textContent = layer.locked ? '🔒' : '🔓';
+    lock.title = layer.locked ? 'Unlock layer' : 'Lock layer';
+  }
+}
+
+function applyLockState(layer, locked, { fromDrag = false } = {}) {
+  if (!layer || layer.locked === locked) return false;
+  pushUndo(snapshotLayer(layer));
+  layer.locked = locked;
+  if (layer.locked && State.selectedIds.includes(layer.id)) {
+    State.selectedIds = State.selectedIds.filter(id => id !== layer.id);
+    State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
+    UI.refreshProperties();
+    Renderer.drawOverlay();
+    // Selection highlight changes; update row classes without a full rebuild.
+    document.querySelectorAll('#layer-list .layer-row').forEach(r => {
+      r.classList.toggle('selected', State.selectedIds.includes(r.dataset.layerId));
+    });
+  }
+  DB.saveLayer(layer);
+  if (fromDrag) {
+    syncLockRowDom(layer);
+  } else {
+    UI.refreshLayerList();
+  }
+  return true;
+}
+
+function lockFromPoint(clientX, clientY) {
+  const el = document.elementFromPoint(clientX, clientY);
+  if (!el) return null;
+  const lock = el.closest ? el.closest('.layer-lock') : null;
+  if (!lock) return null;
+  const row = lock.closest('.layer-row');
+  if (!row) return null;
+  return { lock, layerId: row.dataset.layerId };
+}
+
+function endLockDrag(e) {
+  if (!_lockDrag) return;
+  if (e && _lockDrag.pointerId !== undefined && e.pointerId !== _lockDrag.pointerId) return;
+  const drag = _lockDrag;
+  _lockDrag = null;
+  if (drag.captureTarget) {
+    try { drag.captureTarget.releasePointerCapture(drag.pointerId); } catch (_e) {}
+  }
+  window.removeEventListener('pointermove', onLockDragMove, true);
+  window.removeEventListener('pointerup', onLockDragEnd, true);
+  window.removeEventListener('pointercancel', onLockDragEnd, true);
+}
+
+function onLockDragMove(e) {
+  if (!_lockDrag || e.pointerId !== _lockDrag.pointerId) return;
+  const hit = lockFromPoint(e.clientX, e.clientY);
+  if (!hit || _lockDrag.visited.has(hit.layerId)) return;
+  const layer = State.layers.find(l => l.id === hit.layerId);
+  if (!layer) return;
+  _lockDrag.visited.add(hit.layerId);
+  _lockDrag.moved = true;
+  applyLockState(layer, _lockDrag.lockTo, { fromDrag: true });
+}
+
+function onLockDragEnd(e) {
+  if (!_lockDrag || e.pointerId !== _lockDrag.pointerId) return;
+  UI._suppressLockClickUntil = Date.now() + 400;
+  endLockDrag(e);
+}
+
 export const UI = {
+  _suppressLockClickUntil: 0,
   refreshColorSwatches() {
     const container = document.getElementById('color-swatches');
     if (!container) return;
@@ -323,18 +406,30 @@ export const UI = {
       lock.className = 'layer-lock' + (l.locked ? ' locked' : '');
       lock.textContent = l.locked ? '🔒' : '🔓';
       lock.title = l.locked ? 'Unlock layer' : 'Lock layer';
+      lock.draggable = false;
+      lock.addEventListener('pointerdown', e => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (e.button !== 0) return;
+        const lockTo = !l.locked;
+        _lockDrag = {
+          pointerId: e.pointerId,
+          lockTo,
+          visited: new Set([l.id]),
+          moved: false,
+          captureTarget: lock,
+        };
+        try { lock.setPointerCapture(e.pointerId); } catch (_e) {}
+        window.addEventListener('pointermove', onLockDragMove, true);
+        window.addEventListener('pointerup', onLockDragEnd, true);
+        window.addEventListener('pointercancel', onLockDragEnd, true);
+        applyLockState(l, lockTo, { fromDrag: true });
+      });
       lock.addEventListener('click', e => {
         e.stopPropagation();
-        pushUndo(snapshotLayer(l));
-        l.locked = !l.locked;
-        if (l.locked && State.selectedIds.includes(l.id)) {
-          State.selectedIds = State.selectedIds.filter(id => id !== l.id);
-          State.selectedId = State.selectedIds[State.selectedIds.length - 1] || null;
-          UI.refreshProperties();
-          Renderer.drawOverlay();
-        }
-        DB.saveLayer(l);
-        this.refreshLayerList();
+        // Pointer gesture already handled toggle/drag; suppress duplicate click.
+        if (Date.now() < UI._suppressLockClickUntil) return;
+        applyLockState(l, !l.locked);
       });
 
       row.append(vis, lock, dot, name);
