@@ -15,6 +15,7 @@ import { loadSvgImage } from './svg-utils.js';
 import { decodeImageBlob } from './image-decode.js';
 import { SpreadManager, computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { evenGridSize } from './grid-snap.js';
+import { projectGridUnit, defaultGridTargetPx } from './grid-units.js';
 import { rebuildLayerSepPlates } from './separation-methods.js';
 
 export const PageManager = {
@@ -34,7 +35,13 @@ export const PageManager = {
 
   _adjustGridToPage(pageW, pageH) {
     if (!State.grid || State.grid.type !== 'standard') return;
-    const target = State.grid.size || 150;
+    const unit = projectGridUnit(State.project);
+    let target = State.grid.size || defaultGridTargetPx(unit);
+    // Rescale legacy/default 0.25" grid to a unit-friendly default when the
+    // project uses metric units (e.g. 0.5 cm) so spacing aligns with cm.
+    if (unit === 'metric' && Math.abs(target - 150) <= 1) {
+      target = defaultGridTargetPx(unit);
+    }
     State.grid.size = evenGridSize(pageW, pageH, target);
   },
 

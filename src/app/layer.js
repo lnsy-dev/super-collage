@@ -70,6 +70,12 @@ export class Layer {
       size: 20,
       angle: 0,
     };
+    // When set, the layer's gradient is rendered in this page-space
+    // bounding box so a gradient can stretch continuously across a set of
+    // selected/sub layers instead of filling each layer independently.
+    this.gradientBounds = data.gradientBounds
+      ? { x: data.gradientBounds.x, y: data.gradientBounds.y, width: data.gradientBounds.width, height: data.gradientBounds.height }
+      : null;
     this.imageMaskIds = data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []);
     this.isMaskFor = data.isMaskFor || null;
     this.linkedIds = data.linkedIds || [];
@@ -175,6 +181,7 @@ export class Layer {
       color: this.color,
       colorMode: this.colorMode,
       gradient: JSON.parse(JSON.stringify(this.gradient)),
+      gradientBounds: this.gradientBounds ? { ...this.gradientBounds } : null,
       pattern: JSON.parse(JSON.stringify(this.pattern)),
       imageMaskIds: this.imageMaskIds,
       isMaskFor: this.isMaskFor,

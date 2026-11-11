@@ -16,6 +16,7 @@ import { CANVAS_W, CANVAS_H, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, se
 import { rebuildColorSepLut } from './color-lut.js';
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
+import { projectGridUnit, pxToGridUnit, gridUnitToPx, formatGridUnitValue, unitLabel } from './grid-units.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
 import { getLinkGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { generateOutline } from './outline.js';
@@ -36,7 +37,20 @@ function showMarginsDialog() {
 }
 
 function showGridDialog() {
-  document.getElementById('grid-size').value = (State.grid.size / 600).toFixed(3).replace(/\.?0+$/, '');
+  const unit = projectGridUnit(State.project);
+  const input = document.getElementById('grid-size');
+  input.value = formatGridUnitValue(pxToGridUnit(State.grid.size, unit));
+  if (unit === 'metric') {
+    input.step = '0.1';
+    input.min = '0.1';
+    input.max = '25';
+  } else {
+    input.step = '0.125';
+    input.min = '0.0625';
+    input.max = '10';
+  }
+  const label = document.getElementById('grid-size-unit');
+  if (label) label.textContent = unitLabel(unit);
   const radios = document.querySelectorAll('input[name="grid-type"]');
   radios.forEach(r => r.checked = r.value === State.grid.type);
   document.getElementById('grid-dialog').classList.remove('hidden');
@@ -55,8 +69,11 @@ export function applyMargins() {
 }
 
 export function applyGrid() {
-  const sizeIn = parseFloat(document.getElementById('grid-size').value);
-  State.grid.size = Math.max(1, Math.round((sizeIn || 0.25) * 600));
+  const unit = projectGridUnit(State.project);
+  const raw = parseFloat(document.getElementById('grid-size').value);
+  const fallback = unit === 'metric' ? 0.5 : 0.25;
+  const sizePx = gridUnitToPx(Number.isFinite(raw) ? raw : fallback, unit);
+  State.grid.size = Math.max(1, Math.round(sizePx || gridUnitToPx(fallback, unit)));
   const typeRadio = document.querySelector('input[name="grid-type"]:checked');
   State.grid.type = typeRadio?.value === 'isometric' ? 'isometric' : 'standard';
   PageManager.saveViewSettings();
