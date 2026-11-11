@@ -46,16 +46,38 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   const createDialog = page.locator('#create-project-dialog');
   const projectDialog = page.locator('#project-dialog');
 
-  // Empty libraries open directly into the create modal; otherwise open it manually.
-  if (await projectDialog.isVisible()) {
-    await page.click('#btn-create-new');
-  }
-  await expect(createDialog).toBeVisible({ timeout: 15000 });
+  // Ensure the create wizard is open and reset to a known first step. Previous
+  // tests or a flaky mid-flow can leave it on a later step; the app's own
+  // showCreateDialog resets to step 1 and clears the name.
+  const openFreshWizard = async () => {
+    if (await createDialog.isVisible()) {
+      await page.evaluate(async () => {
+        const { ProjectManager } = await import('/src/app/project-manager.js');
+        if (ProjectManager?.showCreateDialog) await ProjectManager.showCreateDialog();
+      });
+    } else {
+      if (await projectDialog.isVisible()) {
+        await page.click('#btn-create-new');
+      }
+      await expect(createDialog).toBeVisible({ timeout: 15000 });
+    }
+    // showCreateDialog loads async prefs; force step 1 active as the canonical
+    // start state in case async UI work leaves the wizard mid-flow.
+    await page.evaluate(() => {
+      document.querySelectorAll('#create-project-dialog .wizard-step').forEach((s, i) => {
+        s.classList.toggle('active', i === 0);
+      });
+      const next = document.getElementById('btn-create-next');
+      if (next) next.textContent = 'Next';
+    });
+    await expect(page.locator('.wizard-step[data-step="units"]')).toHaveClass(/active/, { timeout: 15000 });
+  };
 
+  await openFreshWizard();
   await page.fill('#create-project-name', name);
 
   const nextBtn = page.locator('#btn-create-next');
-  const step = (name) => page.locator(`.wizard-step[data-step="${name}"]`);
+  const step = (stepName) => page.locator(`.wizard-step[data-step="${stepName}"]`);
 
   // Step 1: Units (default imperial) -> Next
   await expect(step('units')).toHaveClass(/active/);
@@ -83,7 +105,20 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   let opened = false;
   for (let attempt = 0; attempt < 5 && !opened; attempt++) {
     if (await createDialog.isVisible()) {
-      await expect(step('pages')).toHaveClass(/active/);
+      // If the wizard drifted off the final step, re-run from a clean state.
+      const onPages = await step('pages').evaluate(el => el.classList.contains('active')).catch(() => false);
+      if (!onPages) {
+        await openFreshWizard();
+        await page.fill('#create-project-name', name);
+        await nextBtn.click();
+        await expect(step('page-size')).toHaveClass(/active/);
+        await page.locator(`label:has(input[name="create-page-size"][value="${pageSize}"])`).click();
+        await nextBtn.click();
+        await expect(step('pages')).toHaveClass(/active/);
+        if (pageCount !== 1) {
+          await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
+        }
+      }
       await expect(nextBtn).toHaveText('Create');
       if (attempt === 0 || attempt === 1) {
         await nextBtn.click();
@@ -140,10 +175,13 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
 
       const createDialog = document.getElementById('create-project-dialog');
       if (createDialog) createDialog.classList.add('hidden');
+      const projectDialog = document.getElementById('project-dialog');
+      if (projectDialog) projectDialog.classList.add('hidden');
       await openProject(projectId);
     }, { name, pageSize, pageCount });
   }
 
+  await expect(createDialog).toBeHidden({ timeout: 15000 });
   await expect(page.locator('#main-app')).toBeVisible({ timeout: 30000 });
 
   // The create/open flow finishes its initial unit load asynchronously after
@@ -568,18 +606,21 @@ export async function runExportBooklet(page, {
     const { ExportEngine } = await import('/src/app/export-engine.js');
     const { buildSheets } = await import('/src/app/imposition.js');
 
-    function avgGrey(data, width, region) {
+    // Sample a region through a small downscaled canvas instead of walking
+    // every pixel of a full-size sheet (letter is ~34M px; averaging several
+    // sheets per plate that way dominates the whole test's runtime).
+    function avgGrey(source, region) {
+      const maxSide = 128;
+      const scale = Math.min(1, maxSide / Math.max(region.w, region.h));
+      const sw = Math.max(1, Math.round(region.w * scale));
+      const sh = Math.max(1, Math.round(region.h * scale));
+      const off = new OffscreenCanvas(sw, sh);
+      const octx = off.getContext('2d', { willReadFrequently: true });
+      octx.drawImage(source, region.x, region.y, region.w, region.h, 0, 0, sw, sh);
+      const data = octx.getImageData(0, 0, sw, sh).data;
       let sum = 0;
-      let count = 0;
-      const { x, y, w, h } = region;
-      for (let row = Math.max(0, Math.floor(y)); row < Math.floor(y + h) && row < data.height; row++) {
-        for (let col = Math.max(0, Math.floor(x)); col < Math.floor(x + w) && col < data.width; col++) {
-          const idx = (row * data.width + col) * 4;
-          sum += data.data[idx]; // R=G=B=grey
-          count++;
-        }
-      }
-      return count === 0 ? 255 : sum / count;
+      for (let i = 0; i < data.length; i += 4) sum += data[i]; // R=G=B=grey
+      return sum / (data.length / 4);
     }
 
     // Delegate to the production plate builder so the spanning/crop behaviour is
@@ -594,15 +635,13 @@ export async function runExportBooklet(page, {
         targetSheetSize,
       });
       result[color] = sheets.map(sheet => {
-        const ctx = sheet.getContext('2d');
-        const imgData = ctx.getImageData(0, 0, sheet.width, sheet.height);
         const w = sheet.width, h = sheet.height;
         return {
           width: w,
           height: h,
-          avgGrey: avgGrey(imgData, w, { x: 0, y: 0, w, h }),
-          leftGrey: avgGrey(imgData, w, { x: 0, y: 0, w: w / 2, h }),
-          rightGrey: avgGrey(imgData, w, { x: w / 2, y: 0, w: w / 2, h }),
+          avgGrey: avgGrey(sheet, { x: 0, y: 0, w, h }),
+          leftGrey: avgGrey(sheet, { x: 0, y: 0, w: w / 2, h }),
+          rightGrey: avgGrey(sheet, { x: w / 2, y: 0, w: w / 2, h }),
         };
       });
     }
@@ -721,19 +760,24 @@ export async function runExportCompositeBooklet(page, {
     const { ExportEngine } = await import('/src/app/export-engine.js');
     const { buildSheets } = await import('/src/app/imposition.js');
 
-    function avgColor(data, width, region) {
-      let r = 0, g = 0, b = 0, count = 0;
-      const { x, y, w, h } = region;
-      for (let row = Math.max(0, Math.floor(y)); row < Math.floor(y + h) && row < data.height; row++) {
-        for (let col = Math.max(0, Math.floor(x)); col < Math.floor(x + w) && col < data.width; col++) {
-          const idx = (row * data.width + col) * 4;
-          r += data.data[idx];
-          g += data.data[idx + 1];
-          b += data.data[idx + 2];
-          count++;
-        }
+    // Downscale before averaging; see runExportBooklet for why.
+    function avgColor(source, region) {
+      const maxSide = 128;
+      const scale = Math.min(1, maxSide / Math.max(region.w, region.h));
+      const sw = Math.max(1, Math.round(region.w * scale));
+      const sh = Math.max(1, Math.round(region.h * scale));
+      const off = new OffscreenCanvas(sw, sh);
+      const octx = off.getContext('2d', { willReadFrequently: true });
+      octx.drawImage(source, region.x, region.y, region.w, region.h, 0, 0, sw, sh);
+      const data = octx.getImageData(0, 0, sw, sh).data;
+      let r = 0, g = 0, b = 0;
+      const count = data.length / 4;
+      for (let i = 0; i < data.length; i += 4) {
+        r += data[i]; g += data[i + 1]; b += data[i + 2];
       }
-      return count === 0 ? { r: 255, g: 255, b: 255 } : { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
+      return count === 0
+        ? { r: 255, g: 255, b: 255 }
+        : { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
     }
 
     // Delegate to the production composite builder so spanning/crop behaviour is
@@ -742,15 +786,13 @@ export async function runExportCompositeBooklet(page, {
 
     const sheets = buildSheets(pageComposites, { binding: 'saddle-stitch', bookletLayout, targetSheetSize });
     return sheets.map(sheet => {
-      const ctx = sheet.getContext('2d');
-      const imgData = ctx.getImageData(0, 0, sheet.width, sheet.height);
       const w = sheet.width, h = sheet.height;
       return {
         width: w,
         height: h,
-        avgColor: avgColor(imgData, w, { x: 0, y: 0, w, h }),
-        leftColor: avgColor(imgData, w, { x: 0, y: 0, w: w / 2, h }),
-        rightColor: avgColor(imgData, w, { x: w / 2, y: 0, w: w / 2, h }),
+        avgColor: avgColor(sheet, { x: 0, y: 0, w, h }),
+        leftColor: avgColor(sheet, { x: 0, y: 0, w: w / 2, h }),
+        rightColor: avgColor(sheet, { x: w / 2, y: 0, w: w / 2, h }),
       };
     });
   }, { bookletLayout, targetSheetSize });

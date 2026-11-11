@@ -630,6 +630,8 @@ test.describe('Import Menu Project', () => {
       name: 'broken.zip', mimeType: 'application/zip', buffer: Buffer.from(brokenB64, 'base64'),
     });
     await page.waitForFunction(() => window.State.layers.length === 2, null, { timeout: 15000 });
+    // Allow async imageBlob persistence to finish after layer records are pushed.
+    await page.waitForTimeout(300);
 
     const state = await page.evaluate(async () => {
       const layers = window.State.layers;

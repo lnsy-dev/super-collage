@@ -203,24 +203,29 @@ test.describe('Zoomed-in rendering culling (mask painting)', () => {
       };
     });
     await centerAndWait(page, probe.px, probe.py);
+    await page.evaluate(async () => { await window.Renderer.draw(); });
+    await page.waitForTimeout(500);
 
-    const rgb = await page.evaluate(({ px, py }) => {
+    const rgb = await page.evaluate(() => {
       const canvas = document.getElementById('display-canvas');
       const scroll = document.getElementById('canvas-scroll');
       const offX = canvas.offsetLeft + (canvas.offsetParent?.offsetLeft ?? 0);
       const offY = canvas.offsetTop + (canvas.offsetParent?.offsetTop ?? 0);
       const vx = scroll.scrollLeft - offX;
       const vy = scroll.scrollTop - offY;
+      const ds = window.Renderer?._displayScale || 1;
+      const sampleX = Math.round((vx + scroll.clientWidth / 2 - 10) * ds);
+      const sampleY = Math.round((vy + scroll.clientHeight / 2 - 10) * ds);
+      const size = Math.max(1, Math.round(20 * ds));
       // A patch at the viewport center — deep inside the drawn slice.
       const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(
-        Math.round(vx + scroll.clientWidth / 2) - 10,
-        Math.round(vy + scroll.clientHeight / 2) - 10, 20, 20).data;
+        sampleX, sampleY, size, size).data;
       let inked = 0;
       for (let i = 0; i < d.length; i += 4) {
         if (d[i] + d[i + 1] + d[i + 2] < 720) inked++; // not pure white paper
       }
       return { inked, total: d.length / 4 };
-    }, probe);
+    });
     // The layer's 75% quadrant prints ink there — a mostly-inked patch,
     // not a blank paper rectangle.
     expect(rgb.inked).toBeGreaterThan(rgb.total * 0.6);

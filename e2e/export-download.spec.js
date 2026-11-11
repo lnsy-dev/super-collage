@@ -14,7 +14,6 @@ async function addBlackImageToPage(page, pageId, colorHex) {
 // Heavy fixture (four 3300×5100 source images + eight letter-size PNG
 // sheets): the default 30s test timeout leaves no room under suite load.
 test('export all pages as booklet downloads sheets', async ({ page }) => {
-  test.setTimeout(60000);
   await createProject(page, 'Booklet Download', { pageSize: 'half-letter', pageCount: 4 });
   const pageIds = await getProjectPageIds(page);
   const colors = ['#f65058', '#0078bf', '#ffe800', '#5ec8e5'];
@@ -28,8 +27,11 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
   await expect(page.locator('#export-dialog')).toBeVisible();
 
   // Select booklet options (binding is always saddle-stitch; no UI choice).
-  await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
+  // Choose the paper first: booklet layouts are disabled until the selected
+  // paper can fit the pages unscaled (the dialog opens on "Current image
+  // size", which is too small for a folio spread).
   await page.selectOption('#export-target-size', 'letter');
+  await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
 
   // Wait for downloads.
   const [download1] = await Promise.all([

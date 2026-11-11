@@ -54,7 +54,6 @@ async function flattenViaUI(page, idleTimeout = 60_000) {
 
 test.describe('Flatten after resize — oversized layers must not crash', () => {
   test('text layer resized past the canvas allocation cap flattens cleanly', async ({ page }) => {
-    test.setTimeout(120_000);
     await createProject(page, 'Flatten Oversized Text');
     // A text layer, then resized far past the 2^28 px² canvas cap.
     await page.click('[data-menu="file"]');
@@ -107,7 +106,6 @@ test.describe('Flatten after resize — oversized layers must not crash', () => 
   });
 
   test('display rendering of an oversized text layer does not throw', async ({ page }) => {
-    test.setTimeout(120_000);
     await createProject(page, 'Flatten Oversized Text Render');
     await page.click('[data-menu="file"]');
     await page.click('[data-action="add-text"]');
@@ -143,7 +141,6 @@ test.describe('Flatten after resize — oversized layers must not crash', () => 
   });
 
   test('big raster + painted mask + resize + flatten keeps its ink and stays stable', async ({ page }) => {
-    test.setTimeout(180_000);
     await createProject(page, 'Flatten Big Raster Resize');
     const buf = createSolidPngBuffer('#cc0000', 6000, 6000);
     await addImageFromBuffer(page, buf, { name: 'big.png' });
@@ -189,7 +186,6 @@ test.describe('Flatten after resize — oversized layers must not crash', () => 
   });
 
   test('oversized SVG mask layer flattens via export-scale processing without crashing', async ({ page }) => {
-    test.setTimeout(180_000);
     await createProject(page, 'Flatten Oversized Svg Pair');
     // Authored A4: 96→600 DPI scaling puts natural size at ~15k×21k.
     const LARGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="2480" height="3508" viewBox="0 0 2480 3508"><rect width="2480" height="3508" fill="#cc0000"/><rect x="1240" width="1240" height="3508" fill="#ffffff"/></svg>`;

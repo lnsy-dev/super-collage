@@ -95,7 +95,18 @@ if [[ $RUN_E2E -eq 1 ]]; then
   echo "== e2e tests (project=$PW_PROJECT) =="
   export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
   if [[ $FULL_E2E -eq 1 ]]; then
-    npx playwright test --project="$PW_PROJECT" --reporter=line "${PW_ARGS[@]}"
+    # Pagination export is intentionally slow (multi-sheet plate rendering)
+    # and disables its own timeout, so run every other spec first and leave it
+    # for the very end.
+    shopt -s nullglob
+    specs=()
+    for spec in e2e/*.spec.js; do
+      [[ "$spec" == "e2e/export-pagination.spec.js" ]] && continue
+      specs+=("$spec")
+    done
+    npx playwright test "${specs[@]}" --project="$PW_PROJECT" --reporter=line "${PW_ARGS[@]}"
+    echo "== long-running pagination export tests =="
+    npx playwright test e2e/export-pagination.spec.js --project="$PW_PROJECT" --reporter=line "${PW_ARGS[@]}"
   else
     if [[ ${#PW_ARGS[@]} -eq 0 ]]; then
       npx playwright test e2e/app-shell.spec.js --project="$PW_PROJECT" --reporter=line

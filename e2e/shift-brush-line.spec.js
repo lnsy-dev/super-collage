@@ -56,7 +56,6 @@ async function stroke(page, from, to, { shift = false } = {}) {
 
 test.describe('Shift straight-line brush strokes', () => {
   test('shift+drag snaps a sloped drag onto the 45° ray', async ({ page }) => {
-    test.setTimeout(60_000);
     await createProject(page, 'Shift Brush Line');
     await addImageFromBuffer(page, createSolidPngBuffer('#cc0000', 2000, 2000), { name: 'brush.png' });
     await page.waitForFunction(
@@ -84,7 +83,6 @@ test.describe('Shift straight-line brush strokes', () => {
   });
 
   test('a shift-free stroke paints along its own (unsnapped) slope', async ({ page }) => {
-    test.setTimeout(60_000);
     await createProject(page, 'Free Brush Drag');
     await addImageFromBuffer(page, createSolidPngBuffer('#cc0000', 2000, 2000), { name: 'brush.png' });
     await page.waitForFunction(

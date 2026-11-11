@@ -6,7 +6,6 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('double-clicking a text layer with the Select tool opens the editor', async ({ page }) => {
-  test.setTimeout(60000);
   await createProject(page, 'Dblclick Edit');
   await addTextLayer(page, 'Hello');
 

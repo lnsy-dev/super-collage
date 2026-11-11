@@ -238,7 +238,6 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Mask brush responsiveness', () => {
   test('brushing a mask with a fan of diffed masks paints through and stays responsive', async ({ page }) => {
-    test.setTimeout(180_000);
     const PAIRS = 5;
     const CPU_THROTTLE = 4;
     // Per-frame redraw budget during the stroke (ms of Renderer.draw),
@@ -316,7 +315,6 @@ test.describe('Mask brush responsiveness', () => {
   /* ── Functional guard: image-mask compositing through the mask
         pipeline still hides exactly the masked-out area ──────────── */
   test('difference mask brush hole shows through the base layer render', async ({ page }) => {
-    test.setTimeout(120_000);
     await createProject(page, 'Brush Diff Render');
     await addImageFromBuffer(page, BASE_PNG(), { name: 'plate.png' });
     const stack = await buildDiffMaskStack(page, 1);

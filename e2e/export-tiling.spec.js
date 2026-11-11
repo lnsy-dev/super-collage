@@ -143,7 +143,6 @@ function diffStats(a, b, w, h) {
 
 test.describe('Tiled plate rendering', () => {
   test('quadrant-rendered plates match whole-image render within AA tolerance, at quarter-page buffers', async ({ page }) => {
-    test.setTimeout(180000);
     await buildCompositingProject(page);
 
     const whole = await renderPlates(page, { cols: 1, rows: 1 });
@@ -180,7 +179,6 @@ test.describe('Tiled plate rendering', () => {
 
 test.describe('Tiled composite rendering', () => {
   test('quadrant-blended composite matches whole-image render within AA tolerance, at quarter-page buffers', async ({ page }) => {
-    test.setTimeout(180000);
     await buildCompositingProject(page);
 
     const whole = await renderComposite(page, { cols: 1, rows: 1 });
