@@ -339,11 +339,13 @@ test.describe('Project Management', () => {
   test('create dialog is not cancellable when no project is open', async ({ page }) => {
     await gotoApp(page);
     // From the empty splash, Create New has no project behind it → no
-    // close/back affordance.
+    // close affordance, but the Back button is available for wizard step navigation.
     await page.click('#btn-create-new');
     await expect(page.locator('#create-project-dialog')).toBeVisible();
     await expect(page.locator('#btn-create-project-close')).toBeHidden();
-    await expect(page.locator('#btn-create-back')).toBeHidden();
+    const backBtn = page.locator('#btn-create-back');
+    await expect(backBtn).toBeVisible();
+    await expect(backBtn).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(page.locator('#create-project-dialog')).toBeVisible();
   });
@@ -379,6 +381,69 @@ test.describe('Project Management', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.locator('#project-dialog')).toBeHidden();
+    await expect(page.locator('#main-app')).toBeVisible();
+  });
+
+  test('wizard back button navigates and lets you restart at any step', async ({ page }) => {
+    await gotoApp(page);
+    await ensureCreateDialog(page);
+    const createDialog = page.locator('#create-project-dialog');
+    await expect(createDialog).toBeVisible();
+
+    const step = (name) => page.locator(`.wizard-step[data-step="${name}"]`);
+    const backBtn = page.locator('#btn-create-back');
+    const nextBtn = page.locator('#btn-create-next');
+
+    await page.fill('#create-project-name', 'Back Nav Project');
+
+    // Step 1: Units — back unavailable
+    await expect(step('units')).toHaveClass(/active/);
+    await expect(backBtn).toBeVisible();
+    await expect(backBtn).toBeDisabled();
+    await expect(nextBtn).toHaveText('Next');
+
+    // Step 2: Page Size — can go back to Units
+    await nextBtn.click();
+    await expect(step('page-size')).toHaveClass(/active/);
+    await expect(backBtn).toBeEnabled();
+    await expect(nextBtn).toHaveText('Next');
+    await backBtn.click();
+    await expect(step('units')).toHaveClass(/active/);
+    await expect(backBtn).toBeDisabled();
+
+    // Restart/change choices at Units and proceed
+    await page.locator('label:has(input[name="create-size-unit"][value="metric"])').click();
+    await nextBtn.click();
+    await expect(step('page-size')).toHaveClass(/active/);
+    await expect(page.locator('label:has(input[name="create-page-size"][value="a4"])')).toBeVisible();
+
+    // Step 3: Pages — can back up through every prior stage
+    await page.locator('label:has(input[name="create-page-size"][value="a4"])').click();
+    await nextBtn.click();
+    await expect(step('pages')).toHaveClass(/active/);
+    await expect(backBtn).toBeEnabled();
+    await expect(nextBtn).toHaveText('Create');
+    await page.locator('label:has(input[name="create-page-count"][value="4"])').click();
+
+    await backBtn.click();
+    await expect(step('page-size')).toHaveClass(/active/);
+    await expect(page.locator('input[name="create-page-size"][value="a4"]')).toBeChecked();
+    await page.locator('label:has(input[name="create-page-size"][value="a5"])').click();
+
+    await backBtn.click();
+    await expect(step('units')).toHaveClass(/active/);
+    await expect(page.locator('input[name="create-size-unit"][value="metric"]')).toBeChecked();
+    await expect(page.locator('#create-project-name')).toHaveValue('Back Nav Project');
+
+    // Complete after restarting choices at earlier steps
+    await nextBtn.click();
+    await expect(page.locator('input[name="create-page-size"][value="a5"]')).toBeChecked();
+    await nextBtn.click();
+    await expect(step('pages')).toHaveClass(/active/);
+    await expect(page.locator('input[name="create-page-count"][value="4"]')).toBeChecked();
+    await nextBtn.click();
+
+    await expect(createDialog).toBeHidden({ timeout: 15000 });
     await expect(page.locator('#main-app')).toBeVisible();
   });
 });
