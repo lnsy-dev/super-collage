@@ -1396,6 +1396,17 @@ export function wireControls() {
   // Text layer property controls
   let _textSaveTimer = null;
   let _textUndoPushed = false;
+  function autoSizeLineTextLayer(l) {
+    if (!l || !l.isText) return;
+    const c = autoSizeLineTextLayer._ctx ??= document.createElement('canvas').getContext('2d');
+    c.font = `${l.textFontStyle} ${l.textFontWeight} ${l.textFontSize}px "${l.textFontFamily}"`;
+    const text = (l.text || '').replace(/[\r\n]+/g, ' ');
+    const w = Math.max(40, Math.ceil(c.measureText(text).width + l.textLetterSpacing * Math.max(0, text.length) + 40));
+    const h = Math.ceil(l.textFontSize * l.textLineHeight * 1.25);
+    l.width = w;
+    l.height = h;
+    l.setNaturalSize(w, h);
+  }
   function updateTextField(field, value, parser = v => v) {
     const l = selectedLayer(); if (!l || !l.isText) return;
     // Typing in the textarea fires per-keystroke — snapshot once per burst,
@@ -1405,7 +1416,14 @@ export function wireControls() {
       pushUndo(snapshotLayer(l));
       if (isTyping) _textUndoPushed = true;
     }
-    l[field] = parser(value);
+    let parsed = parser(value);
+    if (field === 'text') parsed = String(parsed).replace(/[\r\n]+/g, ' ');
+    l[field] = parsed;
+    if (field === 'text' || field === 'textFontFamily' || field === 'textFontSize' ||
+        field === 'textFontWeight' || field === 'textFontStyle' ||
+        field === 'textLetterSpacing' || field === 'textLineHeight') {
+      autoSizeLineTextLayer(l);
+    }
     l._originalCanvas = null;
     l._exportOriginalCanvas = null;
     l._dirty = true;
@@ -1416,6 +1434,7 @@ export function wireControls() {
       _textUndoPushed = false;
       DB.saveLayer(l);
     }
+    UI.refreshProperties();
     Renderer.schedule();
   }
 
