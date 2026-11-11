@@ -56,9 +56,32 @@ if pgrep -fa "playwright test" | grep -qv "$$"; then
   exit 1
 fi
 
+# ── Long-running pagination export runs last ────────────────────────
+# Every other spec is bounded by the global 30s timeout. The pagination
+# export spec renders and samples many multi-sheet plates, so it is excluded
+# from the main pass and run afterwards (the spec disables its own timeout).
+shopt -s nullglob
+
+explicit_selection=0
+for arg in "$@"; do
+  case "$arg" in
+    *.spec.js|e2e|e2e/*|*/e2e/*) explicit_selection=1 ;;
+  esac
+done
+
 if [[ "${1:-}" == "--all" ]]; then
   shift || true
-  exec npx playwright test "$@"
-else
+fi
+
+if [[ $explicit_selection -eq 1 ]]; then
   exec npx playwright test "$@"
 fi
+
+specs=()
+for spec in e2e/*.spec.js; do
+  [[ "$spec" == "e2e/export-pagination.spec.js" ]] && continue
+  specs+=("$spec")
+done
+npx playwright test "${specs[@]}" "$@"
+echo "== long-running pagination export tests =="
+npx playwright test e2e/export-pagination.spec.js "$@"

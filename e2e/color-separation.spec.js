@@ -291,7 +291,6 @@ test.describe('Color Separation Calibration', () => {
   });
 
   test('oversized separation source survives reload without cropping', async ({ page }) => {
-    test.setTimeout(60000);
     await createProject(page, 'Sep Reload Crop Test');
 
     // Build a 2000 × 3000 PNG — larger than the 1500 px decomposition cap, so

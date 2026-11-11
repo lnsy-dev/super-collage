@@ -64,7 +64,6 @@ function maskAlpha(page, layerId, fx, fy) {
 
 test.describe('Masks combine additively', () => {
   test('painted mask survives an image mask; both render', async ({ page }) => {
-    test.setTimeout(120_000);
     await createProject(page, 'Masks Additive');
     await addImageFromBuffer(page, createSolidPngBuffer('#cc0000', 1000, 1000), { name: 'base.png' });
     // A second, shape-like solid plate set up to overlap the base's
@@ -129,7 +128,6 @@ test.describe('Masks combine additively', () => {
   });
 
   test('a brush hole painted after the image mask still applies', async ({ page }) => {
-    test.setTimeout(120_000);
     await createProject(page, 'Masks Additive Paint');
     await addImageFromBuffer(page, createSolidPngBuffer('#cc0000', 1000, 1000), { name: 'base.png' });
     await page.evaluate(() => {

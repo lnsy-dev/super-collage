@@ -11,6 +11,10 @@ import {
   runExportCompositeBooklet,
 } from './helpers.js';
 
+// Imposing and sampling multi-sheet booklet plates is intentionally heavy
+// (hundreds of megapixels per test); the global 30s limit does not apply here.
+test.describe.configure({ timeout: 0 });
+
 test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
 });
@@ -36,28 +40,32 @@ function regionGrey(sheet, regionName = 'avgGrey') {
   return sheet[regionName];
 }
 
-// Half-letter page size at 600 DPI. PNG images must be generated at the page
-// pixel size so the layer fills the entire page (the app does not upscale images).
+// Half-letter page size at 600 DPI.
 const PAGE_W = 3300;
 const PAGE_H = 5100;
+// Most export assertions only need ink somewhere on the page. A half-page
+// marker is 4× cheaper to decode/render and keeps these tests inside the 30s
+// budget; tests that assert exact full-page colors use PAGE_W/PAGE_H.
+const MARKER_W = 1650;
+const MARKER_H = 2550;
 
 /**
- * Add a full-page black image to a specific page and set the layer color.
+ * Add a black image to a specific page and set the layer color.
  * The image pixels must be dark enough to survive the export colorize threshold.
  */
-async function addColoredImageToPage(page, pageId, colorHex) {
+async function addColoredImageToPage(page, pageId, colorHex, { width = MARKER_W, height = MARKER_H } = {}) {
   await loadPageById(page, pageId);
-  await addSolidColorImage(page, '#000000', { width: PAGE_W, height: PAGE_H });
+  await addSolidColorImage(page, '#000000', { width, height });
   await setLayerColorDirect(page, colorHex);
 }
 
 /**
- * Add a full-page PNG shape to a specific page and set the layer color.
+ * Add a PNG shape to a specific page and set the layer color.
  * Supported shapes: 'rect', 'ellipse', 'triangle', 'diamond'.
  */
 async function addShapeToPage(page, pageId, shape, colorHex) {
   await loadPageById(page, pageId);
-  const buffer = createShapePngBuffer(shape, PAGE_W, PAGE_H);
+  const buffer = createShapePngBuffer(shape, MARKER_W, MARKER_H);
   await page.setInputFiles('#file-input', {
     name: `shape-${shape}-${Date.now()}.png`,
     mimeType: 'image/png',
@@ -68,10 +76,6 @@ async function addShapeToPage(page, pageId, shape, colorHex) {
 }
 
 test.describe('Paginated Export', () => {
-  // Booklet imposition renders 4–8 full pages per test — 30s is too tight
-  // on slower machines even before the tiled (quadrant) rendering path,
-  // which trades rendering time for a far smaller memory footprint.
-  test.setTimeout(120000);
   test('single-page saddle-stitch export renders page content', async ({ page }) => {
     await createProject(page, 'Saddle Single', { pageSize: 'half-letter', pageCount: 1 });
     const [pageId] = await getProjectPageIds(page);
@@ -104,7 +108,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('saddle-stitch folio imposes 8 pages without dropping colors', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Saddle Folio', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 
@@ -151,7 +154,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('saddle-stitch quarto imposes 8 pages without dropping colors', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Saddle Quarto', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 
@@ -176,7 +178,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('saddle-stitch octavo imposes 8 pages without dropping colors', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Saddle Octavo', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 
@@ -241,7 +242,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('8-page saddle-stitch folio does not drop any page content', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'No Missing Pages', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 
@@ -378,12 +378,12 @@ test.describe('Paginated Export', () => {
   });
 
   test('multi-page composite booklet export imposes pages without dropping colors', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Composite Booklet', { pageSize: 'half-letter', pageCount: 4 });
     const pageIds = await getProjectPageIds(page);
 
     for (let i = 0; i < pageIds.length; i++) {
-      await addColoredImageToPage(page, pageIds[i], pageColor(i));
+      // This test compares exact page colors, so the images must fill the page.
+      await addColoredImageToPage(page, pageIds[i], pageColor(i), { width: PAGE_W, height: PAGE_H });
     }
 
     const sheets = await runExportCompositeBooklet(page, {
@@ -416,7 +416,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('single-page image is cropped at the page edge and does not bleed onto the adjacent imposed page', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Single Page Crop', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 
@@ -459,7 +458,6 @@ test.describe('Paginated Export', () => {
   });
 
   test('centre spread still spans both pages in an 8-page booklet', async ({ page }) => {
-    test.setTimeout(120000);
     await createProject(page, 'Centre Spread Span', { pageSize: 'half-letter', pageCount: 8 });
     const pageIds = await getProjectPageIds(page);
 

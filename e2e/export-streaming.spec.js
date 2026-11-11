@@ -29,7 +29,6 @@ async function buildThreeInkPages(page) {
 
 test.describe('Streaming export', () => {
   test('renders one plate at a time and decodes only what each plate needs', async ({ page }) => {
-    test.setTimeout(180000);
     await createProject(page, 'Streaming Export', { pageSize: 'half-letter', pageCount: 4 });
     const pageIds = await buildThreeInkPages(page);
     expect(pageIds).toHaveLength(4);
@@ -49,8 +48,10 @@ test.describe('Streaming export', () => {
     await page.click('.menu-item[data-menu="file"]');
     await page.click('[data-action="export"]');
     await expect(page.locator('#export-dialog')).toBeVisible();
-    await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
+    // Pick the paper first: folio is disabled while the dialog's default
+    // "Current image size" target is too small for a folio spread.
     await page.selectOption('#export-target-size', 'letter');
+    await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
 
     const downloads = [];
     page.on('download', d => downloads.push(d));

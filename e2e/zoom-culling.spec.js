@@ -157,25 +157,22 @@ test.describe('Zoomed-in rendering culling (mask painting)', () => {
     // painted area's viewport-center position.
     await centerAndWait(page, base.px - 250, base.py - 130);
 
-    const diffs = await page.evaluate(async () => {
+    const diffs = await page.evaluate(async ({ px, py }) => {
       const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
-      const z = window.State.zoom;
-      const scale = window.Renderer._displayScale || 1;
-      // Reference: uncullable full draw into a scratch canvas at backing resolution.
-      const ref = new OffscreenCanvas(Math.round(CANVAS_W * z * scale), Math.round(CANVAS_H * z * scale));
+      // Reference: uncullable full draw into a scratch canvas.
+      const ref = new OffscreenCanvas(Math.round(CANVAS_W * window.State.zoom), Math.round(CANVAS_H * window.State.zoom));
       const refCtx = ref.getContext('2d', { willReadFrequently: true });
-      refCtx.setTransform(scale, 0, 0, scale, 0, 0);
-      await window.Renderer.drawLayers(refCtx, window.State.layers, CANVAS_W * z, CANVAS_H * z, z, true);
+      await window.Renderer.drawLayers(refCtx, window.State.layers, ref.width, ref.height, window.State.zoom, true);
       // Actual: the live clipped display draw.
       const display = document.getElementById('display-canvas');
       const scroll = document.getElementById('canvas-scroll');
       const offX = display.offsetLeft + (display.offsetParent?.offsetLeft ?? 0);
       const offY = display.offsetTop + (display.offsetParent?.offsetTop ?? 0);
-      // Sample the drawn viewport, inset from the slice margins (CSS coords -> backing px).
-      const vx = Math.max(0, Math.round((scroll.scrollLeft - offX + 16) * scale));
-      const vy = Math.max(0, Math.round((scroll.scrollTop - offY + 16) * scale));
-      const vw = Math.max(1, Math.min(display.width - vx, Math.round((scroll.clientWidth - 32) * scale)));
-      const vh = Math.max(1, Math.min(display.height - vy, Math.round((scroll.clientHeight - 32) * scale)));
+      // Sample the drawn viewport, inset from the slice margins.
+      const vx = scroll.scrollLeft - offX + 16;
+      const vy = scroll.scrollTop - offY + 16;
+      const vw = scroll.clientWidth - 32;
+      const vh = scroll.clientHeight - 32;
       const live = display.getContext('2d', { willReadFrequently: true }).getImageData(vx, vy, vw, vh).data;
       const exp = refCtx.getImageData(vx, vy, vw, vh).data;
       let mismatch = 0, worst = 0;
@@ -184,7 +181,7 @@ test.describe('Zoomed-in rendering culling (mask painting)', () => {
         if (d > 0) { mismatch++; worst = Math.max(worst, d); }
       }
       return { mismatch, worst, pixels: live.length / 4 };
-    });
+    }, { px: 0, py: 0 });
     expect(diffs.pixels).toBeGreaterThan(0);
     expect(diffs.worst).toBeLessThanOrEqual(1); // antialiased sampled edge rounding at most
   });
@@ -207,23 +204,22 @@ test.describe('Zoomed-in rendering culling (mask painting)', () => {
     });
     await centerAndWait(page, probe.px, probe.py);
     await page.evaluate(async () => { await window.Renderer.draw(); });
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(500);
 
     const rgb = await page.evaluate(() => {
       const canvas = document.getElementById('display-canvas');
       const scroll = document.getElementById('canvas-scroll');
-      const scale = window.Renderer._displayScale || 1;
       const offX = canvas.offsetLeft + (canvas.offsetParent?.offsetLeft ?? 0);
       const offY = canvas.offsetTop + (canvas.offsetParent?.offsetTop ?? 0);
       const vx = scroll.scrollLeft - offX;
       const vy = scroll.scrollTop - offY;
-      // A patch at the viewport center in backing-store pixels.
-      const cx = Math.round((vx + scroll.clientWidth / 2) * scale);
-      const cy = Math.round((vy + scroll.clientHeight / 2) * scale);
-      const sx = Math.max(0, cx - 10), sy = Math.max(0, cy - 10);
-      const sw = Math.max(1, Math.min(canvas.width - sx, 20));
-      const sh = Math.max(1, Math.min(canvas.height - sy, 20));
-      const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(sx, sy, sw, sh).data;
+      const ds = window.Renderer?._displayScale || 1;
+      const sampleX = Math.round((vx + scroll.clientWidth / 2 - 10) * ds);
+      const sampleY = Math.round((vy + scroll.clientHeight / 2 - 10) * ds);
+      const size = Math.max(1, Math.round(20 * ds));
+      // A patch at the viewport center — deep inside the drawn slice.
+      const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(
+        sampleX, sampleY, size, size).data;
       let inked = 0;
       for (let i = 0; i < d.length; i += 4) {
         if (d[i] + d[i + 1] + d[i + 2] < 720) inked++; // not pure white paper

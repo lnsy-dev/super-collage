@@ -73,15 +73,16 @@ async function runPlateExport(page, { configure = null, timeout = 150000 } = {})
 
 test.describe('Export progress reporting', () => {
   test('booklet export reports sheet, ink, page, layer, encode and save stages', async ({ page }) => {
-    test.setTimeout(180000);
     await createProject(page, 'Progress Booklet', { pageSize: 'half-letter', pageCount: 4 });
     const pageIds = await buildInkPages(page, INKS);
     expect(pageIds).toHaveLength(4);
 
     const downloads = await runPlateExport(page, {
       configure: async () => {
-        await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
+        // Pick the paper first: folio is disabled while the dialog's default
+        // "Current image size" target is too small for a folio spread.
         await page.selectOption('#export-target-size', 'letter');
+        await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
       },
     });
 
@@ -119,7 +120,6 @@ test.describe('Export progress reporting', () => {
   });
 
   test('single-page export reports per-plate stages and totals', async ({ page }) => {
-    test.setTimeout(90000);
     await createProject(page, 'Progress Single', { pageSize: 'half-letter', pageCount: 1 });
     for (const ink of ['#FF0000', '#0000FF']) {
       await addImageFromBuffer(page, createSolidPngBuffer('#000000', 900, 900), { name: 'ink.png' });

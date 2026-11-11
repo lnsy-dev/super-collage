@@ -39,7 +39,11 @@ function getPageSize(page) {
 async function waitForColorLayer(page, name = 'Color Layer') {
   await page.waitForFunction((n) => {
     const l = window.State.layers.find(l => l.name === n);
-    return l && !!l._processedCanvas;
+    if (!l || !l._processedCanvas) return false;
+    // commitColorLayer pushes the layer into state before awaiting IndexedDB
+    // writes, so a render scheduled by an earlier layer can paint it before
+    // refreshLayerList runs. Wait for the DOM list to catch up as well.
+    return document.querySelectorAll('#layer-list .layer-row').length === window.State.layers.length;
   }, name);
 }
 

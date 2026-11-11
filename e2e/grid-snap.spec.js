@@ -397,22 +397,11 @@ test.describe('Grid snapping (grid visible → pointer results snap to the drawn
 
   test('zoom invariance: snapping still coincides with the drawn grid at 0.5× and 1×', async ({ page }) => {
     for (const zoom of [0.5, 1]) {
-      // Inline project creation (instead of the shared helper) with a DB
-      // clear per iteration: back-to-back creations are racy through the
-      // shared helper when the app is busy, and each zoom level needs a
-      // pristine project for a deterministic park spot.
+      // Clear per iteration: each zoom level needs a pristine project for a
+      // deterministic park spot. Use the shared helper for the wizard flow so
+      // it stays aligned with step changes.
       await clearIndexedDB(page);
-      await gotoApp(page);
-      if (await page.locator('#project-dialog').isVisible()) {
-        await page.click('#btn-create-new');
-        await expect(page.locator('#create-project-dialog')).toBeVisible();
-      }
-      await page.fill('#create-project-name', `Snap Zoom ${zoom}`);
-      await page.click('#btn-create-next');
-      await page.locator(`label:has(input[name="create-page-size"][value="half-letter"])`).click();
-      await page.click('#btn-create-next');
-      await page.click('#btn-create-next'); // Create (step 3 → project)
-      await expect(page.locator('#main-app')).toBeVisible({ timeout: 10000 });
+      await createProject(page, `Snap Zoom ${zoom}`, { pageSize: 'half-letter' });
       await page.evaluate(() => document.querySelector('.kofi-toast')?.remove());
       await addSolidColorImage(page, '#000000');
       await page.evaluate((z) => {

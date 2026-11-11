@@ -13,6 +13,8 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false, // Single worker: IndexedDB is shared per origin
   workers: 1,
+  timeout: 30_000, // A test that takes longer than this is considered broken
+  maxFailures: 0, // Run full suite for comprehensive results
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: [['html', { outputFolder: 'e2e-report' }], ['list']],

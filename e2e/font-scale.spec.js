@@ -13,7 +13,6 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Text font scaling', () => {
   test('scale a paragraph text layer up via the corner handle', async ({ page }) => {
-    test.setTimeout(120000);
     const errors = [];
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));
@@ -92,7 +91,6 @@ test.describe('Text font scaling', () => {
   });
 
   test('scale a single-line (point type) text layer up via the corner handle', async ({ page }) => {
-    test.setTimeout(120000);
     const errors = [];
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     page.on('pageerror', err => errors.push('PAGEERROR: ' + err.message));

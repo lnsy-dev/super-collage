@@ -13,6 +13,10 @@ test.beforeEach(async ({ page }) => {
 test.describe('Pagination', () => {
   test('create project with 4-page preset', async ({ page }) => {
     await gotoApp(page);
+    if (await page.locator('#project-dialog').isVisible()) {
+      await page.click('#btn-create-new');
+    }
+    await expect(page.locator('#create-project-name')).toBeVisible({ timeout: 15000 });
     await page.fill('#create-project-name', 'Four Page Zine');
     await page.click('#btn-create-next'); // Units -> Page Size
     await page.click('#btn-create-next'); // Page Size -> Pages
