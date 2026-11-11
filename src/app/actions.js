@@ -363,6 +363,31 @@ export async function handleAction(action, value = null) {
         Renderer.schedule();
       }
       break;
+    case 'center-horizontal':
+    case 'center-vertical': {
+      const ids = State.selectedIds.length ? State.selectedIds : (State.selectedId ? [State.selectedId] : []);
+      const targets = ids
+        .map(id => State.layers.find(l => l.id === id))
+        .filter(l => l && !l.locked);
+      if (targets.length === 0) break;
+      const left = Math.min(...targets.map(l => l.x));
+      const top = Math.min(...targets.map(l => l.y));
+      const right = Math.max(...targets.map(l => l.x + l.width));
+      const bottom = Math.max(...targets.map(l => l.y + l.height));
+      const cx = (left + right) / 2;
+      const cy = (top + bottom) / 2;
+      const dx = action === 'center-horizontal' ? (CANVAS_W / 2 - cx) : 0;
+      const dy = action === 'center-vertical' ? (CANVAS_H / 2 - cy) : 0;
+      for (const l of targets) {
+        pushUndo(snapshotLayer(l));
+        l.x += dx;
+        l.y += dy;
+        await DB.saveLayer(l);
+      }
+      UI.refreshProperties();
+      Renderer.schedule();
+      break;
+    }
     case 'clear-mask': {
       if (!layer) break;
       for (const l of getLinkGroup(layer)) {
