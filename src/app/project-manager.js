@@ -340,8 +340,12 @@ function validateSingleImageOptions(prefix, pageW, pageH) {
 function applyExportButton(prefix, customWarning) {
   const btn = document.getElementById(prefix === 'export' ? 'btn-export-go' : 'btn-composite-go');
   if (btn) btn.disabled = !!customWarning;
+  const warning = document.getElementById(`${prefix}-custom-warning`);
+  const warningText = document.getElementById(`${prefix}-custom-warning-text`);
+  if (warning) warning.style.display = customWarning ? '' : 'none';
+  if (warningText) warningText.textContent = customWarning || '';
   const info = document.getElementById(`${prefix}-layout-info`);
-  if (info) info.style.color = customWarning ? 'red' : '';
+  if (info) info.style.color = '';
 }
 
 function describeFit(scale, rotated, noun = 'pages') {
@@ -382,7 +386,6 @@ export function updateExportLayoutInfo() {
     const layout = calculateSingleImageLayout(pageW, pageH, copies, targetSize, customW, customH);
     const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
     let text = `${copies} per sheet, ${orientation}, ${describeFit(layout.scale, layout.imageRotated, 'image')}`;
-    if (customWarning) text = customWarning;
     if (notes.length) text += ` — ${notes.join('; ')}`;
     info.textContent = text;
     return;
@@ -397,7 +400,6 @@ export function updateExportLayoutInfo() {
   const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
   const perSide = BOOKLET_PER_SIDE[bookletLayout];
   let text = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}, ${describeFit(layout.scale, layout.pageRotated)}`;
-  if (customWarning) text = customWarning;
   if (notes.length) text += ` — ${notes.join('; ')}`;
   info.textContent = text;
 }
@@ -431,7 +433,6 @@ export function updateCompositeLayoutInfo() {
   const orientation = layout.sheetW > layout.sheetH ? 'landscape' : 'portrait';
   const perSide = BOOKLET_PER_SIDE[bookletLayout];
   let text = `${State.pages.length} page booklet, ${bookletLayout}, ${perSide} per side, Interleaved, ${orientation}, ${describeFit(layout.scale, layout.pageRotated)}`;
-  if (customWarning) text = customWarning;
   if (notes.length) text += ` — ${notes.join('; ')}`;
   info.textContent = text;
 }
