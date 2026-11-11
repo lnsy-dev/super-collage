@@ -15,6 +15,7 @@ import { isTwoToneShape } from './shape-utils.js';
 import { createExportProgress, formatBytes, formatDuration } from './export-progress.js';
 import { planTiles } from './tiles.js';
 import { sepPlateToCanvas } from './separation-methods.js';
+import { hexToRgb, rgbToHex } from '../utils/color.js';
 
 export const ExportEngine = {
   // Page-space work (image-mask compositing, plate flattening, composite
@@ -195,6 +196,131 @@ export const ExportEngine = {
     return { left, right };
   },
 
+  _mixInkHex(inks, amounts) {
+    let r = 255, g = 255, b = 255;
+    for (let i = 0; i < inks.length; i++) {
+      const a = (amounts[i] || 0) / 100;
+      if (a <= 0) continue;
+      const ir = inks[i].r, ig = inks[i].g, ib = inks[i].b;
+      r *= 1 - a * (1 - ir / 255);
+      g *= 1 - a * (1 - ig / 255);
+      b *= 1 - a * (1 - ib / 255);
+    }
+    return rgbToHex(r, g, b);
+  },
+
+  // Fit per-ink coverages that reproduce a target color. Mirrors the
+  // bucket tool's mix model (multiplicative over paper) so a blended ink
+  // created by mixing inks in-app can be decomposed back into them.
+  _fitBlendedInkComponents(hex) {
+    const { r, g, b } = hexToRgb(hex);
+    const target = [r, g, b];
+    const inks = RISO_COLORS
+      .filter(c => c.hex.toUpperCase() !== '#FFFFFF')
+      .map(c => ({ hex: c.hex, ...hexToRgb(c.hex) }));
+    const n = inks.length;
+    if (!n) return null;
+
+    const mixCost = cov => {
+      let err = 0;
+      for (let k = 0; k < 3; k++) {
+        let v = 255;
+        for (let i = 0; i < n; i++) {
+          const a = cov[i] / 100;
+          if (a > 0) v *= 1 - a * (1 - [inks[i].r, inks[i].g, inks[i].b][k] / 255);
+        }
+        err += (v - target[k]) * (v - target[k]);
+      }
+      return err;
+    };
+
+    const descend = (cov, idxs) => {
+      let best = mixCost(cov);
+      let step = 50;
+      while (step >= 1) {
+        let improved = true;
+        while (improved) {
+          improved = false;
+          for (const i of idxs) {
+            for (const dir of [1, -1]) {
+              const old = cov[i];
+              const nv = Math.max(0, Math.min(100, old + dir * step));
+              if (nv === old) continue;
+              cov[i] = nv;
+              const err = mixCost(cov);
+              if (err < best - 1e-9) { best = err; improved = true; }
+              else cov[i] = old;
+            }
+          }
+        }
+        step = step > 2 ? Math.round(step / 2) : step - 1;
+      }
+      return best;
+    };
+
+    let bestErr = Infinity;
+    let bestCov = new Array(n).fill(0);
+    const consider = cov => {
+      const err = mixCost(cov) + 0.01 * cov.filter(v => v > 0).length;
+      if (err < bestErr) { bestErr = err; bestCov = cov.slice(); }
+    };
+
+    for (let mask = 0; mask < (1 << n); mask++) {
+      let size = 0;
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) size++;
+      if (size > 3) continue;
+      const idxs = [];
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) idxs.push(i);
+      for (let combo = 0; combo < (1 << idxs.length); combo++) {
+        const cov = new Array(n).fill(0);
+        idxs.forEach((ix, j) => { if (combo & (1 << j)) cov[ix] = 100; });
+        descend(cov, idxs);
+        consider(cov);
+        if (mixCost(cov) < 1e-9) { mask = 1 << n; break; }
+      }
+    }
+
+    const components = [];
+    inks.forEach((ink, i) => {
+      if (bestCov[i] > 0) components.push({ hex: ink.hex, weight: bestCov[i] / 100 });
+    });
+    return { components, achieved: this._mixInkHex(inks, bestCov) };
+  },
+
+  // A "blended ink" is a solid layer whose color is a mix of multiple
+  // palette inks (created by blending inks in the bucket tool). Such a
+  // layer must export as its component inks, each at the coverage weight
+  // appropriate for the mix, rather than as a single plate.
+  _blendedInkComponents(layer) {
+    if (!layer || layer.isColorSeparation || isTwoToneShape(layer)) return null;
+    const mode = layer.colorMode || 'solid';
+    if (mode === 'gradient' || mode === 'pattern') return null;
+    const hex = layer.color;
+    if (!hex || hex.toUpperCase() === '#FFFFFF') return null;
+
+    let fit;
+    try {
+      fit = this._fitBlendedInkComponents(hex);
+    } catch (_) {
+      return null;
+    }
+    if (!fit) return null;
+    const components = fit.components;
+    if (components.length < 2) return null;
+
+    // Only split when the fitted mix reproduces the layer color closely;
+    // otherwise keep the original color as a single solid plate.
+    const target = (hex || '').toUpperCase();
+    const achieved = (fit.achieved || '').toUpperCase();
+    if (target !== achieved) {
+      const parse = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+      const [tr, tg, tb] = parse(target.length === 7 ? target : '#000000');
+      const [ar, ag, ab] = parse(achieved.length === 7 ? achieved : '#000000');
+      if (Math.abs(tr - ar) + Math.abs(tg - ag) + Math.abs(tb - ab) > 6) return null;
+    }
+    return components;
+  },
+
   _buildPlateMap(visibleLayers) {
     const plateMap = new Map();
     const ensurePlate = hex => {
@@ -223,7 +349,14 @@ export const ExportEngine = {
         ensurePlate(l.pattern.color1).gradContributions.push({ layer: l, stopIdx: 0 });
         ensurePlate(l.pattern.color2).gradContributions.push({ layer: l, stopIdx: 1 });
       } else {
-        ensurePlate(l.color).solidLayers.push(l);
+        const blended = this._blendedInkComponents(l);
+        if (blended) {
+          for (const { hex, weight } of blended) {
+            ensurePlate(hex).gradContributions.push({ layer: l, weight });
+          }
+        } else {
+          ensurePlate(l.color).solidLayers.push(l);
+        }
       }
     }
     return plateMap;
@@ -288,16 +421,24 @@ export const ExportEngine = {
       await this._drawLayerOnPlate(ctx, layer, scaled, width, height, layerSet);
     }
 
-    // Gradient / pattern layer contributions (weighted by color dominance)
-    for (const { layer, stopIdx } of plate.gradContributions) {
+    // Gradient / pattern / blended-ink layer contributions (weighted by
+    // color dominance or by a fixed ink-mix coverage).
+    for (const contrib of plate.gradContributions) {
+      const { layer, stopIdx, weight } = contrib;
       if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
       await tick(layer);
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
       const nw = layer.naturalWidth, nh = layer.naturalHeight;
-      const weightMap = layer.colorMode === 'pattern' && layer.pattern
-        ? buildPatternWeightMap(nw, nh, layer.pattern, stopIdx)
-        : buildGradientWeightMap(nw, nh, layer.gradient, stopIdx);
+      let weightMap = null;
+      if (typeof weight === 'number') {
+        weightMap = new Float32Array(nw * nh);
+        weightMap.fill(weight);
+      } else if (layer.colorMode === 'pattern' && layer.pattern) {
+        weightMap = buildPatternWeightMap(nw, nh, layer.pattern, stopIdx);
+      } else {
+        weightMap = buildGradientWeightMap(nw, nh, layer.gradient, stopIdx);
+      }
       const weightedCanvas = new OffscreenCanvas(nw, nh);
       const wCtx = weightedCanvas.getContext('2d', { willReadFrequently: true });
       wCtx.drawImage(sourceCanvas, 0, 0);
@@ -478,7 +619,9 @@ export const ExportEngine = {
         solidLayers: plate.solidLayers.map(live).filter(Boolean),
         shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part })).filter(p => p.layer),
         separationLayers: plate.separationLayers.map(p => ({ layer: live(p.layer), color: p.color })).filter(p => p.layer),
-        gradContributions: plate.gradContributions.map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx })).filter(p => p.layer),
+        gradContributions: plate.gradContributions
+          .map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx, weight: p.weight }))
+          .filter(p => p.layer),
       },
     };
   },
@@ -920,6 +1063,8 @@ export const ExportEngine = {
     if (rec.colorMode === 'pattern' && rec.pattern) {
       return [rec.pattern.color1, rec.pattern.color2];
     }
+    const blended = this._blendedInkComponents(rec);
+    if (blended) return blended.map(c => c.hex);
     return rec.color ? [rec.color] : [];
   },
 
