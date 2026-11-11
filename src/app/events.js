@@ -1346,35 +1346,8 @@ export function wireControls() {
       }
       return;
     }
-    const l = selectedLayer(); if (!l) return;
-    if (l.isShape && !l.isColorSeparation) {
-      // Shape layers are single-ink (one part per layer): apply the swatch to
-      // the layer's active ink — fill body if it has one, border otherwise.
-      const hex = sw.dataset.color;
-      applyShapeChange(l, layer => {
-        if (layer.shapeHasFill) {
-          layer.shapeFillColor = hex;
-        } else {
-          layer.shapeStrokeColor = hex;
-        }
-        // Keep the layer's main color in sync so other UI (layer list,
-        // gradient/pattern editors) stays consistent.
-        layer.color = hex;
-      });
-      // applyShapeChange mutates the layer synchronously before its first
-      // await, so refreshing now shows the new selection immediately instead
-      // of waiting for the re-render to finish.
-      UI.refreshColorSwatches();
-      UI.refreshLayerList();
-      return;
-    }
-    pushUndo(snapshotLayer(l));
-    l.color = sw.dataset.color;
-    l._dirty = true;
-    UI.refreshColorSwatches();
-    DB.saveLayer(l);
-    UI.refreshLayerList();
-    Renderer.schedule();
+    if (!selectedLayer()) return;
+    await applySolidColorToSelected(sw.dataset.color);
   });
 
   // Double-click a palette swatch to edit that color (rename or re-tint
@@ -1575,6 +1548,72 @@ export function wireControls() {
     DB.saveLayer(layer);
   }
 
+  function getSelectedLayersForEdit(primaryOnly = false) {
+    const primary = selectedLayer();
+    if (!primary) return [];
+    if (primaryOnly || State.selectedIds.length <= 1) return [primary];
+    return State.selectedIds
+      .map(id => State.layers.find(l => l.id === id))
+      .filter(Boolean);
+  }
+
+  function selectionBounds(layers) {
+    if (!layers.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const l of layers) {
+      minX = Math.min(minX, l.x);
+      minY = Math.min(minY, l.y);
+      maxX = Math.max(maxX, l.x + l.width);
+      maxY = Math.max(maxY, l.y + l.height);
+    }
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    return { x: minX, y: minY, width, height };
+  }
+
+  function syncGradientStretchBounds(layers) {
+    const targets = layers.filter(l => l && l.colorMode === 'gradient' && l.gradient);
+    if (targets.length <= 1) {
+      // Single gradient layer: no cross-layer stretch.
+      targets.forEach(l => { l.gradientBounds = null; });
+      return targets;
+    }
+    const bounds = selectionBounds(layers);
+    targets.forEach(l => { l.gradientBounds = bounds ? { ...bounds } : null; });
+    return targets;
+  }
+
+  function cloneGradient(g) {
+    return g ? JSON.parse(JSON.stringify(g)) : g;
+  }
+
+  async function applySolidColorToSelected(hex) {
+    const layers = getSelectedLayersForEdit();
+    if (!layers.length) return;
+    const shapeLayers = layers.filter(l => l.isShape && !l.isColorSeparation);
+    const normalLayers = layers.filter(l => !(l.isShape && !l.isColorSeparation));
+    for (const l of normalLayers) {
+      pushUndo(snapshotLayer(l));
+      l.color = hex;
+      l._dirty = true;
+      DB.saveLayer(l);
+    }
+    for (const l of shapeLayers) {
+      await applyShapeChange(l, layer => {
+        if (layer.shapeHasFill) {
+          layer.shapeFillColor = hex;
+        } else {
+          layer.shapeStrokeColor = hex;
+        }
+        layer.color = hex;
+      });
+    }
+    UI.refreshColorSwatches();
+    UI.refreshLayerList();
+    UI.refreshProperties();
+    Renderer.schedule();
+  }
+
   // Shape part radios: exactly one part per shape layer. Selecting a part
   // the layer doesn't have spawns a sibling layer for it (see
   // LayerManager.spawnShapePart) — the inside keeps its own layer and ink,
@@ -1640,105 +1679,170 @@ export function wireControls() {
 
   // ── Gradient: mode toggle ─────────────────────────────────────────
   document.getElementById('btn-mode-solid').addEventListener('click', () => {
-    const l = selectedLayer(); if (!l) return;
-    pushUndo(snapshotLayer(l));
-    l.colorMode = 'solid'; l._dirty = true;
-    DB.saveLayer(l); UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
+    const layers = getSelectedLayersForEdit(); if (!layers.length) return;
+    for (const l of layers) {
+      pushUndo(snapshotLayer(l));
+      l.colorMode = 'solid';
+      l.gradientBounds = null;
+      l._dirty = true;
+      DB.saveLayer(l);
+    }
+    UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
   });
   document.getElementById('btn-mode-gradient').addEventListener('click', () => {
-    const l = selectedLayer(); if (!l) return;
-    pushUndo(snapshotLayer(l));
-    l.colorMode = 'gradient'; l._dirty = true;
-    DB.saveLayer(l); UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
+    const layers = getSelectedLayersForEdit(); if (!layers.length) return;
+    for (const l of layers) {
+      pushUndo(snapshotLayer(l));
+      l.colorMode = 'gradient';
+      l._dirty = true;
+    }
+    // When multiple layers are selected, stretch the gradient continuously
+    // across all selected sub items.
+    syncGradientStretchBounds(layers);
+    for (const l of layers) DB.saveLayer(l);
+    UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
   });
   document.getElementById('btn-mode-pattern').addEventListener('click', () => {
-    const l = selectedLayer(); if (!l) return;
-    pushUndo(snapshotLayer(l));
-    l.colorMode = 'pattern'; l._dirty = true;
-    DB.saveLayer(l); UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
+    const layers = getSelectedLayersForEdit(); if (!layers.length) return;
+    for (const l of layers) {
+      pushUndo(snapshotLayer(l));
+      l.colorMode = 'pattern';
+      l.gradientBounds = null;
+      l._dirty = true;
+      DB.saveLayer(l);
+    }
+    UI.refreshLayerList(); UI.refreshProperties(); Renderer.schedule();
   });
 
   // ── Gradient: type buttons ────────────────────────────────────────
   document.querySelectorAll('.grad-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const l = selectedLayer(); if (!l) return;
-      pushUndo(snapshotLayer(l));
-      l.gradient.type = btn.dataset.gradType; l._dirty = true;
+      const primary = selectedLayer(); if (!primary) return;
+      const targets = State.selectedIds.length > 1
+        ? State.selectedIds.map(id => State.layers.find(l => l.id === id)).filter(l => l && l.colorMode === 'gradient')
+        : (primary.colorMode === 'gradient' ? [primary] : []);
+      if (!targets.length) return;
+      for (const l of targets) { pushUndo(snapshotLayer(l)); l.gradient.type = btn.dataset.gradType; l._dirty = true; }
+      syncGradientStretchBounds(getSelectedLayersForEdit());
       document.querySelectorAll('.grad-type-btn').forEach(b => b.classList.toggle('active', b === btn));
-      refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
+      refreshGradientEditor(primary); targets.forEach(l => DB.saveLayer(l)); Renderer.schedule();
     });
   });
 
+
+  function getGradientEditTargets() {
+    const primary = selectedLayer();
+    if (!primary) return { primary: null, targets: [] };
+    if (State.selectedIds.length > 1) {
+      const all = State.selectedIds.map(id => State.layers.find(l => l.id === id)).filter(Boolean);
+      const targets = all.filter(l => l.colorMode === 'gradient');
+      return { primary, targets, allSelected: all };
+    }
+    return { primary, targets: primary.colorMode === 'gradient' ? [primary] : [], allSelected: [primary] };
+  }
   // ── Gradient: angle slider ────────────────────────────────────────
   let gradAnglePushed = false;
   document.getElementById('grad-angle').addEventListener('input', e => {
-    const l = selectedLayer(); if (!l) return;
-    if (!gradAnglePushed) { pushUndo(snapshotLayer(l)); gradAnglePushed = true; }
-    l.gradient.angle = parseInt(e.target.value);
-    document.getElementById('val-grad-angle').textContent = l.gradient.angle + '°';
-    l._dirty = true; renderGradientBar(l); Renderer.schedule();
+    const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
+    const angle = parseInt(e.target.value);
+    for (const l of targets) {
+      if (!gradAnglePushed) pushUndo(snapshotLayer(l));
+      l.gradient.angle = angle;
+      l._dirty = true;
+    }
+    gradAnglePushed = true;
+    syncGradientStretchBounds(allSelected || targets);
+    document.getElementById('val-grad-angle').textContent = angle + '°';
+    renderGradientBar(primary); Renderer.schedule();
   });
   document.getElementById('grad-angle').addEventListener('change', () => {
+    const { targets } = getGradientEditTargets();
     gradAnglePushed = false;
-    const l = selectedLayer(); if (l) DB.saveLayer(l);
+    targets.forEach(l => DB.saveLayer(l));
   });
 
   // ── Gradient: center sliders ──────────────────────────────────────
   let gradCxPushed = false;
   document.getElementById('grad-cx').addEventListener('input', e => {
-    const l = selectedLayer(); if (!l) return;
-    if (!gradCxPushed) { pushUndo(snapshotLayer(l)); gradCxPushed = true; }
-    l.gradient.centerX = parseInt(e.target.value) / 100;
-    l._dirty = true; renderGradientBar(l); Renderer.schedule();
+    const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
+    const v = parseInt(e.target.value) / 100;
+    for (const l of targets) {
+      if (!gradCxPushed) pushUndo(snapshotLayer(l));
+      l.gradient.centerX = v;
+      l._dirty = true;
+    }
+    gradCxPushed = true;
+    syncGradientStretchBounds(allSelected || targets);
+    renderGradientBar(primary); Renderer.schedule();
   });
   document.getElementById('grad-cx').addEventListener('change', () => {
+    const { targets } = getGradientEditTargets();
     gradCxPushed = false;
-    const l = selectedLayer(); if (l) DB.saveLayer(l);
+    targets.forEach(l => DB.saveLayer(l));
   });
   let gradCyPushed = false;
   document.getElementById('grad-cy').addEventListener('input', e => {
-    const l = selectedLayer(); if (!l) return;
-    if (!gradCyPushed) { pushUndo(snapshotLayer(l)); gradCyPushed = true; }
-    l.gradient.centerY = parseInt(e.target.value) / 100;
-    l._dirty = true; renderGradientBar(l); Renderer.schedule();
+    const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
+    const v = parseInt(e.target.value) / 100;
+    for (const l of targets) {
+      if (!gradCyPushed) pushUndo(snapshotLayer(l));
+      l.gradient.centerY = v;
+      l._dirty = true;
+    }
+    gradCyPushed = true;
+    syncGradientStretchBounds(allSelected || targets);
+    renderGradientBar(primary); Renderer.schedule();
   });
   document.getElementById('grad-cy').addEventListener('change', () => {
+    const { targets } = getGradientEditTargets();
     gradCyPushed = false;
-    const l = selectedLayer(); if (l) DB.saveLayer(l);
+    targets.forEach(l => DB.saveLayer(l));
   });
 
   // ── Gradient: add stop ────────────────────────────────────────────
   document.getElementById('btn-add-stop').addEventListener('click', () => {
-    const l = selectedLayer(); if (!l) return;
-    pushUndo(snapshotLayer(l));
-    const stops = l.gradient.stops;
-    // Insert new stop between last two
-    const last = stops[stops.length - 1].position;
-    const prev = stops[stops.length - 2].position;
-    stops.splice(stops.length - 1, 0, { color: RISO_COLORS[0].hex, position: (last + prev) / 2 });
-    l._dirty = true; refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
+    const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
+    for (const l of targets) pushUndo(snapshotLayer(l));
+    const refStops = primary.gradient.stops;
+    const last = refStops[refStops.length - 1].position;
+    const prev = refStops[refStops.length - 2].position;
+    const newStop = { color: RISO_COLORS[0].hex, position: (last + prev) / 2 };
+    for (const l of targets) {
+      l.gradient.stops.splice(l.gradient.stops.length - 1, 0, { ...newStop });
+      l._dirty = true;
+    }
+    syncGradientStretchBounds(allSelected || targets);
+    refreshGradientEditor(primary); targets.forEach(l => DB.saveLayer(l)); Renderer.schedule();
   });
 
   // ── Gradient: stop list event delegation ─────────────────────────
   document.getElementById('gradient-stop-list').addEventListener('click', e => {
     const risoSw = e.target.closest('.stop-riso-sw');
     if (risoSw) {
-      const l = selectedLayer(); if (!l) return;
-      pushUndo(snapshotLayer(l));
+      const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
       const idx = parseInt(risoSw.dataset.stopIdx);
-      l.gradient.stops[idx].color = risoSw.dataset.risoColor;
-      l._dirty = true; refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
+      for (const l of targets) {
+        pushUndo(snapshotLayer(l));
+        if (l.gradient.stops[idx]) l.gradient.stops[idx].color = risoSw.dataset.risoColor;
+        l._dirty = true;
+      }
+      syncGradientStretchBounds(allSelected || targets);
+      refreshGradientEditor(primary); targets.forEach(l => DB.saveLayer(l)); Renderer.schedule();
       return;
     }
     const removeBtn = e.target.closest('.stop-remove-btn');
     if (removeBtn && !removeBtn.disabled) {
-      const l = selectedLayer(); if (!l) return;
-      pushUndo(snapshotLayer(l));
+      const { primary, targets, allSelected } = getGradientEditTargets(); if (!primary || !targets.length) return;
       const idx = parseInt(removeBtn.dataset.stopIdx);
-      if (l.gradient.stops.length > 2) {
-        l.gradient.stops.splice(idx, 1);
-        l._dirty = true; refreshGradientEditor(l); DB.saveLayer(l); Renderer.schedule();
+      for (const l of targets) {
+        pushUndo(snapshotLayer(l));
+        if (l.gradient.stops.length > 2) {
+          l.gradient.stops.splice(idx, 1);
+          l._dirty = true;
+        }
       }
+      syncGradientStretchBounds(allSelected || targets);
+      refreshGradientEditor(primary); targets.forEach(l => DB.saveLayer(l)); Renderer.schedule();
     }
   });
 
@@ -1746,37 +1850,52 @@ export function wireControls() {
   const gradBarCanvas = document.getElementById('gradient-bar-canvas');
   let gradDrag = null;
   gradBarCanvas.addEventListener('pointerdown', e => {
-    const l = selectedLayer(); if (!l || l.colorMode !== 'gradient') return;
+    const { primary, targets, allSelected } = getGradientEditTargets();
+    if (!primary || !targets.length || primary.colorMode !== 'gradient') return;
     const rect = gradBarCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const w = gradBarCanvas.offsetWidth || 160;
-    const stops = l.gradient.stops;
+    const stops = primary.gradient.stops;
     let hitIdx = -1, minDist = Infinity;
     stops.forEach((s, i) => {
       const d = Math.abs(s.position * w - x);
       if (d < 10 && d < minDist) { minDist = d; hitIdx = i; }
     });
     if (hitIdx === -1) return;
-    pushUndo(snapshotLayer(l));
+    for (const l of targets) pushUndo(snapshotLayer(l));
     gradBarCanvas.setPointerCapture(e.pointerId);
-    gradDrag = { stopIdx: hitIdx };
+    gradDrag = { stopIdx: hitIdx, targetIds: targets.map(l => l.id), allIds: (allSelected || targets).map(l => l.id) };
     e.preventDefault();
   });
   gradBarCanvas.addEventListener('pointermove', e => {
     if (!gradDrag) return;
-    const l = selectedLayer(); if (!l) return;
+    const primary = selectedLayer(); if (!primary) return;
+    const targets = gradDrag.targetIds.map(id => State.layers.find(l => l.id === id)).filter(Boolean);
+    const all = gradDrag.allIds.map(id => State.layers.find(l => l.id === id)).filter(Boolean);
     const rect = gradBarCanvas.getBoundingClientRect();
     const w = gradBarCanvas.offsetWidth || 160;
     const x = Math.max(0, Math.min(w, e.clientX - rect.left));
-    l.gradient.stops[gradDrag.stopIdx].position = x / w;
-    l.gradient.stops.sort((a, b) => a.position - b.position);
-    l._dirty = true; refreshGradientEditor(l); Renderer.schedule();
+    const pos = x / w;
+    for (const l of targets) {
+      if (!l.gradient.stops[gradDrag.stopIdx]) continue;
+      l.gradient.stops[gradDrag.stopIdx].position = pos;
+      l.gradient.stops.sort((a, b) => a.position - b.position);
+      l._dirty = true;
+    }
+    syncGradientStretchBounds(all.length ? all : targets);
+    refreshGradientEditor(primary); Renderer.schedule();
   });
   gradBarCanvas.addEventListener('pointerup', () => {
-    if (gradDrag) { const l = selectedLayer(); if (l) DB.saveLayer(l); gradDrag = null; }
+    if (gradDrag) {
+      gradDrag.targetIds.forEach(id => { const l = State.layers.find(x => x.id === id); if (l) DB.saveLayer(l); });
+      gradDrag = null;
+    }
   });
   gradBarCanvas.addEventListener('pointercancel', () => {
-    if (gradDrag) { const l = selectedLayer(); if (l) DB.saveLayer(l); gradDrag = null; }
+    if (gradDrag) {
+      gradDrag.targetIds.forEach(id => { const l = State.layers.find(x => x.id === id); if (l) DB.saveLayer(l); });
+      gradDrag = null;
+    }
   });
 
   // ── Pattern: type buttons ─────────────────────────────────────────

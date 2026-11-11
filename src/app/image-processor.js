@@ -105,6 +105,35 @@ export function generateGradientCanvas(width, height, gradient) {
   return canvas;
 }
 
+
+/**
+ * Render a gradient that is defined over a page-space bounding box
+ * (gradientBounds) into a canvas sized to the layer's target render size.
+ * This lets multiple layers share one continuous gradient stretched across
+ * all of them ("sub items").
+ */
+export function generateStretchedGradientCanvas(targetW, targetH, gradient, layer, bounds) {
+  const bw = Number(bounds && bounds.width) || 0;
+  const bh = Number(bounds && bounds.height) || 0;
+  if (!(bw > 0) || !(bh > 0)) return generateGradientCanvas(targetW, targetH, gradient);
+  const gradCanvas = generateGradientCanvas(bw, bh, gradient);
+  const out = new OffscreenCanvas(targetW, targetH);
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  const sx = targetW / (layer.width || 1);
+  const sy = targetH / (layer.height || 1);
+  // Source region in gradient-bounds space covered by this layer.
+  const srcX = (layer.x || 0) - (bounds.x || 0);
+  const srcY = (layer.y || 0) - (bounds.y || 0);
+  const srcW = layer.width || 0;
+  const srcH = layer.height || 0;
+  if (srcW > 0 && srcH > 0) {
+    ctx.drawImage(gradCanvas, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+  } else {
+    ctx.drawImage(gradCanvas, 0, 0, targetW, targetH);
+  }
+  return out;
+}
+
 /* ─── PATTERN CANVAS GENERATOR ──────────────────────────────────── */
 export function generatePatternCanvas(width, height, pattern, scale = 1) {
   const canvas = new OffscreenCanvas(width, height);
@@ -272,7 +301,9 @@ export const ImageProcessor = {
     if (layer.halftoneType === 'grayscale') {
       const d = px.data;
       if (layer.colorMode === 'gradient' && layer.gradient) {
-        const gradCanvas = generateGradientCanvas(targetW, targetH, layer.gradient);
+        const gradCanvas = layer.gradientBounds
+          ? generateStretchedGradientCanvas(targetW, targetH, layer.gradient, layer, layer.gradientBounds)
+          : generateGradientCanvas(targetW, targetH, layer.gradient);
         const gradData = gradCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, targetW, targetH).data;
         for (let i = 0; i < d.length; i += 4) {
           const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
@@ -299,7 +330,9 @@ export const ImageProcessor = {
     } else {
       if (layer.halftoneType !== 'none') {
         if (layer.colorMode === 'gradient' && layer.gradient) {
-          const gradCanvas = generateGradientCanvas(targetW, targetH, layer.gradient);
+          const gradCanvas = layer.gradientBounds
+            ? generateStretchedGradientCanvas(targetW, targetH, layer.gradient, layer, layer.gradientBounds)
+            : generateGradientCanvas(targetW, targetH, layer.gradient);
           const gradData = gradCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, targetW, targetH).data;
           const d = px.data;
           for (let i = 0; i < d.length; i += 4) {
@@ -578,7 +611,9 @@ export const ImageProcessor = {
     const d = px.data;
     if (layer && layer.colorMode === 'gradient' && layer.gradient) {
       const nw = px.width, nh = px.height;
-      const gradCanvas = generateGradientCanvas(nw, nh, layer.gradient);
+      const gradCanvas = layer.gradientBounds
+        ? generateStretchedGradientCanvas(nw, nh, layer.gradient, layer, layer.gradientBounds)
+        : generateGradientCanvas(nw, nh, layer.gradient);
       const gradData = gradCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, nw, nh).data;
       for (let i = 0; i < d.length; i += 4) {
         const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
