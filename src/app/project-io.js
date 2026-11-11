@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Project I/O — download / upload a whole project as a .zip
+   Project I/O — download / upload a whole project as a .collage (zip)
 
    A project round-trips 1:1: its `projects` record, every `pages` record,
    every `layers` record (full Layer.toRecord()), and every image/mask blob
@@ -124,7 +124,7 @@ export const ProjectIO = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${_slug(project?.name)}.zip`;
+    a.download = `${_slug(project?.name)}.collage`;
     a.click();
     // Revoke on the next tick so the click has a chance to start the download.
     setTimeout(() => URL.revokeObjectURL(url), 1000);

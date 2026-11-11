@@ -78,7 +78,7 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
         await page.click('.menu-entry[data-action="download-project"]');
       })(),
     ]);
-    expect(download.suggestedFilename()).toMatch(/\.zip$/);
+    expect(download.suggestedFilename()).toMatch(/\.collage$/);
     const zipPath = await download.path();
     const buffer = fs.readFileSync(zipPath);
     expect(buffer.length).toBeGreaterThan(0);
@@ -108,7 +108,7 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
     assertRoundTrip(before, after);
   });
 
-  test('upload button opens the file chooser', async ({ page }) => {
+  test('upload button opens the file chooser and accepts .collage and .zip', async ({ page }) => {
     // Seed a project so the manager (with Upload button) is visible.
     await page.goto('/');
     await page.evaluate(async () => {
@@ -126,11 +126,64 @@ test.describe('Project download / upload (ZIP round-trip)', () => {
     });
     await gotoApp(page);
     await expect(page.locator('#project-dialog')).toBeVisible();
+    const accept = await page.locator('#project-import-input').getAttribute('accept');
+    expect(accept).toContain('.collage');
+    expect(accept).toContain('.zip');
     const [chooser] = await Promise.all([
       page.waitForEvent('filechooser'),
       page.click('#btn-upload-project'),
     ]);
     expect(chooser).toBeTruthy();
+  });
+
+  test('downloaded .collage can be re-uploaded and valid .zip uploads are still accepted', async ({ page }) => {
+    await buildComplexProject(page);
+    const before = await snapshotProject(page);
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      (async () => {
+        await page.click('.menu-item[data-menu="file"]');
+        await page.click('.menu-entry[data-action="download-project"]');
+      })(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.collage$/);
+    const collagePath = await download.path();
+    const buffer = fs.readFileSync(collagePath);
+
+    // Re-upload as a .collage file.
+    await clearIndexedDB(page);
+    await page.reload();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    let [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.click('#btn-upload-project'),
+    ]);
+    await chooser.setFiles({
+      name: 'complex-doc.collage',
+      mimeType: 'application/zip',
+      buffer,
+    });
+    await expect(page.locator('#main-app')).toBeVisible();
+    const afterCollage = await snapshotProject(page);
+    assertRoundTrip(before, afterCollage);
+
+    // A valid project archive with a .zip filename is still accepted.
+    await clearIndexedDB(page);
+    await page.reload();
+    await expect(page.locator('#project-dialog')).toBeVisible();
+    [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.click('#btn-upload-project'),
+    ]);
+    await chooser.setFiles({
+      name: 'legacy-project.zip',
+      mimeType: 'application/zip',
+      buffer,
+    });
+    await expect(page.locator('#main-app')).toBeVisible();
+    const afterZip = await snapshotProject(page);
+    assertRoundTrip(before, afterZip);
   });
 
   test('every feature survives a round-trip (coverage)', async ({ page }) => {
