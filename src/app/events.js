@@ -10,7 +10,7 @@ import { drawShapePath, rerenderShapeLayer } from './shape-utils.js';
 import { LayerManager } from './layer-manager.js';
 import { ImageProcessor } from './image-processor.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask } from './undo.js';
-import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, showColorManagerAddRow, showColorManagerDialog, resetColorManagerToDefaults } from './actions.js';
+import { handleAction, applyMargins, applyGrid, updateViewMenuLabels, applyColorManagerChanges, hideColorManagerDialog, addColorManagerRow, showColorManagerDialog, resetColorManagerToDefaults } from './actions.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, RISO_COLORS, PAGE_SIZE_DIMS, formatPageSizeLabel } from './constants.js';
 import { showProjectDialog, hideProjectDialog, showCreateDialog, hideCreateDialog, _selProjectId, openProject, loadProjectList, updateExportLayoutInfo, updateCompositeLayoutInfo } from './project-manager.js';
 import { PageManager } from './page-manager.js';
@@ -23,7 +23,7 @@ import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
 import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
 import { isSnapEnabled, snapPageValue, snapOverlayPoint, snapMoveCorrection } from './grid-snap.js';
-import { BucketTool } from './color-layer.js';
+import { BucketTool, showBucketMixDialog } from './color-layer.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1339,10 +1339,9 @@ export function wireControls() {
   document.getElementById('color-swatches')?.addEventListener('click', async e => {
     const sw = e.target.closest('.color-swatch');
     if (!sw) {
-      // "+" at the end of the palette: add a new ink via the ink selection
-      // (Color Manager opens with a fresh editable row).
+      // "+" at the end of the palette: open the ink mixing view.
       if (e.target.closest('.color-swatch-add')) {
-        await showColorManagerAddRow();
+        showBucketMixDialog();
       }
       return;
     }

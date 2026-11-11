@@ -246,13 +246,12 @@ export const UI = {
       sw.title = rc.name;
       container.appendChild(sw);
     }
-    // "+ ink" affordance at the end of the palette: opens the ink selection
-    // (Color Manager) with a fresh editable row so new colors can be added
-    // without leaving the right panel.
+    // "+ ink" affordance at the end of the palette: opens the ink mixing
+    // view so the user can mix inks without leaving the right panel.
     const addBtn = document.createElement('button');
     addBtn.className = 'color-swatch-add';
     addBtn.type = 'button';
-    addBtn.title = 'Add ink color…';
+    addBtn.title = 'Mix ink…';
     addBtn.textContent = '+';
     container.appendChild(addBtn);
   },

@@ -42,6 +42,69 @@ test.describe('Ink palette', () => {
     await expect(page.locator('#color-swatches .color-swatch').first()).toBeVisible();
   });
 
+  test('+ button opens the ink mixing view and can be dismissed', async ({ page }) => {
+    await createProject(page, 'Mix Ink From Palette');
+
+    await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
+    await page.click('.color-swatch-add');
+    await expect(page.locator('#paint-bucket-dialog')).toBeVisible();
+    await expect(page.locator('#paint-bucket-dialog .dialog-title')).toHaveText('Mix Ink');
+    await expect(page.locator('#color-manager-dialog')).toBeHidden();
+
+    await page.click('#btn-bucket-done');
+    await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
+  });
+
+  test('ink mixing view opened from + updates the bucket swatch', async ({ page }) => {
+    await createProject(page, 'Mix Ink Updates');
+
+    await page.click('.color-swatch-add');
+    await expect(page.locator('#paint-bucket-dialog')).toBeVisible();
+    // Reset to a known state, then move the first ink slider to 0%.
+    await page.click('#btn-bucket-reset');
+    const slider = page.locator('#bucket-ink-sliders .bucket-ink-slider').first();
+    await slider.evaluate((el) => {
+      el.value = '0';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect(page.locator('#bucket-mix-hex')).toHaveText('#FFFFFF');
+    await expect(page.locator('#bucket-color-swatch')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  });
+
+  test('Edit Colors is only available from the Colors menu', async ({ page }) => {
+    await createProject(page, 'Edit Colors Menu Only');
+
+    // Menu entry remains present.
+    await page.click('.menu-item[data-menu="colors"]');
+    await expect(page.locator('.menu-entry[data-action="edit-colors"]')).toBeVisible();
+    await expect(page.locator('.menu-entry[data-action="edit-colors"]')).toHaveText('Edit Colors…');
+    await page.click('.menu-entry[data-action="edit-colors"]');
+    await expect(page.locator('#color-manager-dialog')).toBeVisible();
+    await page.click('#btn-color-manager-cancel');
+    await expect(page.locator('#color-manager-dialog')).toBeHidden();
+
+    // No other Edit Colors option/entry appears outside the menu.
+    const extra = await page.evaluate(() => {
+      const allowed = new Set(['menu-entry']);
+      const hits = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+      while (walker.nextNode()) {
+        const el = walker.currentNode;
+        if (el.id === 'menu-bar' || el.closest('#menu-bar')) continue;
+        if (el.id === 'color-manager-dialog' || el.closest('#color-manager-dialog')) continue;
+        const text = (el.textContent || '').trim();
+        if (text !== 'Edit Colors' && text !== 'Edit Colors…') continue;
+        // Ignore containers that merely include dialog/menu text via descendants.
+        if ([...el.children].some((c) => (c.textContent || '').includes('Edit Colors'))) continue;
+        const cls = [...el.classList];
+        if (cls.some((c) => allowed.has(c))) continue;
+        hits.push({ tag: el.tagName, text, id: el.id || null, classes: cls });
+      }
+      return hits;
+    });
+    expect(extra, `unexpected Edit Colors entries outside menu: ${JSON.stringify(extra)}`).toEqual([]);
+  });
+
   test('palette view survives gradient mode and color-separation selection', async ({ page }) => {
     await createProject(page, 'Palette Always Visible');
     await addImage(page, TEST_IMAGE);
@@ -81,64 +144,7 @@ test.describe('Ink palette', () => {
     expect((await paletteVisible(page)).visible).toBe(true);
 
     // Property sections for the layer are hidden while nothing is selected.
-    await page.evaluate(() => {
-      document.getElementById('no-selection-msg');
-    });
     await expect(page.locator('#no-selection-msg')).toBeVisible();
-  });
-
-  test('+ button opens the ink selection with a fresh editable row and applies it', async ({ page }) => {
-    await createProject(page, 'Add Ink Flow');
-
-    // An ink row already exists: free a slot so the quick add can land
-    // within the separation engine's 7-printable-ink cap.
-    await page.click('.color-swatch-add');
-    await expect(page.locator('#color-manager-dialog')).toBeVisible();
-    // The manager opened with one pre-appended editable row at the end.
-    const lastRow = page.locator('.color-manager-row').last();
-    await expect(lastRow.locator('.color-manager-name')).toHaveValue('New Color');
-
-    // Complete the new-ink edit like a user would.
-    await page.locator('.color-manager-row').nth(6).locator('.color-manager-remove').click();
-    await lastRow.locator('.color-manager-name').fill('Cornflower');
-    await lastRow.locator('.color-manager-color').evaluate((el) => {
-      el.value = '#1e90ff';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await page.click('#btn-color-manager-ok');
-    await expect(page.locator('#color-manager-dialog')).toBeHidden();
-
-    // The new ink shows in the palette view.
-    await expect(page.locator('#color-swatches .color-swatch[data-color="#1E90FF"]')).toHaveCount(1);
-  });
-
-  test('added ink persists across reload', async ({ page }) => {
-    await createProject(page, 'Ink Persistence');
-
-    await page.click('.color-swatch-add');
-    await expect(page.locator('#color-manager-dialog')).toBeVisible();
-    const lastRow = page.locator('.color-manager-row').last();
-    await page.locator('.color-manager-row').nth(6).locator('.color-manager-remove').click();
-    await lastRow.locator('.color-manager-name').fill('Coral');
-    await lastRow.locator('.color-manager-color').evaluate((el) => {
-      el.value = '#ff7f50';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await page.click('#btn-color-manager-ok');
-    await expect(page.locator('#color-manager-dialog')).toBeHidden();
-    await expect(page.locator('#color-swatches .color-swatch[data-color="#FF7F50"]')).toHaveCount(1);
-
-    // Reload and reopen the project; the project-scoped ink survives.
-    await page.reload();
-    await page.waitForFunction(() => window.__appReady === true, null, { timeout: 10000 });
-    await expect(page.locator('#project-dialog')).toBeVisible();
-    await page.click('.project-entry');
-    await page.click('#btn-open-project');
-    await expect(page.locator('#main-app')).toBeVisible();
-
-    await expect(page.locator('#color-swatches .color-swatch[data-color="#FF7F50"]')).toHaveCount(1);
   });
 
   test('palette stays visible after picking an ink on a selected layer', async ({ page }) => {
