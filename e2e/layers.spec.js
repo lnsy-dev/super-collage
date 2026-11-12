@@ -377,4 +377,72 @@ test.describe('Layer System', () => {
     const allUnlocked = await page.evaluate(() => window.State.layers.every(l => l.locked === false));
     expect(allUnlocked).toBe(true);
   });
+
+  test('delete removes all selected layers when multiple selected', async ({ page }) => {
+    await createProject(page, 'Multi Delete Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(2).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-row.selected')).toHaveCount(2);
+
+    await page.locator('#layer-buttons [data-action="delete-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+    await expect(page.locator('.layer-row.selected')).toHaveCount(1);
+  });
+
+  test('delete via keyboard removes all selected layers', async ({ page }) => {
+    await createProject(page, 'Multi Delete Key Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
+
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-row.selected')).toHaveCount(2);
+
+    await page.keyboard.press('Delete');
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(0);
+    await expect(page.locator('#no-layer-msg')).toBeVisible();
+  });
+
+  test('delete all selected layers is a single undo step', async ({ page }) => {
+    await createProject(page, 'Multi Delete Undo Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-row.selected')).toHaveCount(2);
+
+    await page.locator('#layer-buttons [data-action="delete-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
+
+    await page.keyboard.press('Control+z');
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+  });
+
+  test('deleting one of multiple selected layers leaves others selected context sensible', async ({ page }) => {
+    await createProject(page, 'Multi Delete Partial Test');
+    await addImage(page, TEST_IMAGE);
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+
+    // Select all three then delete — should remove all.
+    await page.locator('.layer-row').nth(0).click();
+    await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
+    await page.locator('.layer-row').nth(2).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-row.selected')).toHaveCount(3);
+
+    await page.locator('#layer-buttons [data-action="delete-layer"]').click();
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(0);
+    await expect(page.locator('#no-layer-msg')).toBeVisible();
+  });
+
 });
