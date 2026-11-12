@@ -82,6 +82,16 @@ export function currentBucketColor() {
   return mixInks(inks);
 }
 
+/** Active mixed-ink recipe: constituent inks with coverage > 0. */
+export function getActiveMixedInks() {
+  const out = {};
+  for (const [hex, amount] of Object.entries(State.bucketInks || {})) {
+    const a = Math.max(0, Math.min(100, Number(amount) || 0));
+    if (a > 0) out[hex] = a;
+  }
+  return out;
+}
+
 function inkAmount(hex) {
   return State.bucketInks[hex] ?? 0;
 }
@@ -334,12 +344,24 @@ function mergeIntoFillLayer(layer, region) {
   layer.x = ux; layer.y = uy; layer.width = uw; layer.height = uh;
   layer.naturalWidth = natW; layer.naturalHeight = natH;
   layer.color = State.bucketColor;
+  layer.mixedInks = getActiveMixedInks();
   layer._dirty = true;
+}
+
+function mixedInksEqual(a, b) {
+  const ka = Object.keys(a || {}).filter(k => (a[k] || 0) > 0).sort();
+  const kb = Object.keys(b || {}).filter(k => (b[k] || 0) > 0).sort();
+  if (ka.length !== kb.length) return false;
+  for (let i = 0; i < ka.length; i++) {
+    if (ka[i] !== kb[i]) return false;
+    if (Number(a[ka[i]]) !== Number(b[kb[i]])) return false;
+  }
+  return true;
 }
 
 /**
  * Place a flood-filled region: merges into the selected Color Layer when
- * there is one using the same ink, otherwise creates a new one.
+ * there is one using the same mixed ink, otherwise creates a new one.
  * @param {{scale:number, pageX:number, pageY:number, pageW:number, pageH:number,
  *           regionPixels:Uint8Array}} region
  */
@@ -348,7 +370,13 @@ async function commitFill(region) {
   const canvas = buildRegionCanvas(region.regionPixels.pixels, region.regionPixels.bw, region.regionPixels.bh);
   region = { ...region, canvas };
   const target = findFillColorLayer();
-  if (target && target.color === State.bucketColor) {
+  const activeInks = getActiveMixedInks();
+  const sameInk = target && (
+    target.mixedInks
+      ? mixedInksEqual(target.mixedInks, activeInks)
+      : target.color === State.bucketColor
+  );
+  if (sameInk) {
     pushUndoWithRaster(target);
     mergeIntoFillLayer(target, region);
     await DB.put('layers', target.toRecord());
@@ -374,6 +402,7 @@ function buildColorLayer(region) {
     x: region.pageX, y: region.pageY, width: region.pageW, height: region.pageH,
     naturalWidth: region.bw, naturalHeight: region.bh,
     color: State.bucketColor,
+    mixedInks: getActiveMixedInks(),
   });
   layer._originalCanvas = region.canvas;
   MaskEngine.initMask(layer);

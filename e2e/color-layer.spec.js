@@ -427,3 +427,162 @@ test.describe('Color Layer (paint bucket)', () => {
     expect(await page.locator('#layer-list .layer-row')).toHaveCount(0);
   });
 });
+
+  test('mixed ink fill stores constituent recipe on the layer', async ({ page }) => {
+    await createProject(page, 'Mixed Ink Recipe Test');
+    await page.evaluate(() => window.UI.fitZoom());
+    await page.click('.tool-btn[data-tool="paint-bucket"]');
+    await page.click('#bucket-color-swatch');
+    await page.evaluate(() => {
+      const set = (hex, v) => {
+        const el = document.querySelector(`.bucket-ink-row input[data-hex="${hex}"]`);
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('#010101', 30);
+      set('#ffe800', 50);
+      set('#5ec8e5', 10);
+    });
+    await page.click('#btn-bucket-done');
+    await bucketClick(page, 1600, 2500, { clickCount: 2 });
+    await waitForColorLayer(page);
+
+    const rec = await page.evaluate(() => {
+      const l = window.State.layers.find(l => l.isColorFill);
+      return { mixedInks: l.mixedInks, color: l.color };
+    });
+    expect(rec.mixedInks['#010101']).toBe(30);
+    expect(rec.mixedInks['#ffe800']).toBe(50);
+    expect(rec.mixedInks['#5ec8e5']).toBe(10);
+    // preview is the subtractive mix of those constituents
+    expect(rec.color.toLowerCase()).not.toBe('#010101');
+  });
+
+  test('exporting a mixed ink fill produces separate plates at each ink density', async ({ page }) => {
+    await createProject(page, 'Mixed Ink Export Test', { pageSize: 'half-letter' });
+    await page.evaluate(() => window.UI.fitZoom());
+    await page.click('.tool-btn[data-tool="paint-bucket"]');
+    await page.click('#bucket-color-swatch');
+    await page.evaluate(() => {
+      const set = (hex, v) => {
+        const el = document.querySelector(`.bucket-ink-row input[data-hex="${hex}"]`);
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('#010101', 30);
+      set('#ffe800', 50);
+      set('#5ec8e5', 10);
+    });
+    await page.click('#btn-bucket-done');
+    await bucketClick(page, 1600, 2500, { clickCount: 2 });
+    await waitForColorLayer(page);
+
+    const result = await page.evaluate(async () => {
+      const { ExportEngine } = await import('/src/app/export-engine.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const plates = await ExportEngine.exportLayers(window.State.layers, CANVAS_W, CANVAS_H);
+      const sample = (canvas) => {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const d = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+        return { r: d[0], g: d[1], b: d[2], a: d[3] }; // grayscale ink on white
+      };
+      const out = { colors: [...plates.keys()].sort(), samples: {} };
+      for (const [color, canvas] of plates.entries()) out.samples[color] = sample(canvas);
+      return out;
+    });
+
+    expect(result.colors).toEqual(['#010101', '#5ec8e5', '#ffe800']);
+    const expectedGrey = pct => 255 - Math.round(255 * pct / 100);
+    for (const [hex, pct] of [['#010101', 30], ['#ffe800', 50], ['#5ec8e5', 10]]) {
+      const s = result.samples[hex];
+      const eg = expectedGrey(pct);
+      expect(Math.abs(s.r - eg)).toBeLessThanOrEqual(2);
+      expect(Math.abs(s.g - eg)).toBeLessThanOrEqual(2);
+      expect(Math.abs(s.b - eg)).toBeLessThanOrEqual(2);
+      expect(s.a).toBe(255);
+    }
+  });
+
+  test('partial single-ink mixed fill exports at reduced grayscale density', async ({ page }) => {
+    await createProject(page, 'Partial Ink Export Test', { pageSize: 'half-letter' });
+    await page.evaluate(() => window.UI.fitZoom());
+    await page.click('.tool-btn[data-tool="paint-bucket"]');
+    await page.click('#bucket-color-swatch');
+    await page.evaluate(() => {
+      const set = (hex, v) => {
+        const el = document.querySelector(`.bucket-ink-row input[data-hex="${hex}"]`);
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('#010101', 30);
+    });
+    await page.click('#btn-bucket-done');
+    await bucketClick(page, 1600, 2500, { clickCount: 2 });
+    await waitForColorLayer(page);
+
+    const sample = await page.evaluate(async () => {
+      const { ExportEngine } = await import('/src/app/export-engine.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const plates = await ExportEngine.exportLayers(window.State.layers, CANVAS_W, CANVAS_H);
+      const canvas = plates.get('#010101');
+      if (!canvas) return null;
+      const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+      return { count: plates.size, r: d[0], g: d[1], b: d[2], a: d[3] };
+    });
+
+    expect(sample).not.toBeNull();
+    expect(sample.count).toBe(1);
+    const eg = 255 - Math.round(255 * 0.3);
+    expect(Math.abs(sample.r - eg)).toBeLessThanOrEqual(2);
+    expect(Math.abs(sample.g - eg)).toBeLessThanOrEqual(2);
+    expect(Math.abs(sample.b - eg)).toBeLessThanOrEqual(2);
+  });
+
+  test('region fill with mixed ink exports constituent densities only in filled region', async ({ page }) => {
+    await createProject(page, 'Mixed Region Export Test', { pageSize: 'half-letter' });
+    await page.evaluate(() => window.UI.fitZoom());
+    // Block the center so a click on the side fills around it, leaving a hole.
+    await addImageFromBuffer(page, createShapePngBuffer('rect', 300, 300), { name: 'rect.png' });
+    await page.waitForFunction(() => window.State.layers[0]?._processedCanvas);
+    const pageSize = await getPageSize(page);
+
+    await page.click('.tool-btn[data-tool="paint-bucket"]');
+    await page.click('#bucket-color-swatch');
+    await page.evaluate(() => {
+      const set = (hex, v) => {
+        const el = document.querySelector(`.bucket-ink-row input[data-hex="${hex}"]`);
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('#010101', 50);
+      set('#ffe800', 50);
+    });
+    await page.click('#btn-bucket-done');
+    await bucketClick(page, pageSize.w / 2 - 700, pageSize.h / 2);
+    await waitForColorLayer(page);
+
+    const result = await page.evaluate(async () => {
+      const { ExportEngine } = await import('/src/app/export-engine.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+      const plates = await ExportEngine.exportLayers(window.State.layers, CANVAS_W, CANVAS_H);
+      // Sample yellow plate: only the mixed fill prints yellow, so the rect's
+      // hole in the fill is a true no-ink area (black plate also has the rect).
+      const canvas = plates.get('#ffe800');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const w = canvas.width, h = canvas.height;
+      // corner of layer bbox is filled; page center is the rect hole in the fill
+      const corner = ctx.getImageData(2, 2, 1, 1).data;
+      const center = ctx.getImageData(Math.floor(w / 2), Math.floor(h / 2), 1, 1).data;
+      return {
+        colors: [...plates.keys()].sort(),
+        corner: corner[0],
+        center: center[0],
+      };
+    });
+
+    expect(result.colors).toContain('#010101');
+    expect(result.colors).toContain('#ffe800');
+    const eg = 255 - Math.round(255 * 0.5);
+    expect(Math.abs(result.corner - eg)).toBeLessThanOrEqual(2);
+    expect(result.center).toBe(255); // hole: fill contributes no yellow ink here
+  });

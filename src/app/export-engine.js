@@ -195,10 +195,23 @@ export const ExportEngine = {
     return { left, right };
   },
 
+  _mixedInkEntries(l) {
+    const inks = l && l.mixedInks;
+    if (!inks || typeof inks !== 'object') return null;
+    const entries = [];
+    for (const [hex, amount] of Object.entries(inks)) {
+      const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
+      if (coverage > 0 && hex && hex.toUpperCase() !== '#FFFFFF') {
+        entries.push({ hex, coverage });
+      }
+    }
+    return entries.length ? entries : null;
+  },
+
   _buildPlateMap(visibleLayers) {
     const plateMap = new Map();
     const ensurePlate = hex => {
-      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [], shapeParts: [] });
+      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [], shapeParts: [], mixedInkContributions: [] });
       return plateMap.get(hex);
     };
     for (const l of visibleLayers) {
@@ -223,7 +236,14 @@ export const ExportEngine = {
         ensurePlate(l.pattern.color1).gradContributions.push({ layer: l, stopIdx: 0 });
         ensurePlate(l.pattern.color2).gradContributions.push({ layer: l, stopIdx: 1 });
       } else {
-        ensurePlate(l.color).solidLayers.push(l);
+        const mixed = this._mixedInkEntries(l);
+        if (mixed) {
+          for (const { hex, coverage } of mixed) {
+            ensurePlate(hex).mixedInkContributions.push({ layer: l, coverage });
+          }
+        } else {
+          ensurePlate(l.color).solidLayers.push(l);
+        }
       }
     }
     return plateMap;
@@ -243,6 +263,7 @@ export const ExportEngine = {
       plate.solidLayers.length +
       (plate.shapeParts || []).length +
       (plate.separationLayers || []).length +
+      (plate.mixedInkContributions || []).length +
       plate.gradContributions.length;
     let step = 0;
     const tick = async layer => {
@@ -257,6 +278,28 @@ export const ExportEngine = {
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
       await this._drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet);
+    }
+
+    // Mixed-ink layers: render each constituent ink as its own plate
+    // contribution at the specified coverage (grayscale density).
+    for (const { layer, coverage } of (plate.mixedInkContributions || [])) {
+      if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+      await tick(layer);
+      const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true, colorOverride: color });
+      if (!sourceCanvas) continue;
+      const nw = layer.naturalWidth, nh = layer.naturalHeight;
+      const weightedCanvas = new OffscreenCanvas(nw, nh);
+      const wCtx = weightedCanvas.getContext('2d', { willReadFrequently: true });
+      wCtx.drawImage(sourceCanvas, 0, 0);
+      if (coverage < 1) {
+        const imgData = wCtx.getImageData(0, 0, nw, nh);
+        const d = imgData.data;
+        for (let i = 0; i < nw * nh; i++) {
+          d[i * 4 + 3] = Math.round(d[i * 4 + 3] * coverage);
+        }
+        wCtx.putImageData(imgData, 0, 0);
+      }
+      await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
     }
 
     // Two-tone shape contributions: each part is processed through the same
@@ -456,6 +499,7 @@ export const ExportEngine = {
       wanted.push(rec);
     };
     for (const l of plate.solidLayers) want(l);
+    for (const { layer } of (plate.mixedInkContributions || [])) want(layer);
     for (const { layer } of plate.shapeParts) want(layer);
     for (const { layer } of plate.separationLayers) want(layer);
     for (const { layer } of plate.gradContributions) want(layer);
@@ -476,6 +520,7 @@ export const ExportEngine = {
       layers: [...byHydratedId.values()],
       plate: {
         solidLayers: plate.solidLayers.map(live).filter(Boolean),
+        mixedInkContributions: (plate.mixedInkContributions || []).map(p => ({ layer: live(p.layer), coverage: p.coverage })).filter(p => p.layer),
         shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part })).filter(p => p.layer),
         separationLayers: plate.separationLayers.map(p => ({ layer: live(p.layer), color: p.color })).filter(p => p.layer),
         gradContributions: plate.gradContributions.map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx })).filter(p => p.layer),
@@ -920,6 +965,8 @@ export const ExportEngine = {
     if (rec.colorMode === 'pattern' && rec.pattern) {
       return [rec.pattern.color1, rec.pattern.color2];
     }
+    const mixed = this._mixedInkEntries(rec);
+    if (mixed) return mixed.map(m => m.hex);
     return rec.color ? [rec.color] : [];
   },
 

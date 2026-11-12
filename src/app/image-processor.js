@@ -206,7 +206,7 @@ export const ImageProcessor = {
     return { w: targetW, h: targetH };
   },
 
-  async processLayer(layer, { forExport = false } = {}) {
+  async processLayer(layer, { forExport = false, colorOverride = null } = {}) {
     if (layer.isText) {
       return await this.processTextLayer(layer, forExport);
     }
@@ -320,7 +320,7 @@ export const ImageProcessor = {
           d[i+3] = Math.round(255 - gray);
         }
       } else {
-        const { r: cr, g: cg, b: cb } = hexToRgb(layer.color);
+        const { r: cr, g: cg, b: cb } = hexToRgb(colorOverride || layer.color);
         for (let i = 0; i < d.length; i += 4) {
           const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
           d[i] = cr; d[i+1] = cg; d[i+2] = cb;
@@ -354,7 +354,7 @@ export const ImageProcessor = {
         px = this.posterize(px, 6);
         px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
       }
-      px = this.colorize(px, layer.color, layer);
+      px = this.colorize(px, colorOverride || layer.color, colorOverride ? null : layer);
     }
     ctx.putImageData(px, 0, 0);
     if (forExport) {
