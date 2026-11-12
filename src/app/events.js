@@ -2200,6 +2200,13 @@ export function wireControls() {
     r.addEventListener('change', updateExportLayoutInfo));
   document.querySelectorAll('input[name="export-layout"]').forEach(r =>
     r.addEventListener('change', updateExportLayoutInfo));
+  document.getElementById('btn-export-set-target-image')?.addEventListener('click', () => {
+    const select = document.getElementById('export-target-size');
+    if (select) {
+      select.value = 'image';
+      updateExportLayoutInfo();
+    }
+  });
 
   // ── Composite export dialog controls ──────────────────────────────
   document.getElementById('composite-target-size')?.addEventListener('change', updateCompositeLayoutInfo);
@@ -2207,6 +2214,13 @@ export function wireControls() {
   document.getElementById('composite-custom-height')?.addEventListener('change', updateCompositeLayoutInfo);
   document.querySelectorAll('input[name="composite-booklet-layout"]').forEach(r =>
     r.addEventListener('change', updateCompositeLayoutInfo));
+  document.getElementById('btn-composite-set-target-image')?.addEventListener('click', () => {
+    const select = document.getElementById('composite-target-size');
+    if (select) {
+      select.value = 'image';
+      updateCompositeLayoutInfo();
+    }
+  });
 
   // ── Export dialog buttons ─────────────────────────────────────────
   document.getElementById('btn-export-cancel').addEventListener('click', () => {

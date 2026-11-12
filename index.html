@@ -322,6 +322,10 @@
           <span class="custom-target-size-unit">in</span>
         </div>
         <span id="export-layout-info" class="target-layout-info"></span>
+        <div id="export-custom-warning" style="display:none;margin-top:6px;color:red;font-size:1.25rem;line-height:1.8;">
+          <span id="export-custom-warning-text"></span>
+          <button type="button" class="mac-btn" id="btn-export-set-target-image" style="margin-left:8px;font-size:1.1rem;padding:2px 8px;">Set target page to current image size</button>
+        </div>
       </div>
       <div style="margin-top:8px;font-size:1.25rem;" id="export-layout-row">
         <strong>Layout:</strong>
@@ -359,7 +363,8 @@
         <div class="target-paper-controls">
           <strong>Target paper:</strong>
           <select id="composite-target-size" style="font-family:var(--font);font-size:1.25rem;margin-left:8px;">
-            <option value="letter">Letter (8.5" × 11")</option>
+            <option value="image">Current image size</option>
+            <option value="letter" selected>Letter (8.5" × 11")</option>
             <option value="legal">Legal (8.5" × 14")</option>
             <option value="tabloid">Tabloid (11" × 17")</option>
             <option value="a4">A4 (21 × 29.7 cm)</option>
@@ -373,6 +378,10 @@
           <span class="custom-target-size-unit">in</span>
         </div>
         <span id="composite-layout-info" class="target-layout-info"></span>
+        <div id="composite-custom-warning" style="display:none;margin-top:6px;color:red;font-size:1.25rem;line-height:1.8;">
+          <span id="composite-custom-warning-text"></span>
+          <button type="button" class="mac-btn" id="btn-composite-set-target-image" style="margin-left:8px;font-size:1.1rem;padding:2px 8px;">Set target page to current image size</button>
+        </div>
       </div>
       <div style="margin-top:8px;font-size:1.25rem;">
         <strong>Layout:</strong>
