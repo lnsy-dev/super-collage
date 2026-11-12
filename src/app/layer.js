@@ -51,6 +51,10 @@ export class Layer {
     // separationColors to the 4 C/M/Y/K inks) and back.
     this.sepPaletteDefault = Array.isArray(data.sepPaletteDefault) ? data.sepPaletteDefault.slice() : null;
     this.color = data.color || '#010101';
+    // Mixed ink recipe for Color Layers: { [hex]: coveragePercent 0-100 } of
+    // constituent inks. When present, exports split this layer into a separate
+    // grayscale plate per constituent ink at that coverage density.
+    this.mixedInks = data.mixedInks ? { ...data.mixedInks } : null;
     this.colorMode = data.colorMode || 'solid';
     this.gradient = data.gradient ? JSON.parse(JSON.stringify(data.gradient)) : {
       type: 'linear',
@@ -179,6 +183,7 @@ export class Layer {
       inkOpacities: this.inkOpacities ? this.inkOpacities.slice() : null,
       sepPaletteDefault: this.sepPaletteDefault ? this.sepPaletteDefault.slice() : null,
       color: this.color,
+      mixedInks: this.mixedInks ? { ...this.mixedInks } : null,
       colorMode: this.colorMode,
       gradient: JSON.parse(JSON.stringify(this.gradient)),
       gradientBounds: this.gradientBounds ? { ...this.gradientBounds } : null,

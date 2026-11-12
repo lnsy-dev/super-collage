@@ -87,6 +87,7 @@ export async function applySnapshot(layer, snap) {
     inkOpacities: snap.inkOpacities ? [...snap.inkOpacities] : null,
     sepPaletteDefault: snap.sepPaletteDefault ? [...snap.sepPaletteDefault] : null,
     color: snap.color,
+    mixedInks: snap.mixedInks ? { ...snap.mixedInks } : null,
     colorMode: snap.colorMode || 'solid',
     gradient: snap.gradient ? JSON.parse(JSON.stringify(snap.gradient)) : layer.gradient,
     pattern: snap.pattern ? JSON.parse(JSON.stringify(snap.pattern)) : layer.pattern,

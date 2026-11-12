@@ -196,135 +196,23 @@ export const ExportEngine = {
     return { left, right };
   },
 
-  _mixInkHex(inks, amounts) {
-    let r = 255, g = 255, b = 255;
-    for (let i = 0; i < inks.length; i++) {
-      const a = (amounts[i] || 0) / 100;
-      if (a <= 0) continue;
-      const ir = inks[i].r, ig = inks[i].g, ib = inks[i].b;
-      r *= 1 - a * (1 - ir / 255);
-      g *= 1 - a * (1 - ig / 255);
-      b *= 1 - a * (1 - ib / 255);
-    }
-    return rgbToHex(r, g, b);
-  },
-
-  // Fit per-ink coverages that reproduce a target color. Mirrors the
-  // bucket tool's mix model (multiplicative over paper) so a blended ink
-  // created by mixing inks in-app can be decomposed back into them.
-  _fitBlendedInkComponents(hex) {
-    const { r, g, b } = hexToRgb(hex);
-    const target = [r, g, b];
-    const inks = RISO_COLORS
-      .filter(c => c.hex.toUpperCase() !== '#FFFFFF')
-      .map(c => ({ hex: c.hex, ...hexToRgb(c.hex) }));
-    const n = inks.length;
-    if (!n) return null;
-
-    const mixCost = cov => {
-      let err = 0;
-      for (let k = 0; k < 3; k++) {
-        let v = 255;
-        for (let i = 0; i < n; i++) {
-          const a = cov[i] / 100;
-          if (a > 0) v *= 1 - a * (1 - [inks[i].r, inks[i].g, inks[i].b][k] / 255);
-        }
-        err += (v - target[k]) * (v - target[k]);
-      }
-      return err;
-    };
-
-    const descend = (cov, idxs) => {
-      let best = mixCost(cov);
-      let step = 50;
-      while (step >= 1) {
-        let improved = true;
-        while (improved) {
-          improved = false;
-          for (const i of idxs) {
-            for (const dir of [1, -1]) {
-              const old = cov[i];
-              const nv = Math.max(0, Math.min(100, old + dir * step));
-              if (nv === old) continue;
-              cov[i] = nv;
-              const err = mixCost(cov);
-              if (err < best - 1e-9) { best = err; improved = true; }
-              else cov[i] = old;
-            }
-          }
-        }
-        step = step > 2 ? Math.round(step / 2) : step - 1;
-      }
-      return best;
-    };
-
-    let bestErr = Infinity;
-    let bestCov = new Array(n).fill(0);
-    const consider = cov => {
-      const err = mixCost(cov) + 0.01 * cov.filter(v => v > 0).length;
-      if (err < bestErr) { bestErr = err; bestCov = cov.slice(); }
-    };
-
-    for (let mask = 0; mask < (1 << n); mask++) {
-      let size = 0;
-      for (let i = 0; i < n; i++) if (mask & (1 << i)) size++;
-      if (size > 3) continue;
-      const idxs = [];
-      for (let i = 0; i < n; i++) if (mask & (1 << i)) idxs.push(i);
-      for (let combo = 0; combo < (1 << idxs.length); combo++) {
-        const cov = new Array(n).fill(0);
-        idxs.forEach((ix, j) => { if (combo & (1 << j)) cov[ix] = 100; });
-        descend(cov, idxs);
-        consider(cov);
-        if (mixCost(cov) < 1e-9) { mask = 1 << n; break; }
+  _mixedInkEntries(l) {
+    const inks = l && l.mixedInks;
+    if (!inks || typeof inks !== 'object') return null;
+    const entries = [];
+    for (const [hex, amount] of Object.entries(inks)) {
+      const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
+      if (coverage > 0 && hex && hex.toUpperCase() !== '#FFFFFF') {
+        entries.push({ hex, coverage });
       }
     }
-
-    const components = [];
-    inks.forEach((ink, i) => {
-      if (bestCov[i] > 0) components.push({ hex: ink.hex, weight: bestCov[i] / 100 });
-    });
-    return { components, achieved: this._mixInkHex(inks, bestCov) };
-  },
-
-  // A "blended ink" is a solid layer whose color is a mix of multiple
-  // palette inks (created by blending inks in the bucket tool). Such a
-  // layer must export as its component inks, each at the coverage weight
-  // appropriate for the mix, rather than as a single plate.
-  _blendedInkComponents(layer) {
-    if (!layer || layer.isColorSeparation || isTwoToneShape(layer)) return null;
-    const mode = layer.colorMode || 'solid';
-    if (mode === 'gradient' || mode === 'pattern') return null;
-    const hex = layer.color;
-    if (!hex || hex.toUpperCase() === '#FFFFFF') return null;
-
-    let fit;
-    try {
-      fit = this._fitBlendedInkComponents(hex);
-    } catch (_) {
-      return null;
-    }
-    if (!fit) return null;
-    const components = fit.components;
-    if (components.length < 2) return null;
-
-    // Only split when the fitted mix reproduces the layer color closely;
-    // otherwise keep the original color as a single solid plate.
-    const target = (hex || '').toUpperCase();
-    const achieved = (fit.achieved || '').toUpperCase();
-    if (target !== achieved) {
-      const parse = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
-      const [tr, tg, tb] = parse(target.length === 7 ? target : '#000000');
-      const [ar, ag, ab] = parse(achieved.length === 7 ? achieved : '#000000');
-      if (Math.abs(tr - ar) + Math.abs(tg - ag) + Math.abs(tb - ab) > 6) return null;
-    }
-    return components;
+    return entries.length ? entries : null;
   },
 
   _buildPlateMap(visibleLayers) {
     const plateMap = new Map();
     const ensurePlate = hex => {
-      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [], shapeParts: [] });
+      if (!plateMap.has(hex)) plateMap.set(hex, { solidLayers: [], gradContributions: [], separationLayers: [], shapeParts: [], mixedInkContributions: [] });
       return plateMap.get(hex);
     };
     for (const l of visibleLayers) {
@@ -349,10 +237,10 @@ export const ExportEngine = {
         ensurePlate(l.pattern.color1).gradContributions.push({ layer: l, stopIdx: 0 });
         ensurePlate(l.pattern.color2).gradContributions.push({ layer: l, stopIdx: 1 });
       } else {
-        const blended = this._blendedInkComponents(l);
-        if (blended) {
-          for (const { hex, weight } of blended) {
-            ensurePlate(hex).gradContributions.push({ layer: l, weight });
+        const mixed = this._mixedInkEntries(l);
+        if (mixed) {
+          for (const { hex, coverage } of mixed) {
+            ensurePlate(hex).mixedInkContributions.push({ layer: l, coverage });
           }
         } else {
           ensurePlate(l.color).solidLayers.push(l);
@@ -376,6 +264,7 @@ export const ExportEngine = {
       plate.solidLayers.length +
       (plate.shapeParts || []).length +
       (plate.separationLayers || []).length +
+      (plate.mixedInkContributions || []).length +
       plate.gradContributions.length;
     let step = 0;
     const tick = async layer => {
@@ -390,6 +279,28 @@ export const ExportEngine = {
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true });
       if (!sourceCanvas) continue;
       await this._drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet);
+    }
+
+    // Mixed-ink layers: render each constituent ink as its own plate
+    // contribution at the specified coverage (grayscale density).
+    for (const { layer, coverage } of (plate.mixedInkContributions || [])) {
+      if (!layer._processedCanvas && !layer._originalCanvas && !layer.isText) continue;
+      await tick(layer);
+      const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true, colorOverride: color });
+      if (!sourceCanvas) continue;
+      const nw = layer.naturalWidth, nh = layer.naturalHeight;
+      const weightedCanvas = new OffscreenCanvas(nw, nh);
+      const wCtx = weightedCanvas.getContext('2d', { willReadFrequently: true });
+      wCtx.drawImage(sourceCanvas, 0, 0);
+      if (coverage < 1) {
+        const imgData = wCtx.getImageData(0, 0, nw, nh);
+        const d = imgData.data;
+        for (let i = 0; i < nw * nh; i++) {
+          d[i * 4 + 3] = Math.round(d[i * 4 + 3] * coverage);
+        }
+        wCtx.putImageData(imgData, 0, 0);
+      }
+      await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
     }
 
     // Two-tone shape contributions: each part is processed through the same
@@ -597,6 +508,7 @@ export const ExportEngine = {
       wanted.push(rec);
     };
     for (const l of plate.solidLayers) want(l);
+    for (const { layer } of (plate.mixedInkContributions || [])) want(layer);
     for (const { layer } of plate.shapeParts) want(layer);
     for (const { layer } of plate.separationLayers) want(layer);
     for (const { layer } of plate.gradContributions) want(layer);
@@ -617,6 +529,7 @@ export const ExportEngine = {
       layers: [...byHydratedId.values()],
       plate: {
         solidLayers: plate.solidLayers.map(live).filter(Boolean),
+        mixedInkContributions: (plate.mixedInkContributions || []).map(p => ({ layer: live(p.layer), coverage: p.coverage })).filter(p => p.layer),
         shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part })).filter(p => p.layer),
         separationLayers: plate.separationLayers.map(p => ({ layer: live(p.layer), color: p.color })).filter(p => p.layer),
         gradContributions: plate.gradContributions
@@ -1063,8 +976,8 @@ export const ExportEngine = {
     if (rec.colorMode === 'pattern' && rec.pattern) {
       return [rec.pattern.color1, rec.pattern.color2];
     }
-    const blended = this._blendedInkComponents(rec);
-    if (blended) return blended.map(c => c.hex);
+    const mixed = this._mixedInkEntries(rec);
+    if (mixed) return mixed.map(m => m.hex);
     return rec.color ? [rec.color] : [];
   },
 
