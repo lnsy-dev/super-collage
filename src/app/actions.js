@@ -283,7 +283,11 @@ export async function handleAction(action, value = null) {
     }
     case 'import-color-separation': document.getElementById('color-sep-input').click(); break;
     case 'import-menu-project': document.getElementById('import-project-layers-input').click(); break;
-    case 'delete-layer':  if (layer) await LayerManager.delete(layer.id); break;
+    case 'delete-layer': {
+      const toDelete = State.selectedIds.length ? [...State.selectedIds] : (layer ? [layer.id] : []);
+      if (toDelete.length) await LayerManager.deleteMany(toDelete);
+      break;
+    }
     case 'duplicate-layer': if (layer) await LayerManager.duplicate(layer.id); break;
     case 'link-layers': {
       if (State.selectedIds.length < 2) break;

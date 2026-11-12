@@ -528,10 +528,9 @@ export const LayerManager = {
     return imported.map(l => l.id);
   },
 
-  async delete(layerId) {
-    pushUndoState();
+  async _deleteOne(layerId, preferredIdx = null) {
     const idx = State.layers.findIndex(l => l.id === layerId);
-    if (idx === -1) return;
+    if (idx === -1) return preferredIdx;
     const toDelete = State.layers[idx];
     // Clean up mask relationships on the paired layer(s)
     for (const maskId of (toDelete.imageMaskIds || [])) {
@@ -553,15 +552,39 @@ export const LayerManager = {
         await DB.saveLayer(l);
       }
     }
-    if (State.selectedId === layerId) {
-      State.selectedId = State.layers[Math.min(idx, State.layers.length - 1)]?.id || null;
-      State.selectedIds = State.selectedId ? [State.selectedId] : [];
-    } else {
-      State.selectedIds = State.selectedIds.filter(id => id !== layerId);
-    }
     await DB.del('layers', layerId);
     await DB.del('imageBlobs', layerId);
     await DB.del('maskBlobs', layerId);
+    return preferredIdx == null ? idx : preferredIdx;
+  },
+
+  async delete(layerId) {
+    return this.deleteMany([layerId]);
+  },
+
+  async deleteMany(layerIds) {
+    const ids = [...new Set(layerIds)].filter(id => State.layers.some(l => l.id === id));
+    if (!ids.length) return;
+    pushUndoState();
+    // Prefer a fallback near the topmost deleted layer in the stack.
+    let fallbackIdx = -1;
+    for (const id of ids) {
+      const i = State.layers.findIndex(l => l.id === id);
+      if (i > fallbackIdx) fallbackIdx = i;
+    }
+    for (const id of ids) {
+      await this._deleteOne(id);
+    }
+    State.selectedIds = State.selectedIds.filter(id => !ids.includes(id) && State.layers.some(l => l.id === id));
+    if (!State.selectedIds.length) {
+      const fallback = State.layers[Math.min(Math.max(fallbackIdx, 0), State.layers.length - 1)]?.id || null;
+      State.selectedId = fallback;
+      State.selectedIds = fallback ? [fallback] : [];
+    } else {
+      State.selectedId = State.selectedIds.includes(State.selectedId)
+        ? State.selectedId
+        : State.selectedIds[State.selectedIds.length - 1];
+    }
     await PageManager.saveActivePage();
     if (!State.layers.length) document.getElementById('no-layer-msg').style.display = '';
     UI.refreshLayerList();
