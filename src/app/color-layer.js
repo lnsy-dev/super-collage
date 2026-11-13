@@ -397,58 +397,90 @@ async function commitColorLayer(layer) {
 }
 
 let fillBusy = false;
+let queuedFullFill = false;
+let fillQueue = Promise.resolve();
+
+function enqueueFill(task) {
+  const run = async () => {
+    fillBusy = true;
+    try {
+      await task();
+    } finally {
+      fillBusy = false;
+    }
+  };
+  fillQueue = fillQueue.then(run, run);
+  return fillQueue;
+}
 
 /** Flood-fill the region under the click and place it on a Color Layer. */
 export async function fillRegionAtPage(pageX, pageY) {
-  if (!State.project || fillBusy) return;
+  if (!State.project) return;
   if (pageX < 0 || pageY < 0 || pageX >= CANVAS_W || pageY >= CANVAS_H) return;
-  fillBusy = true;
-  try {
-    const result = await analyzeRegion(pageX, pageY);
-    if (!result) return;
-    const { scale, fill, w: aw, h: ah } = result;
-    const minx = fill.minx, miny = fill.miny;
-    const bw = fill.maxx - minx + 1, bh = fill.maxy - miny + 1;
-    // Extract the bbox sub-rectangle of the region mask.
-    const regionPixels = new Uint8Array(bw * bh);
-    for (let y = 0; y < bh; y++) {
-      regionPixels.set(fill.inside.subarray((miny + y) * aw + minx, (miny + y) * aw + minx + bw), y * bw);
+  return enqueueFill(async () => {
+    // A double-click requested a full fill while this region fill was queued/running.
+    if (queuedFullFill) {
+      queuedFullFill = false;
+      await doFillEntireLayer();
+      return;
     }
-    await commitFill({
-      scale,
-      pageX: Math.round(minx / scale), pageY: Math.round(miny / scale),
-      pageW: Math.round(bw / scale), pageH: Math.round(bh / scale),
-      bw, bh,
-      regionPixels: { pixels: regionPixels, bw, bh },
-    });
-  } catch (err) {
-    console.error('Color Layer fill failed:', err);
-  } finally {
-    fillBusy = false;
-  }
+    try {
+      const result = await analyzeRegion(pageX, pageY);
+      if (!result) return;
+      const { scale, fill, w: aw } = result;
+      const minx = fill.minx, miny = fill.miny;
+      const bw = fill.maxx - minx + 1, bh = fill.maxy - miny + 1;
+      // Extract the bbox sub-rectangle of the region mask.
+      const regionPixels = new Uint8Array(bw * bh);
+      for (let y = 0; y < bh; y++) {
+        regionPixels.set(fill.inside.subarray((miny + y) * aw + minx, (miny + y) * aw + minx + bw), y * bw);
+      }
+      await commitFill({
+        scale,
+        pageX: Math.round(minx / scale), pageY: Math.round(miny / scale),
+        pageW: Math.round(bw / scale), pageH: Math.round(bh / scale),
+        bw, bh,
+        regionPixels: { pixels: regionPixels, bw, bh },
+      });
+    } catch (err) {
+      console.error('Color Layer fill failed:', err);
+    }
+  });
+}
+
+async function doFillEntireLayer() {
+  const scale = Math.min(1, ANALYSIS_MAX_DIM / Math.max(CANVAS_W, CANVAS_H));
+  const bw = Math.round(CANVAS_W * scale), bh = Math.round(CANVAS_H * scale);
+  // Solid ink over the whole page (colorize turns it all into the ink color).
+  const regionPixels = new Uint8Array(bw * bh).fill(1);
+  await commitFill({
+    scale,
+    pageX: 0, pageY: 0,
+    pageW: Math.round(CANVAS_W), pageH: Math.round(CANVAS_H),
+    bw, bh,
+    regionPixels: { pixels: regionPixels, bw, bh },
+  });
 }
 
 /** Fill the entire layer (whole page) regardless of what is drawn on it. */
 export async function fillEntireLayer() {
-  if (!State.project || fillBusy) return;
-  fillBusy = true;
-  try {
-    const scale = Math.min(1, ANALYSIS_MAX_DIM / Math.max(CANVAS_W, CANVAS_H));
-    const bw = Math.round(CANVAS_W * scale), bh = Math.round(CANVAS_H * scale);
-    // Solid ink over the whole page (colorize turns it all into the ink color).
-    const regionPixels = new Uint8Array(bw * bh).fill(1);
-    await commitFill({
-      scale,
-      pageX: 0, pageY: 0,
-      pageW: Math.round(CANVAS_W), pageH: Math.round(CANVAS_H),
-      bw, bh,
-      regionPixels: { pixels: regionPixels, bw, bh },
-    });
-  } catch (err) {
-    console.error('Color Layer fill-all failed:', err);
-  } finally {
-    fillBusy = false;
+  if (!State.project) return;
+  // If another fill is in-flight (e.g. a region fill that just started),
+  // mark the full-fill intent so it runs as soon as the queue is free
+  // instead of being dropped — important for fast double-click gestures.
+  if (fillBusy) {
+    queuedFullFill = true;
+    return fillQueue.catch(() => {});
   }
+  queuedFullFill = false;
+  return enqueueFill(async () => {
+    queuedFullFill = false;
+    try {
+      await doFillEntireLayer();
+    } catch (err) {
+      console.error('Color Layer fill-all failed:', err);
+    }
+  });
 }
 
 /* ─── EYEDROPPER ────────────────────────────────────────────────────

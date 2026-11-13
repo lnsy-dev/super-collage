@@ -382,7 +382,20 @@ test.describe('Color Layer (paint bucket)', () => {
     await page.click('.tool-btn[data-tool="paint-bucket"]');
     // Double-click anywhere: no flood-fill geometry, whole page gets filled.
     await bucketClick(page, pageSize.w / 2 - 700, pageSize.h / 2, { clickCount: 2 });
-    await waitForColorLayer(page);
+
+    // Wait for the full-fill result specifically: a Color Layer covering the
+    // whole page with ink through the drawn square (not a region fill hole).
+    await page.waitForFunction((ps) => {
+      const l = window.State.layers.find(x => x.name === 'Color Layer');
+      if (!l || !l._processedCanvas) return false;
+      if (document.querySelectorAll('#layer-list .layer-row').length !== window.State.layers.length) return false;
+      if (window.State.layers.length !== 2) return false;
+      if (l.x > 2 || l.y > 2) return false;
+      if (Math.abs(l.width - ps.w) > 2 || Math.abs(l.height - ps.h) > 2) return false;
+      const ctx = l._processedCanvas.getContext('2d');
+      const d = ctx.getImageData(Math.floor(ctx.canvas.width / 2), Math.floor(ctx.canvas.height / 2), 1, 1).data;
+      return d[3] === 255 && d[0] === 1;
+    }, pageSize, { timeout: 15000 });
 
     expect(await page.locator('#layer-list .layer-row')).toHaveCount(2);
     const layer = await page.evaluate(() => {

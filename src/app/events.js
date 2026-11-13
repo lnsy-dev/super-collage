@@ -925,6 +925,25 @@ export function wireControls() {
   // Double-click handling is done manually in onPointerDown (see above):
   // Firefox suppresses the native `dblclick` event when preventDefault() is
   // called on pointerdown, so relying on it missed every double-click there.
+  // Keep a native fallback: in browsers/environments that still dispatch it,
+  // this makes double-click actions deterministic even if manual timing-based
+  // detection misses a synthetic/slow event sequence.
+  overlayCanvas.addEventListener('dblclick', async (e) => {
+    const { x, y } = getCanvasXY(e);
+    _lastPointerDown = null;
+    if (State.tool === 'paint-bucket') {
+      BucketTool.onDoubleClick();
+      return;
+    }
+    const hit = Renderer.hitTestLayer(x, y);
+    if (hit && hit.isText && !hit.locked) {
+      State.selectedId = hit.id;
+      State.selectedIds = [hit.id];
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      await TextEditor.beginEdit(hit);
+    }
+  });
 
   /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
   const layerList = document.getElementById('layer-list');
