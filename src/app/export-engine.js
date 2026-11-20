@@ -16,6 +16,7 @@ import { createExportProgress, formatBytes, formatDuration } from './export-prog
 import { planTiles } from './tiles.js';
 import { sepPlateToCanvas } from './separation-methods.js';
 import { hexToRgb, rgbToHex } from '../utils/color.js';
+import { fitInksToColor } from './color-layer.js';
 
 export const ExportEngine = {
   // Page-space work (image-mask compositing, plate flattening, composite
@@ -197,16 +198,59 @@ export const ExportEngine = {
   },
 
   _mixedInkEntries(l) {
-    const inks = l && l.mixedInks;
-    if (!inks || typeof inks !== 'object') return null;
+    if (!l) return null;
+    const inks = l.mixedInks;
+    if (inks && typeof inks === 'object') {
+      const entries = [];
+      for (const [hex, amount] of Object.entries(inks)) {
+        const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
+        if (coverage > 0 && hex && hex.toUpperCase() !== '#FFFFFF') {
+          entries.push({ hex, coverage });
+        }
+      }
+      if (entries.length) return entries;
+    }
+
+    // Fallback: a solid layer whose color is a close multi-ink subtractive mix
+    // (no explicit recipe stored) is exported as its component ink plates at the
+    // fitted coverage, rather than as a single plate of the mixed color.
+    return this._fittedBlendedInkEntries(l);
+  },
+
+  _fittedBlendedInkEntries(l) {
+    if (!l || l.isColorSeparation || isTwoToneShape(l) || l.isText) return null;
+    const mode = l.colorMode || 'solid';
+    if (mode !== 'solid') return null;
+    const hex = l.color;
+    if (!hex || hex.toUpperCase() === '#FFFFFF') return null;
+    // Skip exact palette single-ink colors (common fast path).
+    if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex.toUpperCase())) return null;
+    let fit;
+    try {
+      fit = fitInksToColor(hex);
+    } catch (_) {
+      return null;
+    }
+    if (!fit || !fit.inks) return null;
     const entries = [];
-    for (const [hex, amount] of Object.entries(inks)) {
+    for (const [inkHex, amount] of Object.entries(fit.inks)) {
       const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
-      if (coverage > 0 && hex && hex.toUpperCase() !== '#FFFFFF') {
-        entries.push({ hex, coverage });
+      if (coverage > 0 && inkHex && inkHex.toUpperCase() !== '#FFFFFF') {
+        entries.push({ hex: inkHex, coverage });
       }
     }
-    return entries.length ? entries : null;
+    if (entries.length < 2) return null;
+
+    // Only split when the fitted mix reproduces the layer color closely.
+    const target = hex.toUpperCase();
+    const achieved = (fit.hex || '').toUpperCase();
+    if (target !== achieved) {
+      const parse = h => [1, 3, 5].map(i => parseInt((h || '#000000').slice(i, i + 2), 16));
+      const [tr, tg, tb] = parse(target);
+      const [ar, ag, ab] = parse(achieved);
+      if (Math.abs(tr - ar) + Math.abs(tg - ag) + Math.abs(tb - ab) > 6) return null;
+    }
+    return entries;
   },
 
   _buildPlateMap(visibleLayers) {

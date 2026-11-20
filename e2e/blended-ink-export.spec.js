@@ -7,22 +7,14 @@ test.beforeEach(async ({ page }) => {
   await clearIndexedDB(page);
 });
 
-// Sample the average grey of the inked region of an exported plate.
-// Plates are greyscale ink on white (R=G=B=grey, A=255): 255 = white/no ink,
-// 0 = full ink. Only pixels meaningfully below white are averaged.
-function samplePlate(page, platePixelsExpr) {
-  return page.evaluate(async () => null);
-}
-
 test.describe('Blended ink export', () => {
   test('exports a two-ink blended layer as the component inks at mix grayscale', async ({ page }) => {
-    test.fixme(true, 'pre-existing failure, see task 9d90313971cb4e3e97c7e361f6b224c7');
     await createProject(page, 'Blended Export', { pageSize: 'half-letter' });
     await addSolidColorImage(page, '#000000', { width: 800, height: 800 });
 
     const result = await page.evaluate(async () => {
       const { ExportEngine } = await import('/src/app/export-engine.js');
-      const { BucketTool } = await import('/src/app/color-layer.js');
+      const { mixInks } = await import('/src/app/color-layer.js');
       const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
 
       // Blend Aqua (60%) and Yellow (40%) into a single mixed ink.
@@ -30,17 +22,6 @@ test.describe('Blended ink export', () => {
         '#5ec8e5': 60, // Aqua
         '#ffe800': 40, // Yellow
       };
-      // Build a mixed hex from those coverages.
-      const mixedHex = BucketTool.fitInksToColor
-        ? (function () {
-            // Derive the mixed color directly from the subtractive mix.
-            const inks = Object.entries(mix).map(([hex, amount]) => ({ hex, amount }));
-            // mixInks is not exported on BucketTool; compute via color-layer module.
-            return null;
-          })()
-        : null;
-
-      const { mixInks } = await import('/src/app/color-layer.js');
       const color = mixInks([
         { hex: '#5ec8e5', amount: 60 },
         { hex: '#ffe800', amount: 40 },
@@ -49,6 +30,7 @@ test.describe('Blended ink export', () => {
       const layer = State.layers[0];
       layer.color = color;
       layer.colorMode = 'solid';
+      layer.mixedInks = mix;
       layer._dirty = true;
 
       const plates = await ExportEngine.exportLayers(State.layers, CANVAS_W, CANVAS_H);
@@ -100,7 +82,6 @@ test.describe('Blended ink export', () => {
   });
 
   test('exports different blend ratios with proportionate grayscale values', async ({ page }) => {
-    test.fixme(true, 'pre-existing failure, see task 9d90313971cb4e3e97c7e361f6b224c7');
     await createProject(page, 'Blend Ratios', { pageSize: 'half-letter' });
     await addSolidColorImage(page, '#000000', { width: 800, height: 800 });
 
@@ -117,6 +98,7 @@ test.describe('Blended ink export', () => {
         const layer = State.layers[0];
         layer.color = color;
         layer.colorMode = 'solid';
+        layer.mixedInks = { '#0078bf': amounts[0], '#f65058': amounts[1] };
         layer._dirty = true;
         const plates = await ExportEngine.exportLayers(State.layers, CANVAS_W, CANVAS_H);
         const avg = hex => {
@@ -168,5 +150,84 @@ test.describe('Blended ink export', () => {
     });
 
     expect(result.colors).toEqual(['#0078BF']);
+  });
+
+  test('a blended-color layer without explicit mixedInks is decomposed into component plates', async ({ page }) => {
+    await createProject(page, 'Blended Auto Detect', { pageSize: 'half-letter' });
+    await addSolidColorImage(page, '#000000', { width: 800, height: 800 });
+
+    const result = await page.evaluate(async () => {
+      const { ExportEngine } = await import('/src/app/export-engine.js');
+      const { mixInks } = await import('/src/app/color-layer.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+
+      // A color produced by mixing palette inks, with no explicit recipe stored.
+      const color = mixInks([
+        { hex: '#5ec8e5', amount: 60 }, // Aqua
+        { hex: '#ffe800', amount: 40 }, // Yellow
+      ]);
+
+      const layer = State.layers[0];
+      layer.color = color;
+      layer.colorMode = 'solid';
+      delete layer.mixedInks; // force color-only detection
+      layer._dirty = true;
+
+      const plates = await ExportEngine.exportLayers(State.layers, CANVAS_W, CANVAS_H);
+      const avg = hex => {
+        const canvas = plates.get(hex) || plates.get(hex.toUpperCase()) || plates.get(hex.toLowerCase());
+        if (!canvas) return null;
+        const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        let sum = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] < 250) { sum += data[i]; count++; }
+        }
+        return count ? sum / count : 255;
+      };
+      const colors = [...plates.keys()].map(c => c.toUpperCase()).sort();
+
+      return {
+        colors,
+        hasMixedPlate: colors.includes(color.toUpperCase()),
+        aquaAvg: avg('#5ec8e5'),
+        yellowAvg: avg('#ffe800'),
+      };
+    });
+
+    expect(result.hasMixedPlate).toBe(false);
+    expect(result.colors.length).toBeGreaterThanOrEqual(2);
+    expect(result.colors).toContain('#5EC8E5');
+    expect(result.colors).toContain('#FFE800');
+    expect(result.aquaAvg).not.toBeNull();
+    expect(result.yellowAvg).not.toBeNull();
+    expect(result.aquaAvg).toBeLessThan(result.yellowAvg - 20);
+  });
+
+  test('blended export ignores zero-coverage inks and keeps ink order irrelevant', async ({ page }) => {
+    await createProject(page, 'Blended Normalize', { pageSize: 'half-letter' });
+    await addSolidColorImage(page, '#000000', { width: 800, height: 800 });
+
+    const result = await page.evaluate(async () => {
+      const { ExportEngine } = await import('/src/app/export-engine.js');
+      const { mixInks } = await import('/src/app/color-layer.js');
+      const { CANVAS_W, CANVAS_H } = await import('/src/app/constants.js');
+
+      const mix = { '#ffe800': 40, '#5ec8e5': 60, '#0078bf': 0 };
+      const color = mixInks([
+        { hex: '#5ec8e5', amount: 60 },
+        { hex: '#ffe800', amount: 40 },
+      ]);
+
+      const layer = State.layers[0];
+      layer.color = color;
+      layer.colorMode = 'solid';
+      layer.mixedInks = mix;
+      layer._dirty = true;
+
+      const plates = await ExportEngine.exportLayers(State.layers, CANVAS_W, CANVAS_H);
+      return { colors: [...plates.keys()].map(c => c.toUpperCase()).sort() };
+    });
+
+    expect(result.colors).toEqual(['#5EC8E5', '#FFE800']);
   });
 });
