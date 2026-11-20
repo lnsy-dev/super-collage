@@ -211,9 +211,9 @@ export const ExportEngine = {
       if (entries.length) return entries;
     }
 
-    // Fallback: a solid layer whose color is a close multi-ink subtractive mix
-    // (no explicit recipe stored) is exported as its component ink plates at the
-    // fitted coverage, rather than as a single plate of the mixed color.
+    // Fallback: a solid layer whose color is exactly reproducible as a
+    // multi-ink subtractive mix (no explicit recipe stored) is exported as its
+    // component ink plates at the fitted coverage.
     return this._fittedBlendedInkEntries(l);
   },
 
@@ -241,15 +241,12 @@ export const ExportEngine = {
     }
     if (entries.length < 2) return null;
 
-    // Only split when the fitted mix reproduces the layer color closely.
+    // Only split when the fitted mix reproduces the layer color exactly.
+    // Arbitrary layer colors can be near a multi-ink fit without being a true
+    // mixed ink; exporting those as their own plate preserves the intended color.
     const target = hex.toUpperCase();
     const achieved = (fit.hex || '').toUpperCase();
-    if (target !== achieved) {
-      const parse = h => [1, 3, 5].map(i => parseInt((h || '#000000').slice(i, i + 2), 16));
-      const [tr, tg, tb] = parse(target);
-      const [ar, ag, ab] = parse(achieved);
-      if (Math.abs(tr - ar) + Math.abs(tg - ag) + Math.abs(tb - ab) > 6) return null;
-    }
+    if (target !== achieved) return null;
     return entries;
   },
 
