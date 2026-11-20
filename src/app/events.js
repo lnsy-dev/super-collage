@@ -24,7 +24,7 @@ import { TypeSetRenderer } from 'type-set';
 import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
 import { isSnapEnabled, snapPageValue, snapOverlayPoint, snapMoveCorrection } from './grid-snap.js';
 import { BucketTool, showBucketMixDialog } from './color-layer.js';
-import { textLayerName } from './layer.js';
+import { syncTextLayerName } from './layer.js';
 
 /* ─── MULTI-TOUCH POINTER TRACKING ─────────────────────────────────
    Tracks every active pointer on the canvas overlay so we can detect a
@@ -1397,7 +1397,7 @@ export function wireControls() {
     let parsed = parser(value);
     if (field === 'text') parsed = String(parsed).replace(/[\r\n]+/g, ' ');
     l[field] = parsed;
-    if (field === 'text') l.name = textLayerName(l.text);
+    if (field === 'text') syncTextLayerName(l);
     if (field === 'text' || field === 'textFontFamily' || field === 'textFontSize' ||
         field === 'textFontWeight' || field === 'textFontStyle' ||
         field === 'textLetterSpacing' || field === 'textLineHeight') {

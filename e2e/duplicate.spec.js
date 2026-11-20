@@ -93,7 +93,6 @@ test.describe('Duplicate – text layer', () => {
   }
 
   test('creates a second text layer named "copy"', async ({ page }) => {
-    test.fixme(true, 'pre-existing failure, see task d9dccfff6aeb43f4a811186494511a13');
     await createProject(page, 'Dup Text');
     await addTextLayer(page);
 
@@ -104,7 +103,6 @@ test.describe('Duplicate – text layer', () => {
   });
 
   test('duplicate preserves text content and isText flag', async ({ page }) => {
-    test.fixme(true, 'pre-existing failure, see task d9dccfff6aeb43f4a811186494511a13');
     await createProject(page, 'Dup Text Content');
     await addTextLayer(page, 'Duplicate me');
 
@@ -120,7 +118,6 @@ test.describe('Duplicate – text layer', () => {
   });
 
   test('duplicate text layer is dirty and renders', async ({ page }) => {
-    test.fixme(true, 'pre-existing failure, see task d9dccfff6aeb43f4a811186494511a13');
     await createProject(page, 'Dup Text Render');
     await addTextLayer(page, 'Render me');
 
