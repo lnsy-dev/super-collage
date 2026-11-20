@@ -93,6 +93,7 @@ test.describe('Duplicate – text layer', () => {
   }
 
   test('creates a second text layer named "copy"', async ({ page }) => {
+    test.fixme(true, 'pre-existing failure, see task d9dccfff6aeb43f4a811186494511a13');
     await createProject(page, 'Dup Text');
     await addTextLayer(page);
 

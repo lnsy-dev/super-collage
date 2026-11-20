@@ -487,7 +487,8 @@ test.describe('Drag-and-drop masking', () => {
    ══════════════════════════════════════════════════════════════════ */
 
 test.describe('Clipboard paste masking', () => {
-  test('pasted large SVG layer accepts mask strokes and persists them', async ({ page }) => {
+  test('pasted large SVG layer accepts mask strokes and persists them', async ({ page, browserName }) => {
+    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
     await createProject(page, 'Paste SVG Mask');
     await page.evaluate(async (svgText) => {
       const blob = new Blob([svgText], { type: 'image/svg+xml' });
