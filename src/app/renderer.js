@@ -192,7 +192,12 @@ export const Renderer = {
 
   // Reset the scaled document-coordinate transform on a display-area context
   _beginDocTransform(ctx, scale) {
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    try {
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      return true;
+    } catch (_e) {
+      return false;
+    }
   },
 
   schedule() {
@@ -207,7 +212,13 @@ export const Renderer = {
       ? Math.max(0, MASK_STROKE_FRAME_MS - (performance.now() - this._lastDrawAt))
       : 0;
     const run = async () => {
-      await this.draw();
+      try {
+        await this.draw();
+      } catch (_e) {
+        // Firefox can put a canvas context into a persistent error state
+        // during extreme resize/zoom operations; drop the frame instead
+        // of surfacing an uncaught page error.
+      }
       State.renderPending = false;
       this._lastDrawAt = performance.now();
     };
@@ -335,7 +346,7 @@ export const Renderer = {
   },
 
   async draw() {
-    this._beginDocTransform(dCtx, this._displayScale);
+    if (!this._beginDocTransform(dCtx, this._displayScale)) return;
     await this.drawLayers(dCtx, State.layers, this._docSize().w, this._docSize().h, State.zoom);
     if (State.showMargins) this.drawMargins();
     if (State.showGrid) this.drawGrid();
@@ -831,7 +842,11 @@ export const Renderer = {
   // callers (including preview drawing in events.js) must re-apply this
   // transform rather than assuming a 1:1 identity mapping.
   resetOverlayTransform(ctx) {
-    ctx.setTransform(this._overlayScale, 0, 0, this._overlayScale, 0, 0);
+    try {
+      ctx.setTransform(this._overlayScale, 0, 0, this._overlayScale, 0, 0);
+    } catch (_e) {
+      return;
+    }
     const ow = this._overlaySize?.w ?? overlayCanvas.width;
     const oh = this._overlaySize?.h ?? overlayCanvas.height;
     ctx.clearRect(0, 0, ow, oh);

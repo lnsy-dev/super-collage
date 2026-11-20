@@ -6,8 +6,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('Image Paste', () => {
-  test('paste image from clipboard', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('paste image from clipboard', async ({ page }) => {
     await createProject(page, 'Paste Test');
 
     await page.evaluate(async () => {
@@ -15,9 +14,15 @@ test.describe('Image Paste', () => {
       const pngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAABZJREFUeNpi2r9//38gYGAEESAAEGAAasgJOgzOKCoAAAAASUVORK5CYII=';
       const blob = await fetch(pngDataUrl).then(r => r.blob());
       const file = new File([blob], 'pasted-image.png', { type: 'image/png' });
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+      let dt;
+      try {
+        dt = new DataTransfer();
+        dt.items.add(file);
+      } catch {
+        dt = { items: [{ kind: 'file', type: file.type, getAsFile: () => file }], files: [file] };
+      }
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch {}
       document.dispatchEvent(ev);
     });
 

@@ -434,8 +434,7 @@ test.describe('Grid snapping (grid visible → pointer results snap to the drawn
 
 test.describe('Grid snapping negative controls (nothing snaps without a standard grid)', () => {
 
-  test('control: with the grid hidden, drags are NOT snapped', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('control: with the grid hidden, drags are NOT snapped', async ({ page }) => {
     await createProjectClean(page, 'No Snap Hidden');
     await addSolidColorImage(page, '#000000');
     const spot = await parkSpot(page);
@@ -445,16 +444,17 @@ test.describe('Grid snapping negative controls (nothing snaps without a standard
 
     const z = await page.evaluate(() => window.State.zoom);
     const from = await clientForPage(page, spot.x + 300, spot.y + 300); // layer centre
-    await dragMouse(page, from, { x: from.x + 123 * z, y: from.y + 237 * z });
+    const fromR = { x: Math.round(from.x), y: Math.round(from.y) };
+    const to = { x: Math.round(fromR.x + 123 * z), y: Math.round(fromR.y + 237 * z) };
+    await dragMouse(page, fromR, to);
     await settle(page);
 
     const l = await getLayer(page);
-    expect(l.x).toBeCloseTo(spot.x + 123, 3); // un-snapped drag math (float noise ~1e-4)
-    expect(l.y).toBeCloseTo(spot.y + 237, 3);
+    expect(l.x).toBeCloseTo(spot.x + (to.x - fromR.x) / z, 3); // un-snapped drag math (float noise ~1e-4)
+    expect(l.y).toBeCloseTo(spot.y + (to.y - fromR.y) / z, 3);
   });
 
-  test('control: an isometric grid is visible but does not snap (diagonal lines)', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('control: an isometric grid is visible but does not snap (diagonal lines)', async ({ page }) => {
     await createProjectClean(page, 'No Snap Iso');
     await addSolidColorImage(page, '#000000');
     const spot = await parkSpot(page);
@@ -465,12 +465,14 @@ test.describe('Grid snapping negative controls (nothing snaps without a standard
 
     const z = await page.evaluate(() => window.State.zoom);
     const from = await clientForPage(page, spot.x + 300, spot.y + 300); // layer centre
-    await dragMouse(page, from, { x: from.x + 123 * z, y: from.y + 237 * z });
+    const fromR = { x: Math.round(from.x), y: Math.round(from.y) };
+    const to = { x: Math.round(fromR.x + 123 * z), y: Math.round(fromR.y + 237 * z) };
+    await dragMouse(page, fromR, to);
     await settle(page);
 
     const l = await getLayer(page);
-    expect(l.x).toBeCloseTo(spot.x + 123, 3);
-    expect(l.y).toBeCloseTo(spot.y + 237, 3);
+    expect(l.x).toBeCloseTo(spot.x + (to.x - fromR.x) / z, 3);
+    expect(l.y).toBeCloseTo(spot.y + (to.y - fromR.y) / z, 3);
   });
 
 });

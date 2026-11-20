@@ -19,13 +19,13 @@ async function dragHandle(page, dy) {
 }
 
 test.describe('Right panel scroll after layer resize', () => {
-  test('properties keep full content height and panel scrolls', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('properties keep full content height and panel scrolls', async ({ page }) => {
     await createProject(page, 'Right Panel Scroll');
     // Make the properties content tall so it must not be clipped.
     await page.evaluate(() => {
       const el = document.createElement('div');
       el.style.height = '600px';
+      el.style.flexShrink = '0';
       el.textContent = 'TALL PROPS';
       document.getElementById('properties-content').appendChild(el);
     });

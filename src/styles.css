@@ -291,7 +291,9 @@ body {
    their full content height instead of flexing to fill (and clip) the
    remaining space, so the column scrolls and every property control stays
    reachable. */
-#right-panel.has-expanded-row #properties-window { min-height: max-content; }
+#right-panel.has-expanded-row #properties-window { flex: 0 0 auto; min-height: max-content; height: auto; }
+#right-panel.has-expanded-row #properties-window .window-content { min-height: 0; height: auto; flex: 0 0 auto; }
+#right-panel.has-expanded-row #properties-content { overflow-y: visible; flex: 0 0 auto; height: auto; }
 
 /* ─── PANEL ROW RESIZE HANDLES ───────────────────────────────────── */
 /* A slim grip along the bottom edge of a stacked panel window (Layers
