@@ -487,14 +487,21 @@ test.describe('Drag-and-drop masking', () => {
    ══════════════════════════════════════════════════════════════════ */
 
 test.describe('Clipboard paste masking', () => {
-  test('pasted large SVG layer accepts mask strokes and persists them', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('pasted large SVG layer accepts mask strokes and persists them', async ({ page }) => {
     await createProject(page, 'Paste SVG Mask');
     await page.evaluate(async (svgText) => {
       const blob = new Blob([svgText], { type: 'image/svg+xml' });
-      const item = new DataTransfer();
-      item.items.add(new File([blob], 'pasted.svg', { type: 'image/svg+xml' }));
-      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: item, bubbles: true, cancelable: true }));
+      const file = new File([blob], 'pasted.svg', { type: 'image/svg+xml' });
+      let dt;
+      try {
+        dt = new DataTransfer();
+        dt.items.add(file);
+      } catch {
+        dt = { items: [{ kind: 'file', type: file.type, getAsFile: () => file }], files: [file] };
+      }
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch {}
+      document.dispatchEvent(ev);
     }, LARGE_SVG);
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
 

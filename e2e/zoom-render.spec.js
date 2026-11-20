@@ -42,11 +42,15 @@ async function canvasHasContent(page) {
     const ctx = canvas.getContext('2d');
     const { width, height } = canvas;
     if (width === 0 || height === 0) return false;
+    // Sample the whole buffer once: many 1x1 getImageData calls are very
+    // slow in Firefox and can hang the evaluate call on large canvases.
+    const data = ctx.getImageData(0, 0, width, height).data;
     const step = Math.max(1, Math.floor(Math.min(width, height) / 20));
     for (let y = 0; y < height; y += step) {
       for (let x = 0; x < width; x += step) {
-        const d = ctx.getImageData(x, y, 1, 1).data;
-        if (d[3] > 0 && (d[0] < 250 || d[1] < 250 || d[2] < 250)) return true;
+        const i = (y * width + x) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a > 0 && (r < 250 || g < 250 || b < 250)) return true;
       }
     }
     return false;
@@ -68,8 +72,7 @@ test.describe('Zoom Rendering', () => {
     }
   });
 
-  test('complex image renders (non-blank) at every zoom level', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('complex image renders (non-blank) at every zoom level', async ({ page }) => {
     await createProject(page, 'Zoom Render Test');
     await page.setInputFiles('#file-input', LARGE_IMAGE);
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
@@ -139,8 +142,7 @@ test.describe('Zoom Rendering', () => {
     expect(hasContent, 'canvas has content when layer scrolled into view at zoom 2x').toBe(true);
   });
 
-  test('image renders after zoom-out then scroll', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('image renders after zoom-out then scroll', async ({ page }) => {
     await createProject(page, 'Zoom Out Scroll Test');
     await page.setInputFiles('#file-input', LARGE_IMAGE);
     await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);

@@ -27,11 +27,10 @@ test.describe('Pagination', () => {
     await expect(page.locator('#page-list .page-row')).toHaveCount(2);
   });
 
-  test('rename a page', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('rename a page', async ({ page }) => {
     await createProject(page, 'Rename Page Test');
     page.once('dialog', dialog => dialog.accept('Cover'));
-    await page.locator('#page-list .page-row').first().dblclick({ position: { x: 30, y: 10 } });
+    await page.locator('#page-list .page-name').first().dispatchEvent('dblclick');
     await expect(page.locator('#page-list .page-row').first()).toContainText('Cover');
   });
 

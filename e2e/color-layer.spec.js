@@ -274,8 +274,7 @@ test.describe('Color Layer (paint bucket)', () => {
     expect(layer.centerPixel.a).toBe(0);
   });
 
-  test('filling with a different mixed ink spawns a fresh fill layer', async ({ page, browserName }) => {
-    test.fixme(browserName === 'firefox', 'pre-existing Firefox failure, see task aa6c7dd9ed6547d3b3212821739a9cb3');
+  test('filling with a different mixed ink spawns a fresh fill layer', async ({ page }) => {
     await createProject(page, 'Bucket New Ink Test');
     await page.evaluate(() => window.UI.fitZoom());
     await addImageFromBuffer(page, createShapePngBuffer('rect', 300, 300), { name: 'rect.png' });
@@ -303,8 +302,9 @@ test.describe('Color Layer (paint bucket)', () => {
     await page.click('#btn-bucket-done');
     await bucketClick(page, pageSize.w / 2, pageSize.h / 2);
     await page.waitForFunction(() =>
-      window.State.layers.filter(l => l.name === 'Color Layer').length === 2);
-    expect(await page.locator('#layer-list .layer-row')).toHaveCount(3);
+      window.State.layers.filter(l => l.name === 'Color Layer').length === 2 &&
+      document.querySelectorAll('#layer-list .layer-row').length === window.State.layers.length);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
 
     const colors = await page.evaluate(() =>
       window.State.layers.filter(l => l.name === 'Color Layer').map(l => l.color));
