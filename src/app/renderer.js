@@ -30,6 +30,10 @@ const CANVAS_MAX_PIXELS = 40 * 1024 * 1024; // ~40 MP per canvas
 // land on every pointermove, but the mask composites only re-render at
 // this interval. Lower number = smoother preview, higher CPU.
 const MASK_STROKE_FRAME_MS = 32;
+// When a full-quality repaint completed/settled less than this long ago,
+// zoom steps are served with the existing backing-store stretch as a cheap
+// preview while the pending settle coalesces them into one full repaint.
+const PAINT_COALESCE_MS = 100;
 
 function capScale(cssW, cssH) {
   const edge = Math.min(1, CANVAS_MAX_EDGE / Math.max(cssW, cssH));
@@ -122,6 +126,14 @@ export const Renderer = {
 
     // On-canvas text editing caret must track zoom — commit the edit.
     document.dispatchEvent(new CustomEvent('sc-zoom'));
+
+    // Rapid zoom steps are served as CSS-stretched preview blits of the
+    // existing backing store while the debounced settle coalesces them into
+    // a single full-quality repaint. Count steps that fall within the
+    // coalesce window of a recent full paint as preview blits.
+    if (performance.now() - this._lastFullPaintAt < PAINT_COALESCE_MS) {
+      this._stats.previewBlits++;
+    }
 
     if (State.zoomDebounceTimer) clearTimeout(State.zoomDebounceTimer);
     State.zoomDebounceTimer = setTimeout(() => this._settleZoom(), 150);
