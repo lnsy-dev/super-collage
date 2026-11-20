@@ -230,25 +230,30 @@ export const Renderer = {
    * meaningful to clip to. A small margin around the slice keeps antialiased
    * slice borders seamless while panning.
    */
-  _getViewportClipRect() {
+  _getViewportClipRect(docW = this._docSize().w, docH = this._docSize().h) {
     const scroll = document.getElementById('canvas-scroll');
     if (!scroll) return null;
-    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
-    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
+    // Position of the display canvas in the scroll container's content
+    // coordinates. The display canvas's offsetParent is the positioned
+    // canvas-wrapper, whose offsetParent is not necessarily the scroll
+    // container, so summing offsetTop values is wrong; use rect deltas.
+    const scrollRect = scroll.getBoundingClientRect();
+    const canvasRect = displayCanvas.getBoundingClientRect();
+    const canvasOffsetLeft = canvasRect.left - scrollRect.left + scroll.scrollLeft;
+    const canvasOffsetTop  = canvasRect.top  - scrollRect.top  + scroll.scrollTop;
     const x0 = scroll.scrollLeft - canvasOffsetLeft;
     const y0 = scroll.scrollTop  - canvasOffsetTop;
     const x1 = x0 + scroll.clientWidth;
     const y1 = y0 + scroll.clientHeight;
     const MARGIN = 8;
-    // The clip rect must live in CSS/z-space like every other drawLayers
-    // coordinate; the backing store is scaled by _displayScale, so its px
-    // extent is larger in CSS terms than displayCanvas.width suggests.
-    const cssW = displayCanvas.width / this._displayScale;
-    const cssH = displayCanvas.height / this._displayScale;
+    // Clamp to the document/page bounds in CSS/z-space. Using the backing
+    // store's derived size (backing / _displayScale) can drift from the
+    // actual document size by rounding, which would clip or exclude a strip
+    // at the page edge and make content there unrenderable/unplaceable.
     const left = Math.max(0, Math.floor(x0 - MARGIN));
     const top = Math.max(0, Math.floor(y0 - MARGIN));
-    const right = Math.min(cssW, Math.ceil(x1 + MARGIN));
-    const bottom = Math.min(cssH, Math.ceil(y1 + MARGIN));
+    const right = Math.min(docW, Math.ceil(x1 + MARGIN));
+    const bottom = Math.min(docH, Math.ceil(y1 + MARGIN));
     const width = right - left, height = bottom - top;
     if (width <= 0 || height <= 0) return null;
     return { left, top, width, height };
@@ -265,8 +270,12 @@ export const Renderer = {
   _viewportRect() {
     const scroll = document.getElementById('canvas-scroll');
     if (!scroll) return null;
-    const canvasOffsetLeft = displayCanvas.offsetLeft + (displayCanvas.offsetParent?.offsetLeft ?? 0);
-    const canvasOffsetTop  = displayCanvas.offsetTop  + (displayCanvas.offsetParent?.offsetTop  ?? 0);
+    // Same scroll-content coordinate space as _getViewportClipRect; offsetTop
+    // chains are wrong when the scroll container is not the offset parent.
+    const scrollRect = scroll.getBoundingClientRect();
+    const canvasRect = displayCanvas.getBoundingClientRect();
+    const canvasOffsetLeft = canvasRect.left - scrollRect.left + scroll.scrollLeft;
+    const canvasOffsetTop  = canvasRect.top  - scrollRect.top  + scroll.scrollTop;
     return {
       left: scroll.scrollLeft - canvasOffsetLeft,
       top: scroll.scrollTop - canvasOffsetTop,
@@ -323,7 +332,7 @@ export const Renderer = {
     // Culling reads the scroll viewport ONCE (unclamped to the canvas:
     // scroll positions past the document still overlook canvas content)
     // and per-layer tests avoid any forced-layout reads.
-    const clipRect = skipCulling ? null : this._getViewportClipRect();
+    const clipRect = skipCulling ? null : this._getViewportClipRect(width, height);
     const viewRect = skipCulling ? null : this._viewportRect();
 
     for (const layer of layers) {
@@ -700,11 +709,11 @@ export const Renderer = {
     return buf;
   },
 
-  // Backing stores may be scaled below the CSS size at high zoom; these
-  // helpers give drawing code the CSS-pixel document dimensions so geometry
-  // math stays in document coordinates regardless of the backing scale.
-  _displayDocW() { return displayCanvas.width / this._displayScale; },
-  _displayDocH() { return displayCanvas.height / this._displayScale; },
+  // CSS-pixel document/page dimensions. Geometry and guides must use the
+  // actual page size; deriving this from backing store dimensions can drift
+  // by rounding at non-1:1 backing scales and clip/exclude a strip at edges.
+  _displayDocW() { return this._docSize().w; },
+  _displayDocH() { return this._docSize().h; },
 
   drawMargins() {
     const z = State.zoom;
