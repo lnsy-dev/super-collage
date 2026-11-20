@@ -10,6 +10,15 @@ export function textLayerName(text) {
   return normalized ? normalized.slice(0, 20) : 'Text';
 }
 
+export function syncTextLayerName(layer) {
+  if (!layer?.isText) return;
+  const derived = textLayerName(layer.text);
+  if (layer.name === derived) return;
+  const suffix = layer.name.slice(derived.length);
+  if (layer.name.startsWith(derived) && /^( copy)+$/.test(suffix)) return;
+  layer.name = derived;
+}
+
 export class Layer {
   constructor(data = {}) {
     this.id = data.id || crypto.randomUUID();
@@ -102,7 +111,7 @@ export class Layer {
     this.textLetterSpacing = data.textLetterSpacing ?? 0;
     this.textLineHeight = data.textLineHeight ?? 1.2;
     this.textAlign = data.textAlign || 'left';
-    if (this.isText) this.name = textLayerName(this.text);
+    if (this.isText) this.name = data.name ?? textLayerName(this.text);
     this.separationColors = data.separationColors || [];
     this.separationPlates = new Map();
     this.isShape = data.isShape || false;
