@@ -153,8 +153,9 @@ test.describe('Zoom Tool', () => {
 
     expect(after.zoom).toBeCloseTo(initialZoom * 1.25, 5);
     // The clicked page point should still be (near) the cursor.
-    expect(after.nvx).toBeCloseTo(vx, 0);
-    expect(after.nvy).toBeCloseTo(vy, 0);
+    // Allow 1px tolerance for subpixel layout/scroll rounding across browsers.
+    expect(Math.abs(after.nvx - vx)).toBeLessThan(1);
+    expect(Math.abs(after.nvy - vy)).toBeLessThan(1);
   });
 
   test('shift+click zooms out around the clicked point', async ({ page }) => {

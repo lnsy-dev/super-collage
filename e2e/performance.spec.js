@@ -132,7 +132,8 @@ test.describe('Performance Optimizations', () => {
     expect(exportDims.height).toBe(5100);
   });
 
-  test('app remains interactive under CPU throttling', async ({ page }) => {
+  test('app remains interactive under CPU throttling', async ({ page, browserName }) => {
+    test.skip(browserName === 'firefox', 'CPU throttling via CDP is not available in Firefox');
     await createProject(page, 'Throttle Test');
     await addImage(page, LARGE_IMAGE);
 

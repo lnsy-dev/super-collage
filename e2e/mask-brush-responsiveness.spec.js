@@ -237,7 +237,8 @@ test.beforeEach(async ({ page }) => {
    ══════════════════════════════════════════════════════════════════ */
 
 test.describe('Mask brush responsiveness', () => {
-  test('brushing a mask with a fan of diffed masks paints through and stays responsive', async ({ page }) => {
+  test('brushing a mask with a fan of diffed masks paints through and stays responsive', async ({ page, browserName }) => {
+    test.skip(browserName === 'firefox', 'CPU throttling via CDP is not available in Firefox');
     const PAIRS = 5;
     const CPU_THROTTLE = 4;
     // Per-frame redraw budget during the stroke (ms of Renderer.draw),
