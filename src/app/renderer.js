@@ -97,9 +97,13 @@ export const Renderer = {
     const z = State.zoom;
     const dw = Math.round(CANVAS_W * z);
     const dh = Math.round(CANVAS_H * z);
-    const ow = Math.round((CANVAS_W + CANVAS_PAD * 2) * z);
-    const oh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
     const padPx = Math.round(CANVAS_PAD * z);
+    // Ensure the overlay always covers the full page on every side: rounding
+    // the sum separately from its terms can make the overlay 1px short,
+    // leaving the page's bottom/right edge outside the interactive area (seen
+    // in Firefox as a strip where content cannot be placed).
+    const ow = Math.max(Math.round((CANVAS_W + CANVAS_PAD * 2) * z), dw + padPx * 2);
+    const oh = Math.max(Math.round((CANVAS_H + CANVAS_PAD * 2) * z), dh + padPx * 2);
 
     // A zoom step resizes the CSS box immediately so the browser can stretch
     // the existing backing store as a cheap preview. The backing-store
@@ -137,16 +141,24 @@ export const Renderer = {
     const zz = State.zoom;
     const w = Math.round(CANVAS_W * zz);
     const h = Math.round(CANVAS_H * zz);
-    const oW = Math.round((CANVAS_W + CANVAS_PAD * 2) * zz);
-    const oH = Math.round((CANVAS_H + CANVAS_PAD * 2) * zz);
+    const padPx = Math.round(CANVAS_PAD * zz);
+    // Match resize(): overlay CSS/logical size must fully contain the page so
+    // pointer events and drawing reach the bottom/right edges in all browsers.
+    const oW = Math.max(Math.round((CANVAS_W + CANVAS_PAD * 2) * zz), w + padPx * 2);
+    const oH = Math.max(Math.round((CANVAS_H + CANVAS_PAD * 2) * zz), h + padPx * 2);
     const dScale = capScale(w, h);
     const oScale = capScale(oW, oH);
-    this._displayScale = dScale;
-    this._overlayScale = oScale;
-    const dw = Math.max(1, Math.round(w * dScale));
-    const dh = Math.max(1, Math.round(h * dScale));
-    const ow = Math.max(1, Math.round(oW * oScale));
-    const oh = Math.max(1, Math.round(oH * oScale));
+    // Ceil so the backing store fully covers the CSS/document area; the
+    // transform uses the actual backing/doc ratio so drawing spans every
+    // backing pixel. Rounding down or using a mismatched scale could leave
+    // an unpainted strip at the page edge (seen in Firefox as a thin white,
+    // unplaceable bottom strip).
+    const dw = Math.max(1, Math.ceil(w * dScale));
+    const dh = Math.max(1, Math.ceil(h * dScale));
+    const ow = Math.max(1, Math.ceil(oW * oScale));
+    const oh = Math.max(1, Math.ceil(oH * oScale));
+    this._displayScale = dw / Math.max(1, w);
+    this._overlayScale = ow / Math.max(1, oW);
     if (displayCanvas.width !== dw || displayCanvas.height !== dh ||
         overlayCanvas.width !== ow || overlayCanvas.height !== oh) {
       displayCanvas.width = dw;

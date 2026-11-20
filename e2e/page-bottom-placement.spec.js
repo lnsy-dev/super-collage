@@ -39,6 +39,30 @@ async function samplePagePixel(page, docX, docY) {
   }, { docX, docY });
 }
 
+async function setZoomAndScrollToBottom(page, zoom) {
+  await page.evaluate((z) => {
+    State.zoom = z;
+    Renderer.resize();
+  }, zoom);
+  await settleRender(page);
+  await page.evaluate(() => {
+    const scroll = document.getElementById('canvas-scroll');
+    const canvas = document.getElementById('display-canvas');
+    const scrollRect = scroll.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    // Position of the display canvas within scroll content, in the same space
+    // the renderer uses for viewport/culling calculations.
+    const canvasOffsetTop = canvasRect.top - scrollRect.top + scroll.scrollTop;
+    const canvasBottom = canvasOffsetTop + (canvasRect.height || canvas.offsetHeight);
+    // Scroll so the bottom edge of the page/canvas is inside the viewport
+    // (not past the end of scroll content, which can extend below the canvas).
+    scroll.scrollTop = Math.max(0, canvasBottom - scroll.clientHeight);
+    scroll.scrollLeft = 0;
+  });
+  // Scroll handler schedules a redraw; wait for it to include the bottom.
+  await settleRender(page);
+}
+
 test.describe('Page bottom placement', () => {
   test('content can be placed at the bottom edge of a page and remains visible', async ({ page }) => {
     await createProject(page, 'Bottom Edge Test', { pageSize: 'half-letter', pageCount: 1 });
@@ -110,5 +134,64 @@ test.describe('Page bottom placement', () => {
     expect(inside.rgba[0], `bottom area inside layer should be ink, got ${JSON.stringify({ inside, outside })}`).toBeLessThan(80);
     expect(inside.rgba[1], `bottom area inside layer should be ink, got ${JSON.stringify({ inside, outside })}`).toBeLessThan(80);
     expect(outside.rgba[0], `outside layer should be white paper, got ${JSON.stringify(outside)}`).toBeGreaterThan(240);
+  });
+
+  test('bottom edge remains renderable and placeable in Firefox across zoom levels', async ({ page }) => {
+    test.setTimeout(90000);
+    await createProject(page, 'Bottom Zoom Test', { pageSize: 'half-letter', pageCount: 1 });
+
+    await addImageFromBuffer(page, createSolidPngBuffer('#cc2020', 400, 400), { name: 'red.png' });
+    await expect.poll(() => page.evaluate(() => State.layers.length)).toBe(1);
+    // Let the newly added layer fully process/load before changing zoom.
+    await settleRender(page);
+
+    const pageH = await page.evaluate(async () => {
+      const layer = State.layers[0];
+      const p = await DB.get('pages', State.pageId);
+      layer.x = 100;
+      layer.y = p.height - layer.height; // flush with bottom edge
+      layer._dirty = true;
+      await DB.saveLayer(layer);
+      return p.height;
+    });
+    await settleRender(page);
+
+    // Cover fractional and 1:1 zooms where backing-store rounding and viewport
+    // clipping at the page edge have been problematic (Firefox showed a white,
+    // unplaceable strip at the bottom).
+    for (const zoom of [0.2, 0.25, 0.33, 0.5, 0.75, 1]) {
+      await setZoomAndScrollToBottom(page, zoom);
+
+      const coverage = await page.evaluate(() => {
+        const canvas = document.getElementById('display-canvas');
+        const w = Renderer._docSize().w;
+        const h = Renderer._docSize().h;
+        return {
+          docW: w,
+          docH: h,
+          backingW: canvas.width,
+          backingH: canvas.height,
+          displayScale: Renderer._displayScale,
+          // Transform/backing must span the full document so the bottom edge
+          // is not left as an unpainted (white) strip.
+          coversW: canvas.width >= w * Renderer._displayScale - 0.001,
+          coversH: canvas.height >= h * Renderer._displayScale - 0.001,
+        };
+      });
+      expect(coverage.coversW, `backing width must cover doc at zoom ${zoom}: ${JSON.stringify(coverage)}`).toBe(true);
+      expect(coverage.coversH, `backing height must cover doc at zoom ${zoom}: ${JSON.stringify(coverage)}`).toBe(true);
+
+      const inside2 = await samplePagePixel(page, 300, pageH - 2);
+      const inside1 = await samplePagePixel(page, 300, pageH - 1);
+      const outside = await samplePagePixel(page, 50, pageH - 2);
+
+      expect(inside2.rgba[0], `zoom ${zoom} 2px above bottom inside layer should be ink, got ${JSON.stringify({ inside2, inside1, outside, coverage })}`).toBeLessThan(80);
+      expect(inside2.rgba[1], `zoom ${zoom} 2px above bottom inside layer should be ink, got ${JSON.stringify({ inside2, inside1, outside, coverage })}`).toBeLessThan(80);
+      expect(inside1.rgba[0], `zoom ${zoom} 1px above bottom inside layer should be ink, got ${JSON.stringify({ inside2, inside1, outside, coverage })}`).toBeLessThan(80);
+      expect(inside1.rgba[1], `zoom ${zoom} 1px above bottom inside layer should be ink, got ${JSON.stringify({ inside2, inside1, outside, coverage })}`).toBeLessThan(80);
+      expect(outside.rgba[0], `zoom ${zoom} outside layer should be white paper, got ${JSON.stringify(outside)}`).toBeGreaterThan(240);
+      expect(outside.rgba[1], `zoom ${zoom} outside layer should be white paper, got ${JSON.stringify(outside)}`).toBeGreaterThan(240);
+      expect(outside.rgba[2], `zoom ${zoom} outside layer should be white paper, got ${JSON.stringify(outside)}`).toBeGreaterThan(240);
+    }
   });
 });
