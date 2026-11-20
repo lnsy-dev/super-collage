@@ -4,11 +4,20 @@
 
 export let CANVAS_W = 3300;
 export let CANVAS_H = 5100;
-export const CANVAS_PAD = 1000; // document pixels of padding around the frame
+// Base padding around the page frame (doc px). The overlay canvas may grow
+// beyond this to keep selection handles visible when layers are positioned
+// far outside the page ("handles for images should not be masked no matter
+// what their position is"). CANVAS_PAD is the *current* padding in use.
+export const CANVAS_PAD_BASE = 1000;
+export let CANVAS_PAD = CANVAS_PAD_BASE;
 
 export function setCanvasSize(w, h) {
   CANVAS_W = w;
   CANVAS_H = h;
+}
+
+export function setCanvasPad(pad) {
+  CANVAS_PAD = Math.max(CANVAS_PAD_BASE, Math.ceil(pad));
 }
 
 export const PAGE_SIZE_DIMS = {

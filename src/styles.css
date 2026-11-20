@@ -938,7 +938,7 @@ body.tool-paint-bucket #interaction-overlay { cursor: crosshair; }
 /* ─── On-canvas text editing (Adobe-style in-box editing) ────────── */
 .text-editor-host {
   position: absolute;
-  z-index: 30;
+  z-index: 15;
   pointer-events: none;
 }
 .text-editor-host::after {
@@ -970,7 +970,7 @@ body.tool-paint-bucket #interaction-overlay { cursor: crosshair; }
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  z-index: 30;
+  z-index: 15;
   transform: translate(-50%, -50%);
   display: none;
 }

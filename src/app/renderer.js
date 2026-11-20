@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State, selectedLayer } from './state.js';
-import { CANVAS_W, CANVAS_H, CANVAS_PAD } from './constants.js';
+import { CANVAS_W, CANVAS_H, CANVAS_PAD, setCanvasPad } from './constants.js';
 import { ImageProcessor } from './image-processor.js';
 
 const displayCanvas   = document.getElementById('display-canvas');
@@ -804,7 +804,81 @@ export const Renderer = {
     ctx.clearRect(0, 0, ow, oh);
   },
 
+  // Expand the overlay padding if the selected layer's handles would fall
+  // outside the current overlay canvas. Returns true if the overlay was
+  // resized (caller should redraw). "Handles for images should not be masked
+  // no matter what their position is."
+  _ensureOverlayCoversHandles() {
+    const layer = selectedLayer();
+    if (!layer) return false;
+    const z = State.zoom;
+    const handles = this.getHandles(layer, z);
+    const ow = this._overlaySize?.w ?? (overlayCanvas.width / (this._overlayScale || 1));
+    const oh = this._overlaySize?.h ?? (overlayCanvas.height / (this._overlayScale || 1));
+    const margin = 12; // handle half-size + stroke
+    let need = CANVAS_PAD;
+    for (const h of handles) {
+      if (h.x < margin) need = Math.max(need, CANVAS_PAD + (margin - h.x) / z);
+      if (h.y < margin) need = Math.max(need, CANVAS_PAD + (margin - h.y) / z);
+      if (h.x > ow - margin) need = Math.max(need, CANVAS_PAD + (h.x - (ow - margin)) / z);
+      if (h.y > oh - margin) need = Math.max(need, CANVAS_PAD + (h.y - (oh - margin)) / z);
+    }
+    if (need <= CANVAS_PAD + 0.5) return false;
+    const oldPad = CANVAS_PAD;
+    setCanvasPad(need);
+    const deltaDoc = CANVAS_PAD - oldPad;
+    const delta = deltaDoc * z;
+    // Adjust any in-progress interaction state stored in overlay-canvas coords
+    // so the coordinate-system shift does not break the active gesture.
+    if (delta !== 0) {
+      if (State.drag) {
+        if (State.drag.startX != null) State.drag.startX += delta;
+        if (State.drag.startY != null) State.drag.startY += delta;
+        if (State.drag.resizeMeta?.fixedPos) {
+          State.drag.resizeMeta.fixedPos.x += delta;
+          State.drag.resizeMeta.fixedPos.y += delta;
+        }
+      }
+      if (State.shapeDrag) {
+        State.shapeDrag.startX += delta;
+        State.shapeDrag.startY += delta;
+      }
+      if (State.textDrag) {
+        State.textDrag.startX += delta;
+        State.textDrag.startY += delta;
+      }
+      if (State.maskShiftAnchor) {
+        State.maskShiftAnchor.x += delta;
+        State.maskShiftAnchor.y += delta;
+      }
+    }
+    // Recompute overlay geometry at the new pad immediately so drawing and
+    // hit-testing use a consistent coordinate space.
+    const nOw = Math.round((CANVAS_W + CANVAS_PAD * 2) * z);
+    const nOh = Math.round((CANVAS_H + CANVAS_PAD * 2) * z);
+    const padPx = Math.round(CANVAS_PAD * z);
+    overlayCanvas.style.width = nOw + 'px';
+    overlayCanvas.style.height = nOh + 'px';
+    overlayCanvas.style.top = -padPx + 'px';
+    overlayCanvas.style.left = -padPx + 'px';
+    this._overlaySize = { w: nOw, h: nOh };
+    const oScale = capScale(nOw, nOh);
+    this._overlayScale = oScale;
+    const bw = Math.max(1, Math.round(nOw * oScale));
+    const bh = Math.max(1, Math.round(nOh * oScale));
+    if (overlayCanvas.width !== bw || overlayCanvas.height !== bh) {
+      overlayCanvas.width = bw;
+      overlayCanvas.height = bh;
+    }
+    return true;
+  },
+
   drawOverlay() {
+    // Ensure the selected image's handles are never clipped by the overlay
+    // canvas bounds, regardless of the layer's position.
+    if (this._ensureOverlayCoversHandles()) {
+      // Pad expanded: backing store resized/cleared, redraw at new coords.
+    }
     this.resetOverlayTransform(oCtx);
     const layer = selectedLayer();
     if (!layer) return;
