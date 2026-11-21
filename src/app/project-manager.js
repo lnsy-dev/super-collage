@@ -7,7 +7,7 @@ import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
-import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, formatPageSizeLabel, formatPxDimensions } from './constants.js';
+import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, ensureColorNames, formatPageSizeLabel, formatPxDimensions } from './constants.js';
 import { PageManager } from './page-manager.js';
 import { calculateLayout, calculateBookletLayout, calculateSingleImageLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
@@ -16,8 +16,27 @@ export let _selProjectId = null;
 
 export async function loadEffectivePalette(project = null) {
   const globalSetting = await DB.getSetting('risoColors');
-  const globalColors = Array.isArray(globalSetting?.value) ? globalSetting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
-  const projectColors = project?.colors || [];
+  let globalColors = Array.isArray(globalSetting?.value) ? globalSetting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
+
+  // Palettes saved before color naming became mandatory can carry entries
+  // named by their hex or 'Untitled'. Rename those once to "Custom N" so
+  // exports never fall back to hex names (users can rename meaningfully
+  // later in Edit Colors).
+  const globalRename = ensureColorNames(globalColors);
+  if (globalRename.changed) {
+    globalColors = globalRename.colors;
+    await DB.putSetting('risoColors', globalColors);
+  }
+
+  // Project colors get the same treatment, with the renamed global names
+  // reserved so "Custom N" stays unique across the merged palette.
+  const projectRename = ensureColorNames(project?.colors || [], globalColors.map(c => c.name));
+  if (projectRename.changed) {
+    project.colors = projectRename.colors;
+    if (project?.id) await DB.put('projects', { ...project, updatedAt: Date.now() });
+  }
+  const projectColors = projectRename.colors;
+
   const projectHexes = new Set(projectColors.map(c => c.hex.toUpperCase()));
   const merged = [
     ...globalColors.filter(c => !projectHexes.has(c.hex.toUpperCase())),
