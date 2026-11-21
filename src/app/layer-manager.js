@@ -9,7 +9,7 @@ import { ImageProcessor } from './image-processor.js';
 import { Renderer } from './renderer.js';
 import { hexToRgb } from '../utils/color.js';
 import { clampDims, isAllocatable } from './canvas-limits.js';
-import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS } from './constants.js';
+import { RISO_COLORS, CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, inkNameForHex } from './constants.js';
 import { UI } from './ui.js';
 import { MaskEngine } from './mask-engine.js';
 import { loadSvgImage } from './svg-utils.js';
@@ -707,8 +707,7 @@ export const LayerManager = {
       // Plates are stored grayscale; expand just this one to a canvas.
       const plate = sepPlateToCanvas(plateStore);
 
-      const colorInfo = RISO_COLORS.find(c => c.hex === colorHex);
-      const colorName = colorInfo?.name || colorHex;
+      const colorName = inkNameForHex(colorHex);
       const rec = src.toRecord();
 
       const newLayer = new Layer({

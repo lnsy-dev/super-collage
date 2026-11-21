@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State } from './state.js';
-import { CANVAS_W, CANVAS_H, RISO_COLORS } from './constants.js';
+import { CANVAS_W, CANVAS_H, RISO_COLORS, inkNameForHex } from './constants.js';
 import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from './image-processor.js';
 import { DB } from './db.js';
 import { Renderer } from './renderer.js';
@@ -737,7 +737,7 @@ export const ExportEngine = {
 
       for (let ci = 0; ci < colors.length; ci++) {
         const color = colors[ci];
-        const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
+        const colorName = inkNameForHex(color);
         const plate = plateMap.get(color);
         const stageFor = text => this._stage(prog, `${colorName} — ${text}`);
         const layerCount = plate
@@ -926,7 +926,7 @@ export const ExportEngine = {
       // the per-ink file set complete for print shops.
       for (const color of colors) {
         if (this._cancelRequested) return this._reportCancelled(prog, { done, total: totalPlates, bytes, startedAt });
-        const colorName = RISO_COLORS.find(c => c.hex === color)?.name || color;
+        const colorName = inkNameForHex(color);
         const colorSlug = colorName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const fileName = `${projectSlug}-${colorSlug}-sheet-${si + 1}.png`;
         prog.textContent = `Sheet ${si + 1} of ${plan.length} · ${colorName} ink · plate ${done + 1} of ${totalPlates}`;
