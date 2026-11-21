@@ -94,6 +94,18 @@ export function createExportProgress(container) {
     },
 
     /**
+     * Shrink the total by `n` units: plates that rendered with no ink anywhere
+     * and were skipped instead of saved. Keeps the bar and the "N / M plates"
+     * metrics line consistent when the real file count ends up below the
+     * pre-flight estimate.
+     */
+    trim(n = 1) {
+      totalUnits = Math.max(doneUnits, totalUnits - n);
+      fill.style.width = totalUnits ? `${Math.min(100, (doneUnits / totalUnits) * 100)}%` : '100%';
+      renderMetrics();
+    },
+
+    /**
      * The fine-grained "right now" line under the label: which page is being
      * read, which layer is rendering, whether we are encoding or saving.
      * Pass '' to clear it.

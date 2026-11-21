@@ -292,7 +292,11 @@ export const ExportEngine = {
   },
 
   // Renders one color plate for a given layer set and dimensions.
-  // Returns an OffscreenCanvas (greyscale ink on white).
+  // Returns { canvas, blank }: an OffscreenCanvas (greyscale ink on white)
+  // plus whether the plate came out entirely empty — no layer contributed a
+  // single inked pixel (an empty text layer, a missing or fully transparent
+  // image, a separation with no plate store…). Exporters skip blank plates
+  // instead of saving empty files.
   // `progress`, when given, is awaited with a stage string before every
   // contribution: "rendering layer 3 of 7 · grunge.png".
   async _renderPlate(color, plate, width, height, layerSet, progress = null) {
@@ -404,22 +408,30 @@ export const ExportEngine = {
     }
 
     // Remap to greyscale ink on white — one tile at a time, so the
-    // readback buffer is tile-sized instead of page-sized.
+    // readback buffer is tile-sized instead of page-sized. The same pass
+    // notices whether any pixel ever held ink (non-zero alpha before the
+    // remap), which costs no extra readback: a plate that never saw ink is
+    // blank and the exporters skip it.
     if (progress) await progress(`flattening ${color} ink on white…`);
+    let inkSeen = false;
     for (const tile of this._pageTiles(width, height)) {
       const imgData = ctx.getImageData(tile.x, tile.y, tile.w, tile.h);
       this._notePageBuffer(tile.w * tile.h * 4);
       const d = imgData.data;
       for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3] !== 0) inkSeen = true;
         const grey = 255 - d[i+3];
         d[i] = grey; d[i+1] = grey; d[i+2] = grey; d[i+3] = 255;
       }
       ctx.putImageData(imgData, tile.x, tile.y);
     }
-    return ec;
+    return { canvas: ec, blank: !inkSeen };
   },
 
   // Exports a single layer set (one page) and returns a Map color -> plate canvas.
+  // This renders EVERY enumerated plate, blank or not: it is the "look at all
+  // the plates" API (tests, harnesses). Deciding which plates are worth a file
+  // is the exporters' job.
   async exportLayers(layers, width, height) {
     this._resetMemoryStats();
     const visibleLayers = layers.filter(l => l.visible && !l.isMaskFor);
@@ -429,7 +441,7 @@ export const ExportEngine = {
     const result = new Map();
     for (const [color, plate] of plateMap.entries()) {
       if (color === '#FFFFFF') continue;
-      const canvas = await this._renderPlate(color, plate, width, height, layers);
+      const { canvas } = await this._renderPlate(color, plate, width, height, layers);
       result.set(color, canvas);
     }
     return result;
@@ -581,9 +593,9 @@ export const ExportEngine = {
   },
 
   // Render one ink for the layer records of one page (or of one reader
-  // spread). Returns a plate canvas, or null when this page prints nothing in
-  // this ink — nothing is decoded in that case. Every bitmap the pass touched
-  // is released before returning.
+  // spread). Returns { canvas, blank }, or null when this page has no layer
+  // contributing to this ink at all — nothing is decoded in that case. Every
+  // bitmap the pass touched is released before returning.
   async _renderInkPlate(target, color, progress = null) {
     const visible = target.recs.filter(r => r.visible && !r.isMaskFor);
     if (!visible.length) return null;
@@ -605,14 +617,17 @@ export const ExportEngine = {
   },
 
   // One plate for one resolved target and one ink, ready to draw into a sheet
-  // cell. Returns { canvas, src } or null. Only the returned canvas is alive:
-  // the caller draws it and drops it before asking for the next one.
+  // cell. Returns { canvas, src } or null. Null also covers plates that
+  // rendered blank — a plate with no inked pixel carries no image information,
+  // so the caller skips it exactly like a page with no contribution in this
+  // ink. Only the returned canvas is alive: the caller draws it and drops it
+  // before asking for the next one.
   async _renderInkForTarget(target, color, progress = null) {
     if (!target) return null;
-    const canvas = await this._renderInkPlate(target, color, progress);
-    if (!canvas) return null;
+    const plate = await this._renderInkPlate(target, color, progress);
+    if (!plate || plate.blank) return null;
     this._plateHeld();
-    return { canvas, src: target.src };
+    return { canvas: plate.canvas, src: target.src };
   },
 
   // Same, for callers that have not resolved the target yet. The exporters
@@ -728,12 +743,15 @@ export const ExportEngine = {
 
       const startedAt = performance.now();
       // One progress unit per downloadable file — a spread view splits every
-      // ink into a left and a right sheet.
+      // ink into a left and a right sheet. Blank plates (inks that render with
+      // no inked pixel at all) are skipped, so the total is an upper bound and
+      // shrinks as blanks are found.
       const filesPerPlate = spreadInfo ? 2 : 1;
-      const totalFiles = colors.length * filesPerPlate;
+      let totalFiles = colors.length * filesPerPlate;
       prog.begin(totalFiles);
       let bytes = 0;
       let files = 0;
+      let skippedPlates = 0;
 
       for (let ci = 0; ci < colors.length; ci++) {
         const color = colors[ci];
@@ -747,7 +765,17 @@ export const ExportEngine = {
         prog.textContent = `Plate ${files + 1} of ${totalFiles} · ${colorName} ink`;
         await stageFor(`rendering ${layerCount} layer${layerCount === 1 ? '' : 's'}…`);
 
-        const canvas = await this._renderPlate(color, plate, CANVAS_W, CANVAS_H, State.layers, stageFor);
+        const { canvas, blank } = await this._renderPlate(color, plate, CANVAS_W, CANVAS_H, State.layers, stageFor);
+
+        if (blank) {
+          // No layer printed anything in this ink — no file for it, and the
+          // progress total shrinks to match the real file count.
+          skippedPlates += 1;
+          totalFiles -= filesPerPlate;
+          prog.trim(filesPerPlate);
+          await stageFor('nothing printed in this ink — plate skipped');
+          continue;
+        }
 
         const download = async (sideCanvas, name) => {
           await stageFor(`encoding ${name}…`);
@@ -784,7 +812,8 @@ export const ExportEngine = {
       for (const l of State.layers) { l._dirty = true; }
       Renderer.schedule();
 
-      prog.finish(`Done! ${files} plate${files === 1 ? '' : 's'} exported · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
+      const skippedNote = skippedPlates ? ` · ${skippedPlates} blank skipped` : '';
+      prog.finish(`Done! ${files} plate${files === 1 ? '' : 's'} exported${skippedNote} · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
       appendKofiNotice(progEl);
       closeWindowAfterExport();
     } catch (err) {
@@ -847,8 +876,8 @@ export const ExportEngine = {
       const target = await this._resolveInkTarget(pageOrder, pi, spreads, spreadOfPage, readerSpreadIds);
       if (!target) continue;
       for (const color of this._inkColorsOf(target.recs)) {
-        const canvas = await this._renderInkPlate(target, color);
-        if (canvas) ensurePagePlate(color)[pi] = canvas;
+        const plate = await this._renderInkPlate(target, color);
+        if (plate && !plate.blank) ensurePagePlate(color)[pi] = plate.canvas;
       }
     }
 
@@ -898,7 +927,9 @@ export const ExportEngine = {
       : calculateLayout(refW, refH, targetSheetSize, customTargetW, customTargetH);
     const plan = computeSheetPlan(pageCount, sheetLayout, binding, bookletLayout, 0);
 
-    const totalPlates = plan.length * colors.length;
+    // Blank sides (an ink with nothing printed anywhere on the side) are
+    // skipped, so the total is an upper bound and shrinks as blanks are found.
+    let totalPlates = plan.length * colors.length;
     prog.begin(totalPlates);
     const startedAt = performance.now();
 
@@ -909,6 +940,7 @@ export const ExportEngine = {
 
     let bytes = 0;
     let done = 0;
+    let skippedPlates = 0;
     this._peakLivePlates = 0;
     this._livePlates = 0;
     this._resetMemoryStats();
@@ -921,9 +953,9 @@ export const ExportEngine = {
       // stage line names each page as its records are read.
       const sideTargets = await this._resolveSideTargets(side, pageOrder, spreads, spreadOfPage, readerSpreadIds, prog);
 
-      // Compose, encode and download each ink for this side. Inks with no
-      // content on this side still download as blank white sheets, keeping
-      // the per-ink file set complete for print shops.
+      // Compose, encode and download each ink for this side. An ink whose
+      // plates all came up empty would only produce a blank white sheet —
+      // skipped instead, so no empty plate file is saved.
       for (const color of colors) {
         if (this._cancelRequested) return this._reportCancelled(prog, { done, total: totalPlates, bytes, startedAt });
         const colorName = inkNameForHex(color);
@@ -939,6 +971,7 @@ export const ExportEngine = {
         // next page is touched. Nothing but this sheet survives the loop. The
         // stage line follows each page through content check → layer load →
         // layer render → draw.
+        let platesDrawn = 0;
         for (const { cell, pageIndex: pi, target } of sideTargets) {
           if (this._cancelRequested) return this._reportCancelled(prog, { done, total: totalPlates, bytes, startedAt });
           const pageOf = text => this._stage(prog, `${colorName} · page ${pi + 1} of ${pageCount} — ${text}`);
@@ -951,7 +984,18 @@ export const ExportEngine = {
           }
           drawPageInCell(sideCtx, plate.canvas, cell, side.pageRotated, side.bleed, cell.extraRotation, plate.src);
           plate.canvas = null;
+          platesDrawn += 1;
           this._plateDrawn();
+        }
+
+        if (!platesDrawn) {
+          // Every page cell was empty in this ink: the sheet would be a blank
+          // white plate. Save no file and shrink the progress total instead.
+          skippedPlates += 1;
+          totalPlates -= 1;
+          prog.trim(1);
+          await this._stage(prog, `${colorName} · nothing printed in this ink — plate skipped`);
+          continue;
         }
 
         await this._stage(prog, `encoding ${fileName}…`);
@@ -972,7 +1016,12 @@ export const ExportEngine = {
     for (const l of State.layers) { l._dirty = true; }
     Renderer.schedule();
 
-    prog.finish(`Done! ${done} sheets — ${plan.length} sides × ${colors.length} inks · ${pageCount} pages · ${scan.totalLayers} layers · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
+    // With no blanks the file count is exactly sides × inks; otherwise report
+    // what was actually saved and how many empty plates were left out.
+    const plateSummary = skippedPlates
+      ? `${skippedPlates} blank plate${skippedPlates === 1 ? '' : 's'} skipped`
+      : `${plan.length} sides × ${colors.length} inks`;
+    prog.finish(`Done! ${done} sheets — ${plateSummary} · ${pageCount} pages · ${scan.totalLayers} layers · ${formatBytes(bytes)} · ${formatDuration(performance.now() - startedAt)}`);
     appendKofiNotice(prog.element || prog);
     closeWindowAfterExport();
   },
