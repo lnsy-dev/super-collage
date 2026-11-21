@@ -7,7 +7,7 @@ import { DB } from './db.js';
 import { Renderer } from './renderer.js';
 import { UI } from './ui.js';
 import { ExportEngine } from './export-engine.js';
-import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, ensureColorNames, formatPageSizeLabel, formatPxDimensions } from './constants.js';
+import { CANVAS_W, CANVAS_H, PAGE_SIZE_DIMS, setCanvasSize, RISO_COLORS, DEFAULT_RISO_COLORS, setRisoColors, ensureColorNames, inkNameForHex, formatPageSizeLabel, formatPxDimensions } from './constants.js';
 import { PageManager } from './page-manager.js';
 import { calculateLayout, calculateBookletLayout, calculateSingleImageLayout } from './imposition.js';
 import { computeViewUnits } from './spread-manager.js';
@@ -498,7 +498,7 @@ export async function showExportDialog() {
     if (l.isColorSeparation) {
       for (const c of l.separationColors || []) {
         if (!plateMap.has(c)) {
-          const name = RISO_COLORS.find(rc => rc.hex === c)?.name || c;
+          const name = inkNameForHex(c);
           plateMap.set(c, { name, layerCount: 0, mode: 'separation' });
         }
         plateMap.get(c).layerCount++;
@@ -506,7 +506,7 @@ export async function showExportDialog() {
     } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
       for (const stop of l.gradient.stops) {
         if (!plateMap.has(stop.color)) {
-          const name = RISO_COLORS.find(c => c.hex === stop.color)?.name || stop.color;
+          const name = inkNameForHex(stop.color);
           plateMap.set(stop.color, { name, layerCount: 0, mode: 'gradient' });
         }
         plateMap.get(stop.color).layerCount++;
@@ -514,14 +514,14 @@ export async function showExportDialog() {
     } else if (l.colorMode === 'pattern' && l.pattern) {
       [l.pattern.color1, l.pattern.color2].forEach(c => {
         if (!plateMap.has(c)) {
-          const name = RISO_COLORS.find(rc => rc.hex === c)?.name || c;
+          const name = inkNameForHex(c);
           plateMap.set(c, { name, layerCount: 0, mode: 'pattern' });
         }
         plateMap.get(c).layerCount++;
       });
     } else {
       if (!plateMap.has(l.color)) {
-        const name = RISO_COLORS.find(c => c.hex === l.color)?.name || l.color;
+        const name = inkNameForHex(l.color);
         plateMap.set(l.color, { name, layerCount: 0, mode: 'solid' });
       }
       plateMap.get(l.color).layerCount++;

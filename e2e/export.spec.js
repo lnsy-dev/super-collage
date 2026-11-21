@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearIndexedDB, createProject, addImage, addSolidColorImage, runExportSinglePlate } from './helpers.js';
+import { clearIndexedDB, createProject, addImage, addSolidColorImage, runExportSinglePlate, setLayerColorDirect } from './helpers.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -30,6 +30,22 @@ test.describe('Export', () => {
     await expect(page.locator('#export-color-list')).toBeVisible();
     // Should show at least one color entry
     await expect(page.locator('#export-color-list')).not.toBeEmpty();
+  });
+
+  test('export dialog resolves plate names case-insensitively', async ({ page }) => {
+    await createProject(page, 'Case Insensitive Plate Test');
+    await addImage(page, TEST_IMAGE);
+
+    // The layer's hex case differs from the palette entry (Yellow is
+    // '#ffe800'); the plate label must still resolve to the palette name.
+    await setLayerColorDirect(page, '#FFE800');
+
+    await page.click('.menu-item[data-menu="file"]');
+    await page.click('[data-action="export"]');
+    await expect(page.locator('#export-color-list')).toBeVisible();
+    await expect(page.locator('#export-color-list')).toContainText('Yellow');
+    await expect(page.locator('#export-color-list')).not.toContainText('#FFE800');
+    await expect(page.locator('#export-color-list')).not.toContainText('#ffe800');
   });
 
   test('cancel export plates dialog', async ({ page }) => {
