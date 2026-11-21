@@ -94,6 +94,68 @@ export function setRisoColors(colors) {
   RISO_COLORS.push(...colors.map(c => ({ ...c })));
 }
 
+/* ─── Ink naming helpers ─────────────────────────────────────────────
+   Every exported ink must carry a real name; hex strings must never
+   reach an export as a color name. */
+
+/**
+ * Look up the riso ink name for a hex color in the live RISO_COLORS
+ * palette (case-insensitive). Stray out-of-palette layer hexes fall
+ * back to the raw `hex` argument unchanged.
+ */
+export function inkNameForHex(hex) {
+  if (typeof hex !== 'string' || hex === '') return hex;
+  const upper = hex.toUpperCase();
+  const match = RISO_COLORS.find(c => c.hex.toUpperCase() === upper);
+  return match ? match.name : hex;
+}
+
+/**
+ * Return a copy of `colors` in which every entry carries a real name.
+ * An entry needs renaming when its name is missing/whitespace-only,
+ * equals 'Untitled' (case-insensitive), or equals its own hex
+ * (case-insensitive — legacy "Save Color" behavior). Renames use the
+ * shared 'Custom N' counter, skipping any name already in use among
+ * `colors` (before or after renaming) or in `reserved`. Pure: the
+ * input array and its entries are never mutated. Returns
+ * `{ colors, changed }`.
+ */
+export function ensureColorNames(colors, reserved = []) {
+  const used = new Set();
+  const markUsed = name => used.add(name.toUpperCase());
+
+  for (const c of colors) {
+    if (c && typeof c.name === 'string') markUsed(c.name);
+  }
+  for (const r of reserved) {
+    if (typeof r === 'string') markUsed(r);
+  }
+
+  const out = colors.map(c => ({ ...c }));
+  let counter = 0;
+  let changed = false;
+
+  for (const entry of out) {
+    const name = entry.name;
+    const needsRename = typeof name !== 'string'
+      || name.trim() === ''
+      || name.toUpperCase() === 'UNTITLED'
+      || (typeof entry.hex === 'string' && name.toUpperCase() === entry.hex.toUpperCase());
+    if (!needsRename) continue;
+    counter += 1;
+    let candidate = `Custom ${counter}`;
+    while (used.has(candidate.toUpperCase())) {
+      counter += 1;
+      candidate = `Custom ${counter}`;
+    }
+    entry.name = candidate;
+    markUsed(candidate);
+    changed = true;
+  }
+
+  return { colors: out, changed };
+}
+
 // 8×8 Bayer matrix (values 0-255)
 export const BAYER8 = new Uint8Array([
    0,136, 34,170,  2,138, 36,172,
