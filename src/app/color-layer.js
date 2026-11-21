@@ -112,6 +112,17 @@ export function syncBucketSwatch() {
 
 /* ─── MIX INK DIALOG ─────────────────────────────────────────────── */
 
+// Ink naming is mandatory: an empty name field blocks the save with an
+// inline crimson border (no extra popup), clearing as soon as the user types.
+function bucketInkNameInput() {
+  return document.getElementById('bucket-ink-name');
+}
+
+export function highlightBucketInkName(on) {
+  const input = bucketInkNameInput();
+  if (input) input.style.borderColor = on ? 'crimson' : '';
+}
+
 function updateMixPreview() {
   const swatch = document.getElementById('bucket-mix-swatch');
   const hexLabel = document.getElementById('bucket-mix-hex');
@@ -159,6 +170,11 @@ function buildInkSliders() {
 }
 
 export function showBucketMixDialog() {
+  const nameInput = bucketInkNameInput();
+  if (nameInput) {
+    nameInput.value = '';
+    highlightBucketInkName(false);
+  }
   buildInkSliders();
   document.getElementById('paint-bucket-dialog')?.classList.remove('hidden');
   updateMixPreview();
@@ -183,12 +199,22 @@ export function resetBucketInks() {
  * zips), mirroring how Edit Colors persists its palette.
  */
 export async function saveBucketInkToPalette() {
+  const nameInput = bucketInkNameInput();
+  const name = (nameInput?.value || '').trim();
+
+  // Naming is mandatory: block the save inline (no popup) and persist nothing.
+  if (!name) {
+    highlightBucketInkName(true);
+    nameInput?.focus();
+    return false;
+  }
+
   const hex = (State.bucketColor || currentBucketColor()).toUpperCase();
 
   // Already in the palette — nothing to add.
   if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex)) return false;
 
-  const color = { name: hex, hex, pantone: '' };
+  const color = { name, hex, pantone: '' };
 
   // Global setting: persists between projects.
   const setting = await DB.getSetting('risoColors');
@@ -213,6 +239,12 @@ export async function saveBucketInkToPalette() {
   UI.refreshColorSwatches();
   UI.refreshProperties();
   Renderer.schedule();
+
+  // Success: clear the name field (and any highlight) for the next mix.
+  if (nameInput) {
+    nameInput.value = '';
+    highlightBucketInkName(false);
+  }
 
   // Flash the button so the user can see the save happened.
   const btn = document.getElementById('btn-bucket-save-color');
