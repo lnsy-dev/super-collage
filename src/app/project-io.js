@@ -11,7 +11,7 @@
 
 import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
-import { DEFAULT_RISO_COLORS } from './constants.js';
+import { DEFAULT_RISO_COLORS, ensureColorNames } from './constants.js';
 
 const FORMAT = 'super-collage-project';
 const VERSION = 1;
@@ -201,13 +201,21 @@ export const ProjectIO = {
     project.pageOrder = (project.pageOrder || []).map(id => pageIdMap.get(id)).filter(Boolean);
     project.createdAt = now;
     project.updatedAt = now;
+    // Zips created before color naming became mandatory can carry palette
+    // entries named by their hex or 'Untitled'; give those real names
+    // ("Custom N") so exports from the imported project never fall back
+    // to hex names.
+    if (Array.isArray(project.colors)) {
+      const zipRename = ensureColorNames(project.colors);
+      if (zipRename.changed) project.colors = zipRename.colors;
+    }
     await DB.put('projects', project);
 
     // Colors that ship inside the project zip (saved with "Save Color")
     // are folded into the user's global palette so they persist between
     // projects, not just inside this one. Project colors keep their own
     // copy, so the palette inside this project is unaffected.
-    const srcColors = Array.isArray(srcProject.colors) ? srcProject.colors : [];
+    const srcColors = Array.isArray(project.colors) ? project.colors : [];
     if (srcColors.some(c => c?.hex)) {
       const setting = await DB.getSetting('risoColors');
       const globalColors = Array.isArray(setting?.value) ? setting.value : DEFAULT_RISO_COLORS.map(c => ({ ...c }));
