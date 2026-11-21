@@ -3,3 +3,4 @@ rust/target/
 rust/pkg/
 
 /test-results/
+.zcode/
