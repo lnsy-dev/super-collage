@@ -152,15 +152,56 @@ test.describe('Multi-select', () => {
     // Every selected member resizes by the same scale factor…
     expect(after[extraIdx].width / before[extraIdx].width).toBeCloseTo(scalePrimary, 6);
     expect(after[extraIdx].height / before[extraIdx].height).toBeCloseTo(scalePrimary, 6);
-    // …and follows the primary's own translation (zero for a br-corner
-    // resize, whose top-left corner stays pinned).
+    // …the primary's pinned top-left corner stays put for a br-corner resize…
     expect(after[primIdx].x).toBeCloseTo(before[primIdx].x, 6);
     expect(after[primIdx].y).toBeCloseTo(before[primIdx].y, 6);
-    expect(after[extraIdx].x).toBeCloseTo(before[extraIdx].x, 6);
-    expect(after[extraIdx].y).toBeCloseTo(before[extraIdx].y, 6);
+    // …and every member's center scales about that same stationary corner, so
+    // the whole arrangement matches the scaled image (members previously kept
+    // their offset to the primary's top-left while scaling about themselves).
+    const anchorX = before[primIdx].x;
+    const anchorY = before[primIdx].y;
+    const expCx = anchorX + scalePrimary * (before[extraIdx].x + before[extraIdx].width / 2 - anchorX);
+    const expCy = anchorY + scalePrimary * (before[extraIdx].y + before[extraIdx].height / 2 - anchorY);
+    expect(after[extraIdx].x).toBeCloseTo(expCx - after[extraIdx].width / 2, 6);
+    expect(after[extraIdx].y).toBeCloseTo(expCy - after[extraIdx].height / 2, 6);
 
     // The multi-selection survives the resize gesture.
     expect((await selection(page)).ids).toHaveLength(2);
+  });
+
+  test('edge-handle group resize scales selected layers about the fixed edge too', async ({ page }) => {
+    const pts = await setupLayers(page);
+    await selectTwo(page, pts);
+    const before = await geo(page);
+    const ids = (await selection(page)).ids;
+
+    // Drag the primary's right-middle handle +50 screen px (zoom 1 → 50 page px).
+    const mr = await page.evaluate(() => {
+      const box = document.getElementById('interaction-overlay').getBoundingClientRect();
+      const l = State.layers.find(x => x.id === State.selectedId);
+      const h = Renderer.getHandles(l, State.zoom).find(h => h.id === 'mr');
+      return { x: box.x + h.x, y: box.y + h.y };
+    });
+    await pressDrag(page, mr.x, mr.y, mr.x + 50, mr.y);
+
+    const after = await geo(page);
+    const primIdx = before.findIndex(l => l.id === ids[1]);
+    const extraIdx = before.findIndex(l => l.id === ids[0]);
+
+    const scaleX = after[primIdx].width / before[primIdx].width;
+    expect(scaleX).toBeGreaterThan(1);
+    expect(after[primIdx].height).toBeCloseTo(before[primIdx].height, 6);
+    // The primary's left edge is the stationary anchor for an mr drag; the
+    // extra member's center must scale about that same edge (x) and hold its
+    // distance from it (y, unscaled axis).
+    const anchorX = before[primIdx].x;
+    const anchorY = before[primIdx].y + before[primIdx].height / 2;
+    const expCx = anchorX + scaleX * (before[extraIdx].x + before[extraIdx].width / 2 - anchorX);
+    const expCy = anchorY + (before[extraIdx].y + before[extraIdx].height / 2 - anchorY);
+    expect(after[extraIdx].width).toBeCloseTo(before[extraIdx].width * scaleX, 6);
+    expect(after[extraIdx].height).toBeCloseTo(before[extraIdx].height, 6);
+    expect(after[extraIdx].x).toBeCloseTo(expCx - after[extraIdx].width / 2, 6);
+    expect(after[extraIdx].y).toBeCloseTo(expCy - after[extraIdx].height / 2, 6);
   });
 
   test('group resize persists after a project reload', async ({ page }) => {

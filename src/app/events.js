@@ -491,13 +491,10 @@ async function onPointerDown(e) {
     const handle = Renderer.hitTestHandle(x, y, layer, tol);
     if (handle) {
       pushUndo(snapshotLayer(layer));
-      // Linked layers transform together with the primary layer. Snaps are
-      // tagged so the resize branch can scale linked siblings about the group
-      // anchor instead of copying the primary's own translation.
-      const extraSnaps = [
-        ...getExtraSnaps(layer.id).map(es => ({ ...es, kind: 'selected' })),
-        ...getLinkedSnaps(layer.id).map(es => ({ ...es, kind: 'linked' })),
-      ];
+      // Linked layers transform together with the primary layer; selected
+      // siblings scale along with it too, about the group anchor (see the
+      // resize branch).
+      const extraSnaps = [...getExtraSnaps(layer.id), ...getLinkedSnaps(layer.id)];
       extraSnaps.forEach(es => {
         const el = State.layers.find(l => l.id === es.id);
         if (el) pushUndo(snapshotLayer(el));
@@ -745,28 +742,14 @@ function onPointerMove(e) {
     if (layer.isText) {
       scaleTextMetrics(layer, snap, scaleX, scaleY);
     }
-    const posDx = layer.x - snap.x;
-    const posDy = layer.y - snap.y;
-    for (const es of (State.drag.extraSnaps || [])) {
-      const el = State.layers.find(l => l.id === es.id);
-      if (!el || es.kind === 'linked') continue;
-      el.width  = Math.max(10, es.width  * scaleX);
-      el.height = Math.max(10, es.height * scaleY);
-      el.x = es.x + posDx;
-      el.y = es.y + posDy;
-      if (el.isText) {
-        el.setNaturalSize(el.width, el.height);
-        scaleTextMetrics(el, es, scaleX, scaleY);
-      }
-    }
-    // Linked siblings and the group's image-mask layers scale about the group
-    // anchor — the primary's stationary fixed corner — so the group's relative
-    // arrangement (and mask alignment) is preserved exactly, instead of every
-    // member sliding by the primary's own translation.
+    // Every other layer in the gesture — selected siblings, linked layers and
+    // the group's image masks — scales about the same stationary anchor (the
+    // primary's fixed corner), so the group's relative arrangement matches the
+    // scaled image exactly, instead of members keeping their offset to the
+    // primary's own top-left while scaling about themselves.
     const anchor = overlayToPage(State.drag.resizeMeta.fixedPos.x, State.drag.resizeMeta.fixedPos.y, z);
     const groupEs = [...(State.drag.extraSnaps || []), ...(State.drag.maskSnaps || [])];
     for (const es of groupEs) {
-      if (es.kind === 'selected') continue;
       const el = State.layers.find(l => l.id === es.id);
       if (!el) continue;
       el.width  = Math.max(10, es.width  * scaleX);
