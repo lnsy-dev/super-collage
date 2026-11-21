@@ -410,6 +410,7 @@
         <div id="bucket-mix-swatch" style="width:64px;height:40px;background:#010101;border:1px solid rgba(0,0,0,0.4);border-radius:3px;flex:none;"></div>
         <span id="bucket-mix-hex" style="font-size:1.25rem;">#010101</span>
       </div>
+      <input type="text" class="mac-input" id="bucket-ink-name" placeholder="Name this ink" maxlength="40" style="margin-bottom:12px;width:100%;">
       <div id="bucket-ink-sliders"></div>
       <p style="font-size:1.15rem;line-height:2;margin-top:10px;">Sliders set how much of each ink is printed; the mix stacks them like real riso passes.</p>
     </div>
@@ -1178,13 +1179,18 @@ document.getElementById('screentone-dialog').addEventListener('click', e => {
 });
 
 // Paint bucket "Mix Ink" dialog buttons
-import { showBucketMixDialog, hideBucketMixDialog, resetBucketInks, saveBucketInkToPalette, BucketTool } from './src/app/color-layer.js';
+import { showBucketMixDialog, hideBucketMixDialog, resetBucketInks, saveBucketInkToPalette, highlightBucketInkName, BucketTool } from './src/app/color-layer.js';
 window.BucketTool = BucketTool;
 document.getElementById('btn-bucket-done').addEventListener('click', hideBucketMixDialog);
 document.getElementById('btn-bucket-reset').addEventListener('click', resetBucketInks);
 document.getElementById('btn-bucket-save-color').addEventListener('click', saveBucketInkToPalette);
 document.getElementById('paint-bucket-dialog').addEventListener('click', e => {
   if (e.target === document.getElementById('paint-bucket-dialog')) hideBucketMixDialog();
+});
+const bucketInkNameInput = document.getElementById('bucket-ink-name');
+bucketInkNameInput.addEventListener('input', () => highlightBucketInkName(false));
+bucketInkNameInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveBucketInkToPalette();
 });
 
 const wrapper = document.getElementById('canvas-wrapper');

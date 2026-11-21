@@ -149,7 +149,15 @@ function buildColorManagerRow(color) {
     <input type="color" class="color-manager-color" value="${color.hex}">
     <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
   `;
+  wireColorManagerNameInput(row);
   return row;
+}
+
+// Color naming is mandatory: an empty name blocks OK with an inline crimson
+// border (no extra popup), clearing as soon as the user types in that row.
+function wireColorManagerNameInput(row) {
+  const input = row.querySelector('.color-manager-name');
+  input?.addEventListener('input', () => { if (input) input.style.borderColor = ''; });
 }
 
 export async function showColorManagerDialog() {
@@ -162,6 +170,11 @@ export async function showColorManagerDialog() {
 
   for (const color of _colorManagerOriginal) {
     list.appendChild(buildColorManagerRow(color));
+  }
+
+  // Fresh rows start without any invalid-name highlight.
+  for (const input of list.querySelectorAll('.color-manager-name')) {
+    input.style.borderColor = '';
   }
 
   dialog.classList.remove('hidden');
@@ -188,8 +201,20 @@ export async function applyColorManagerChanges() {
   const newColors = [];
   const hexMap = new Map();
 
+  // Naming is mandatory: block the whole apply while any row's name is blank
+  // (highlight offenders inline, keep the dialog open, persist nothing).
+  const unnamedRows = [...rows].filter(row => !row.querySelector('.color-manager-name').value.trim());
+  if (unnamedRows.length > 0) {
+    for (const row of unnamedRows) {
+      const input = row.querySelector('.color-manager-name');
+      input.style.borderColor = 'crimson';
+    }
+    alert('Every color needs a name.');
+    return false;
+  }
+
   for (const row of rows) {
-    const name = row.querySelector('.color-manager-name').value.trim() || 'Untitled';
+    const name = row.querySelector('.color-manager-name').value.trim();
     const hex = normalizeHex(row.querySelector('.color-manager-color').value);
     const color = { name, hex, pantone: '' };
 
@@ -240,8 +265,12 @@ export async function addColorManagerRow() {
     <input type="color" class="color-manager-color" value="#000000">
     <button class="mac-btn color-manager-remove" title="Remove color">✕</button>
   `;
+  wireColorManagerNameInput(row);
   list.appendChild(row);
-  row.querySelector('.color-manager-name').focus();
+  const nameInput = row.querySelector('.color-manager-name');
+  nameInput.focus();
+  // Select the "New Color" default so typing replaces it outright.
+  nameInput.select();
 }
 
 /**

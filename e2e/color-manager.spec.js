@@ -138,6 +138,56 @@ test.describe('Color Manager', () => {
     expect(cyAfterReload).toBeCloseTo(0.25, 5);
   });
 
+  test('OK is blocked while a color name is empty, then applies once named', async ({ page }) => {
+    await createProject(page, 'Name Required Test');
+
+    await page.click('.menu-item[data-menu="colors"]');
+    await page.click('.menu-entry[data-action="edit-colors"]');
+    await expect(page.locator('#color-manager-dialog')).toBeVisible();
+
+    // Persisted palette + swatch strip before the rejected save.
+    const readPalette = () => page.evaluate(async () => {
+      const { DB } = await import('/src/app/db.js');
+      return {
+        project: window.State.project.colors ? [...window.State.project.colors] : null,
+        setting: (await DB.getSetting('risoColors'))?.value ?? null,
+        swatches: [...document.querySelectorAll('#color-swatches .color-swatch')].map(s => s.dataset.color),
+      };
+    });
+    const before = await readPalette();
+
+    // Clear the first row's name (Black) and try to save with OK.
+    const firstRow = page.locator('.color-manager-row').first();
+    await firstRow.locator('.color-manager-name').fill('');
+
+    let alertMessage = null;
+    page.on('dialog', async (dialog) => {
+      alertMessage = dialog.message();
+      await dialog.dismiss();
+    });
+
+    await page.click('#btn-color-manager-ok');
+
+    // Inline feedback: alert, crimson highlight on the offending input, and
+    // the dialog stays open for fixing.
+    await expect(page.locator('#color-manager-dialog')).toBeVisible();
+    expect(alertMessage).toBe('Every color needs a name.');
+    await expect(firstRow.locator('.color-manager-name')).toHaveCSS('border-color', 'rgb(220, 20, 60)');
+
+    // Nothing was persisted and the palette is unchanged.
+    expect(await readPalette()).toEqual(before);
+
+    // Typing clears the highlight…
+    await firstRow.locator('.color-manager-name').fill('Named Now');
+    await expect(firstRow.locator('.color-manager-name')).not.toHaveCSS('border-color', 'rgb(220, 20, 60)');
+
+    // …and OK now applies the change.
+    await page.click('#btn-color-manager-ok');
+    await expect(page.locator('#color-manager-dialog')).toBeHidden();
+    const after = await readPalette();
+    expect(after.project.find(c => c.hex === '#010101').name).toBe('Named Now');
+  });
+
   test('persists project colors across reload', async ({ page }) => {
     await createProject(page, 'Color Persistence Test');
 
