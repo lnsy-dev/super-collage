@@ -10,7 +10,7 @@ html { font-size: 10px; scroll-behavior: smooth; }
 /* Remove the 300ms tap delay / double-tap zoom and tap highlight on UI
    chrome, while leaving scroll containers free to scroll. */
 .menu-item, .menu-entry, .tool-btn, .mac-btn, .color-swatch,
-.layer-row, .page-row, .layer-vis, .layer-lock,
+.layer-row, .page-row, .layer-vis, .layer-lock, .layer-multiselect,
 .halftone-opt, .grad-type-btn, .pat-type-btn, .color-mode-btn,
 .close-box, .size-options label, .project-entry, .screentone-item {
   touch-action: manipulation;
@@ -371,6 +371,19 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; -webkit-user-sele
 
 /* ─── LAYER LIST ─────────────────────────────────────────────────── */
 #layer-list { flex: 1; overflow-y: auto; max-height: 160px; }
+/* Touch-only affordance: while checked, tapping layer rows toggles them
+   into the multi-selection (the tablet stand-in for shift-click). */
+.layer-multiselect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  font-size: 1.15rem;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--rule);
+}
+.layer-multiselect input { accent-color: var(--ink); }
 /* Splash (project manager) empty-state hint: nudges the user to upload
    a project ZIP or create a new one while the list itself stays visible. */
 .project-empty-hint {
