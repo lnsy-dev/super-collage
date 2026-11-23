@@ -21,7 +21,6 @@ import { rebuildLayerSepPlates } from './separation-methods.js';
 export const PageManager = {
   // Serialization state for page-level operations (see queueOp below).
   _pageOpQueue: null,
-  _inQueuedOp: false,
 
   loadViewSettings(project) {
     const vs = project?.viewSettings || {};
@@ -250,17 +249,17 @@ export const PageManager = {
    * page other than the one the caller switched to. queueOp() gives every
    * page-level operation (loadPage, loadUnit, adds from the file import) a
    * single ordered slot so opening, navigation and content writes cannot
-   * interleave. Nested calls made from inside a queued operation run
-   * directly instead of re-queuing (which would deadlock).
+   * interleave. Calls are always chained, including ones made while another
+   * operation is still running (e.g. a file-input change firing during a
+   * load): running them directly would let the import interleave with the
+   * in-flight load, which wiped the just-added layer from State.layers and
+   * left the layer list permanently empty. No current caller runs inside a
+   * queued operation's own call stack, so no direct-run escape hatch exists.
    */
   queueOp(fn) {
-    if (this._inQueuedOp) return fn();
     // Lazily start the chain so the queue always represents live work.
     if (!this._pageOpQueue) this._pageOpQueue = Promise.resolve();
-    const run = this._pageOpQueue.then(() => {
-      this._inQueuedOp = true;
-      return fn();
-    }).finally(() => { this._inQueuedOp = false; });
+    const run = this._pageOpQueue.then(() => fn());
     this._pageOpQueue = run.then(() => {}, () => {});
     return run;
   },

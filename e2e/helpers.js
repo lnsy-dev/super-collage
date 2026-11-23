@@ -159,9 +159,13 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   await expect(page.locator('#main-app')).toBeVisible({ timeout: 30000 });
 
   // The create/open flow finishes its initial unit load asynchronously after
-  // #main-app becomes visible; anything that starts here (imports, page
-  // switches) must observe the settled state, so drain the pending page-op
-  // queue before returning.
+  // #main-app becomes visible — and that load is only queued once a trailing
+  // recomputeSpreadMeta completes, so queueIdle() alone can drain an empty
+  // queue before the load is even queued. Wait until the open has actually
+  // started its unit load (State.unitId set), then drain the queue, so
+  // anything that starts here (imports, page switches) observes the settled
+  // state instead of racing the open's trailing load.
+  await page.waitForFunction(() => !!(State.project && State.unitId), null, { timeout: 30000 });
   await page.evaluate(async () => {
     await PageManager.queueIdle();
     if (!State.project) throw new Error('project did not finish opening');
@@ -531,18 +535,23 @@ export async function addSolidColorImage(page, colorHex, { width = 100, height =
     mimeType: 'image/png',
     buffer,
   });
-  await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
-  // Verify the layer record is committed to the ACTIVE page before moving on.
-  // An import landing on a page other than State.pageId (page-op interleaving
-  // while a project opens) used to show up as missing plates / blank cells in
-  // export assertions far beyond this step.
+  // Gate on the committed state before asserting on the DOM. The import's
+  // tail runs several IndexedDB writes (layer record, image and mask blobs,
+  // page layerOrder) before its final UI.refreshLayerList() rebuilds the
+  // rows, and under suite load that tail used to outrun the row assertion's
+  // window. The gate proves the layer is selected in State.layers AND its
+  // record is committed to the ACTIVE page — an import landing on a page
+  // other than State.pageId (page-op interleaving while a project opens)
+  // used to show up as missing plates / blank cells in export assertions
+  // far beyond this step.
   await page.waitForFunction(async () => {
     const { DB } = await import('/src/app/db.js');
     const layer = State.layers.find(l => l.id === State.selectedId);
     if (!layer) return false;
     const rec = await DB.get('layers', layer.id);
     return !!rec && rec.pageId === State.pageId;
-  }, null, { timeout: 5000 });
+  }, null, { timeout: 15000 });
+  await expect(page.locator('#layer-list .layer-row')).toHaveCount(1);
 }
 
 /**
