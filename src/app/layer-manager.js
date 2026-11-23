@@ -1365,14 +1365,6 @@ export const LayerManager = {
     // Composite in stacking order (bottom first)
     layers.sort((a, b) => State.layers.indexOf(a) - State.layers.indexOf(b));
 
-    // Make sure every layer has an up-to-date processed canvas at export quality.
-    // Note: processLayer(forExport) returns the canvas without caching it.
-    for (const l of layers) {
-      const proc = await ImageProcessor.processLayer(l, { forExport: true });
-      if (!proc) return;
-      l._processedCanvas = proc;
-    }
-
     // Union axis-aligned bounding box of the (possibly rotated) layers, in page units.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const l of layers) {
@@ -1394,6 +1386,31 @@ export const LayerManager = {
     let scale = Math.max(...layers.map(l => (l.naturalWidth > 0 ? l.naturalWidth / l.width : 1)));
     scale = Math.min(scale, Math.sqrt((4096 * 4096) / Math.max(1, (maxX - minX) * (maxY - minY))));
     scale = Math.max(scale, 0.05);
+
+    // Render every layer at the resolution it will occupy in the composite
+    // (its page footprint × the composite scale) so patterned content —
+    // error-diffusion dither cells, Bayer/magazine/grunge dots, AM screens —
+    // is rasterized at FINAL scale before merging. The composite below then
+    // blits each processed canvas 1:1: the dither is applied to final-scale
+    // pixels instead of scaling already-dithered pixels (the merge used to
+    // process at natural resolution and resample the 1-bit pattern, which
+    // visibly grew/shrank/softened the dots whenever the composite scale
+    // differed from the layer's own natural density). patternScale keeps the
+    // pattern's on-page size: the knobs are anchored to natural-resolution
+    // pixels, so they scale with the render ratio.
+    // Note: processLayer(forExport) returns the canvas without caching it.
+    for (const l of layers) {
+      const pixelWidth = Math.max(1, Math.round(l.width * scale));
+      const pixelHeight = Math.max(1, Math.round(l.height * scale));
+      const proc = await ImageProcessor.processLayer(l, {
+        forExport: true,
+        pixelWidth,
+        pixelHeight,
+        patternScale: l.naturalWidth > 0 ? pixelWidth / l.naturalWidth : 1,
+      });
+      if (!proc) return;
+      l._processedCanvas = proc;
+    }
 
     const bw = Math.max(1, Math.ceil((maxX - minX) * scale));
     const bh = Math.max(1, Math.ceil((maxY - minY) * scale));
