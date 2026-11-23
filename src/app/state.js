@@ -36,6 +36,8 @@ export const State = {
   textEditingId: null, // id of the text layer currently being edited on-canvas
   showMargins: false,
   showGrid: false,
+  showVerticalCenter: false,   // View → View Vertical Center guide
+  showHorizontalCenter: false, // View → View Horizontal Center guide
   margins: { top: 300, right: 300, bottom: 300, left: 300 }, // 0.5 in @ 600 dpi
   grid: { size: 150, type: 'standard' }, // 0.25 in @ 600 dpi
   spreadSplitX: 0,

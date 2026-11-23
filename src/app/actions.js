@@ -25,6 +25,10 @@ import { isTwoToneShape } from './shape-utils.js';
 function updateViewMenuLabels() {
   document.getElementById('menu-toggle-margins').textContent = State.showMargins ? 'Hide Margins' : 'View Margins';
   document.getElementById('menu-toggle-grid').textContent = State.showGrid ? 'Hide Grid' : 'View Grid';
+  const v = document.getElementById('menu-toggle-center-v');
+  if (v) v.textContent = State.showVerticalCenter ? 'Hide Vertical Center' : 'View Vertical Center';
+  const h = document.getElementById('menu-toggle-center-h');
+  if (h) h.textContent = State.showHorizontalCenter ? 'Hide Horizontal Center' : 'View Horizontal Center';
 }
 
 function showMarginsDialog() {
@@ -697,6 +701,18 @@ export async function handleAction(action, value = null) {
       break;
     case 'toggle-grid':
       State.showGrid = !State.showGrid;
+      PageManager.saveViewSettings();
+      updateViewMenuLabels();
+      Renderer.schedule();
+      break;
+    case 'toggle-center-v':
+      State.showVerticalCenter = !State.showVerticalCenter;
+      PageManager.saveViewSettings();
+      updateViewMenuLabels();
+      Renderer.schedule();
+      break;
+    case 'toggle-center-h':
+      State.showHorizontalCenter = !State.showHorizontalCenter;
       PageManager.saveViewSettings();
       updateViewMenuLabels();
       Renderer.schedule();

@@ -27,6 +27,8 @@ export const PageManager = {
     const vs = project?.viewSettings || {};
     State.showMargins = !!vs.showMargins;
     State.showGrid = !!vs.showGrid;
+    State.showVerticalCenter = !!vs.showVerticalCenter;
+    State.showHorizontalCenter = !!vs.showHorizontalCenter;
     State.margins = vs.margins || { top: 300, right: 300, bottom: 300, left: 300 };
     State.grid = vs.grid || { size: 150, type: 'standard' };
     State.spreadSplitX = 0;
@@ -50,6 +52,8 @@ export const PageManager = {
     State.project.viewSettings = {
       showMargins: State.showMargins,
       showGrid: State.showGrid,
+      showVerticalCenter: State.showVerticalCenter,
+      showHorizontalCenter: State.showHorizontalCenter,
       margins: { ...State.margins },
       grid: { ...State.grid },
     };

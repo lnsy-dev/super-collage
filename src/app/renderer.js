@@ -4,6 +4,7 @@
 
 import { State, selectedLayer } from './state.js';
 import { CANVAS_W, CANVAS_H, CANVAS_PAD, setCanvasPad } from './constants.js';
+import { verticalCenterGuideXs, horizontalCenterGuideYs } from './center-guides.js';
 import { ImageProcessor } from './image-processor.js';
 
 const displayCanvas   = document.getElementById('display-canvas');
@@ -350,6 +351,7 @@ export const Renderer = {
     await this.drawLayers(dCtx, State.layers, this._docSize().w, this._docSize().h, State.zoom);
     if (State.showMargins) this.drawMargins();
     if (State.showGrid) this.drawGrid();
+    this.drawCenterGuides();
     this.drawOverlay();
   },
 
@@ -808,6 +810,41 @@ export const Renderer = {
       }
     }
     dCtx.stroke();
+    dCtx.restore();
+  },
+
+  // Optional View → View Vertical/Horizontal Center guidelines. Drawn on the
+  // display canvas only (never in exports — ExportEngine composites through
+  // drawLayers, not draw()), scaled by zoom so the lines stay fixed to the
+  // paper across zoom and pan. Positions come from center-guides.js: the
+  // center of the PAGE, and in spread view each page's own center.
+  drawCenterGuides() {
+    const xs = State.showVerticalCenter
+      ? verticalCenterGuideXs(CANVAS_W, State.spreadSplitX)
+      : [];
+    const ys = State.showHorizontalCenter
+      ? horizontalCenterGuideYs(CANVAS_H)
+      : [];
+    if (xs.length === 0 && ys.length === 0) return;
+    const z = State.zoom;
+    const W = this._displayDocW(), H = this._displayDocH();
+    dCtx.save();
+    dCtx.strokeStyle = 'rgba(255, 0, 170, 0.65)';
+    dCtx.lineWidth = 1;
+    dCtx.setLineDash([8, 5]);
+    dCtx.beginPath();
+    for (const x of xs) {
+      const px = Math.round(x * z) + 0.5;
+      dCtx.moveTo(px, 0);
+      dCtx.lineTo(px, H);
+    }
+    for (const y of ys) {
+      const py = Math.round(y * z) + 0.5;
+      dCtx.moveTo(0, py);
+      dCtx.lineTo(W, py);
+    }
+    dCtx.stroke();
+    dCtx.setLineDash([]);
     dCtx.restore();
   },
 
