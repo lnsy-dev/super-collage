@@ -65,9 +65,14 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
 
   // Completion summary with metrics (elapsed time, downloaded size). Only
   // real sheets are counted; the skipped blanks are reported separately.
-  const label = await page.locator('#export-progress .export-progress-label').textContent();
-  expect(label).toContain('Done! 4 sheets');
-  expect(label).toContain('4 blank plates skipped');
-  expect(label).toContain('4 pages');
+  // Web-first assertions throughout: anything that re-runs the export dialog
+  // or a second export wipes #export-progress's children
+  // (createExportProgress / showExportDialog), so a bare textContent()
+  // snapshot can race the wipe and hang or read null. Auto-retrying expect()
+  // re-resolves the (possibly recreated) label instead.
+  const summary = page.locator('#export-progress .export-progress-label');
+  await expect(summary).toContainText('Done! 4 sheets', { timeout: 30000 });
+  await expect(summary).toContainText('4 blank plates skipped');
+  await expect(summary).toContainText('4 pages');
   await expect(page.locator('#export-progress .export-progress-metrics')).toContainText('⏱');
 });
