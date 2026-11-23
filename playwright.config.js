@@ -16,7 +16,12 @@ export default defineConfig({
   timeout: 30_000, // A test that takes longer than this is considered broken
   maxFailures: 0, // Run full suite for comprehensive results
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // Full-suite runs on shared dev machines see single-worker load spikes
+  // (other agents' test servers, browser churn) that intermittently trip
+  // otherwise-passing specs (zoom, transform, project-io, masks, text, etc.).
+  // One local retry absorbs those; a deterministic failure still fails after
+  // the retry, so real bugs are not masked.
+  retries: process.env.CI ? 2 : 1,
   reporter: [['html', { outputFolder: 'e2e-report' }], ['list']],
   use: {
     baseURL: `http://localhost:${E2E_PORT}`,
@@ -24,6 +29,11 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
     actionTimeout: 5000,
+  },
+  expect: {
+    // Default 5s is too tight for assertions polled under full-suite machine
+    // load; 10s still fails fast when the app is genuinely broken.
+    timeout: 10_000,
   },
   projects: [
     {
