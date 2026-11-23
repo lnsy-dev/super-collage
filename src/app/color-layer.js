@@ -214,7 +214,9 @@ export async function saveBucketInkToPalette() {
   // Already in the palette — nothing to add.
   if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex)) return false;
 
-  const color = { name, hex, pantone: '' };
+  // Store the active recipe with the color: export decomposes layers that
+  // print in this custom ink into exactly these component inks.
+  const color = { name, hex, pantone: '', inks: getActiveMixedInks() };
 
   // Global setting: persists between projects.
   const setting = await DB.getSetting('risoColors');
@@ -224,7 +226,7 @@ export async function saveBucketInkToPalette() {
 
   // Project palette: rides along in downloaded/uploaded project zips.
   if (State.project) {
-    State.project.colors = [...(State.project.colors || []), color];
+    State.project.colors = [...(State.project.colors || []), { ...color, inks: { ...color.inks } }];
     await DB.put('projects', { ...State.project, updatedAt: Date.now() });
   }
 
@@ -548,10 +550,10 @@ export async function sampleColorAtPage(pageX, pageY) {
  * otherwise the closest subset wins. Ties prefer fewer inks.
  * @returns {{hex: string, inks: Object<string, number>}}
  */
-export function fitInksToColor(hex) {
+export function fitInksToColor(hex, palette = RISO_COLORS) {
   const { r, g, b } = hexToRgb(hex);
   const target = [r, g, b];
-  const inks = RISO_COLORS
+  const inks = (palette || RISO_COLORS)
     .filter(c => c.hex.toUpperCase() !== '#FFFFFF')
     .map(c => {
       const { r, g, b } = hexToRgb(c.hex);

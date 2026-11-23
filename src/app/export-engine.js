@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { State } from './state.js';
-import { CANVAS_W, CANVAS_H, RISO_COLORS, inkNameForHex } from './constants.js';
+import { CANVAS_W, CANVAS_H, RISO_COLORS, DEFAULT_RISO_COLORS, inkNameForHex } from './constants.js';
 import { ImageProcessor, buildGradientWeightMap, buildPatternWeightMap } from './image-processor.js';
 import { DB } from './db.js';
 import { Renderer } from './renderer.js';
@@ -197,18 +197,151 @@ export const ExportEngine = {
     return { left, right };
   },
 
+  /* ── Custom (mixed) palette inks ─────────────────────────────────
+     The risograph prints one grayscale plate per physical ink drum: each
+     layer file is black-and-white, and the machine prints it in that
+     plate's ink color. A custom ink the user mixed and saved into the
+     palette is not a drum — its color only exists as the subtractive mix
+     of its component inks. Export therefore decomposes every layer that
+     prints in a custom ink into one contribution per component ink, at
+     the component's coverage (0–100% → grayscale density), so a green
+     mixed from 20% yellow + 30% cyan exports a yellow plate at 20%
+     density and a cyan plate at 30% density. Components shared with
+     other layers (a plain cyan layer, another custom ink containing
+     cyan) fold into the same cyan plate. */
+
+  _factoryInkHexes() {
+    return new Set(DEFAULT_RISO_COLORS.map(c => c.hex.toUpperCase()));
+  },
+
+  // The printable inks a custom mix can be decomposed into: the palette's
+  // factory riso inks. Custom palette inks are excluded — a mix of mixes
+  // must resolve all the way down to drums the machine actually has.
+  _factoryPalette() {
+    const factory = this._factoryInkHexes();
+    return RISO_COLORS.filter(c => factory.has(c.hex.toUpperCase()));
+  },
+
+  _paletteEntry(hex) {
+    if (!hex) return null;
+    const up = String(hex).toUpperCase();
+    return RISO_COLORS.find(c => c.hex.toUpperCase() === up) || null;
+  },
+
+  // Component entries of a custom palette ink: the recipe stored when the
+  // ink was saved from the ink mixer, else an exact fit over factory inks
+  // (legacy saved inks carry no recipe). Null when the hex is not a custom
+  // palette ink — factory inks and off-palette colors print as their own
+  // plate, unchanged.
+  _customInkComponents(hex) {
+    const entry = this._paletteEntry(hex);
+    if (!entry) return null;
+    if (this._factoryInkHexes().has(entry.hex.toUpperCase())) return null;
+
+    const recipe = entry.inks && typeof entry.inks === 'object' ? entry.inks : null;
+    if (recipe) {
+      const entries = this._recipeEntries(recipe);
+      if (entries.length) return entries;
+    }
+
+    let fit;
+    try {
+      fit = fitInksToColor(hex, this._factoryPalette());
+    } catch (_) {
+      return null;
+    }
+    if (!fit || (fit.hex || '').toUpperCase() !== String(hex).toUpperCase()) return null;
+    const entries = this._recipeEntries(fit.inks);
+    return entries.length ? entries : null;
+  },
+
+  // Normalize a { inkHex: 0-100 } recipe into [{ hex, coverage }] entries,
+  // dropping white (paper is not an ink) and zero-coverage components.
+  _recipeEntries(recipe) {
+    const entries = [];
+    for (const [inkHex, amount] of Object.entries(recipe || {})) {
+      const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
+      if (coverage > 0 && inkHex && inkHex.toUpperCase() !== '#FFFFFF') {
+        entries.push({ hex: inkHex, coverage });
+      }
+    }
+    return entries;
+  },
+
+  // Expand raw ink entries, resolving custom palette inks (recursively,
+  // cycle-safe) into their printable component inks scaled by the entry's
+  // coverage, and folding repeated inks the way stacked prints compound
+  // their coverage (1 - (1-a)(1-b)).
+  _resolveInkEntries(entries, seen = new Set()) {
+    const out = [];
+    for (const { hex, coverage } of entries) {
+      const up = String(hex).toUpperCase();
+      const components = seen.has(up) ? null : this._customInkComponents(hex);
+      if (!components) {
+        out.push({ hex, coverage });
+        continue;
+      }
+      seen.add(up);
+      const scaled = components.map(c => ({ hex: c.hex, coverage: c.coverage * coverage }));
+      out.push(...this._resolveInkEntries(scaled, seen));
+      seen.delete(up);
+    }
+    return this._foldInkEntries(out);
+  },
+
+  // Expand one color into its printable plate entries: itself at full
+  // coverage for factory / off-palette colors, its components for a
+  // custom palette ink.
+  _expandInk(hex) {
+    return this._resolveInkEntries([{ hex, coverage: 1 }]);
+  },
+
+  // Merge entries for the same ink: two prints of one ink compound like
+  // alpha compositing on the shared plate, not additively.
+  _foldInkEntries(entries) {
+    const order = [];
+    const byHex = new Map();
+    for (const { hex, coverage } of entries) {
+      const up = String(hex).toUpperCase();
+      if (!byHex.has(up)) {
+        byHex.set(up, { hex, coverage });
+        order.push(up);
+        continue;
+      }
+      const prev = byHex.get(up);
+      prev.coverage = 1 - (1 - prev.coverage) * (1 - coverage);
+    }
+    return order.map(up => byHex.get(up));
+  },
+
+  _scaleCanvasAlpha(canvas, coverage) {
+    if (coverage >= 1) return canvas;
+    const scaled = new OffscreenCanvas(canvas.width, canvas.height);
+    const ctx = scaled.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i + 3] = Math.round(d[i + 3] * coverage);
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return scaled;
+  },
+
   _mixedInkEntries(l) {
     if (!l) return null;
     const inks = l.mixedInks;
     if (inks && typeof inks === 'object') {
-      const entries = [];
-      for (const [hex, amount] of Object.entries(inks)) {
-        const coverage = Math.max(0, Math.min(100, Number(amount) || 0)) / 100;
-        if (coverage > 0 && hex && hex.toUpperCase() !== '#FFFFFF') {
-          entries.push({ hex, coverage });
-        }
-      }
-      if (entries.length) return entries;
+      const entries = this._recipeEntries(inks);
+      if (entries.length) return this._resolveInkEntries(entries);
+    }
+
+    // A solid layer colored with a saved custom ink prints as its
+    // component inks — the riso has no drum for the mixed color itself.
+    const mode = l.colorMode || 'solid';
+    if (mode === 'solid') {
+      const custom = this._customInkComponents(l.color);
+      if (custom) return custom;
     }
 
     // Fallback: a solid layer whose color is exactly reproducible as a
@@ -223,11 +356,14 @@ export const ExportEngine = {
     if (mode !== 'solid') return null;
     const hex = l.color;
     if (!hex || hex.toUpperCase() === '#FFFFFF') return null;
-    // Skip exact palette single-ink colors (common fast path).
-    if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex.toUpperCase())) return null;
+    // Skip exact factory single-ink colors (common fast path). Custom
+    // palette inks never reach here — _mixedInkEntries decomposes them.
+    if (this._factoryInkHexes().has(hex.toUpperCase())) return null;
     let fit;
     try {
-      fit = fitInksToColor(hex);
+      // Fit against factory inks only: every fitted component must be a
+      // drum the risograph actually has.
+      fit = fitInksToColor(hex, this._factoryPalette());
     } catch (_) {
       return null;
     }
@@ -263,20 +399,31 @@ export const ExportEngine = {
         }
       } else if (isTwoToneShape(l)) {
         // Two-tone shapes split across their own color plates: the body prints
-        // with the fill ink, the border ring with the border ink.
+        // with the fill ink, the border ring with the border ink. A custom
+        // ink part splits further into its component inks' plates.
         if (l.shapeHasFill && l.shapeFillColor) {
-          ensurePlate(l.shapeFillColor).shapeParts.push({ layer: l, part: 'fill' });
+          for (const { hex, coverage } of this._expandInk(l.shapeFillColor)) {
+            ensurePlate(hex).shapeParts.push({ layer: l, part: 'fill', coverage });
+          }
         }
         if (l.shapeHasStroke && l.shapeStrokeColor) {
-          ensurePlate(l.shapeStrokeColor).shapeParts.push({ layer: l, part: 'stroke' });
+          for (const { hex, coverage } of this._expandInk(l.shapeStrokeColor)) {
+            ensurePlate(hex).shapeParts.push({ layer: l, part: 'stroke', coverage });
+          }
         }
       } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
         l.gradient.stops.forEach((stop, idx) => {
-          ensurePlate(stop.color).gradContributions.push({ layer: l, stopIdx: idx });
+          for (const { hex, coverage } of this._expandInk(stop.color)) {
+            ensurePlate(hex).gradContributions.push({ layer: l, stopIdx: idx, coverageScale: coverage });
+          }
         });
       } else if (l.colorMode === 'pattern' && l.pattern) {
-        ensurePlate(l.pattern.color1).gradContributions.push({ layer: l, stopIdx: 0 });
-        ensurePlate(l.pattern.color2).gradContributions.push({ layer: l, stopIdx: 1 });
+        for (const { hex, coverage } of this._expandInk(l.pattern.color1)) {
+          ensurePlate(hex).gradContributions.push({ layer: l, stopIdx: 0, coverageScale: coverage });
+        }
+        for (const { hex, coverage } of this._expandInk(l.pattern.color2)) {
+          ensurePlate(hex).gradContributions.push({ layer: l, stopIdx: 1, coverageScale: coverage });
+        }
       } else {
         const mixed = this._mixedInkEntries(l);
         if (mixed) {
@@ -333,29 +480,18 @@ export const ExportEngine = {
       await tick(layer);
       const sourceCanvas = await ImageProcessor.processLayer(layer, { forExport: true, colorOverride: color });
       if (!sourceCanvas) continue;
-      const nw = layer.naturalWidth, nh = layer.naturalHeight;
-      const weightedCanvas = new OffscreenCanvas(nw, nh);
-      const wCtx = weightedCanvas.getContext('2d', { willReadFrequently: true });
-      wCtx.drawImage(sourceCanvas, 0, 0);
-      if (coverage < 1) {
-        const imgData = wCtx.getImageData(0, 0, nw, nh);
-        const d = imgData.data;
-        for (let i = 0; i < nw * nh; i++) {
-          d[i * 4 + 3] = Math.round(d[i * 4 + 3] * coverage);
-        }
-        wCtx.putImageData(imgData, 0, 0);
-      }
-      await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
+      await this._drawLayerOnPlate(ctx, layer, this._scaleCanvasAlpha(sourceCanvas, coverage), width, height, layerSet);
     }
 
     // Two-tone shape contributions: each part is processed through the same
     // render chain as the screen (per-ink colorized canvas), so plates match
-    // exactly what you see. Only alpha matters after _renderLayerToBuffer.
-    for (const { layer, part } of (plate.shapeParts || [])) {
+    // exactly what you see. Only alpha matters after _renderLayerToBuffer;
+    // a custom-ink part scales it to its component coverage.
+    for (const { layer, part, coverage = 1 } of (plate.shapeParts || [])) {
       await tick(layer);
       const sourceCanvas = ImageProcessor.processShapePart(layer, part, layer.naturalWidth, layer.naturalHeight);
       if (!sourceCanvas) continue;
-      await this._drawLayerOnPlate(ctx, layer, sourceCanvas, width, height, layerSet);
+      await this._drawLayerOnPlate(ctx, layer, this._scaleCanvasAlpha(sourceCanvas, coverage), width, height, layerSet);
     }
 
     // Color separation layer contributions
@@ -400,8 +536,11 @@ export const ExportEngine = {
       wCtx.drawImage(sourceCanvas, 0, 0);
       const imgData = wCtx.getImageData(0, 0, nw, nh);
       const d = imgData.data;
+      // A custom-ink component contributes at its own density on top of
+      // the stop's dominance weight.
+      const scale = contrib.coverageScale ?? 1;
       for (let i = 0; i < nw * nh; i++) {
-        d[i*4 + 3] = Math.round(d[i*4 + 3] * weightMap[i]);
+        d[i*4 + 3] = Math.round(d[i*4 + 3] * weightMap[i] * scale);
       }
       wCtx.putImageData(imgData, 0, 0);
       await this._drawLayerOnPlate(ctx, layer, weightedCanvas, width, height, layerSet);
@@ -583,10 +722,10 @@ export const ExportEngine = {
       plate: {
         solidLayers: plate.solidLayers.map(live).filter(Boolean),
         mixedInkContributions: (plate.mixedInkContributions || []).map(p => ({ layer: live(p.layer), coverage: p.coverage })).filter(p => p.layer),
-        shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part })).filter(p => p.layer),
+        shapeParts: plate.shapeParts.map(p => ({ layer: live(p.layer), part: p.part, coverage: p.coverage })).filter(p => p.layer),
         separationLayers: plate.separationLayers.map(p => ({ layer: live(p.layer), color: p.color })).filter(p => p.layer),
         gradContributions: plate.gradContributions
-          .map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx, weight: p.weight }))
+          .map(p => ({ layer: live(p.layer), stopIdx: p.stopIdx, weight: p.weight, coverageScale: p.coverageScale }))
           .filter(p => p.layer),
       },
     };
@@ -1056,15 +1195,35 @@ export const ExportEngine = {
     if (rec.isColorSeparation) return rec.separationColors || [];
     if (isTwoToneShape(rec)) {
       const out = [];
-      if (rec.shapeHasFill && rec.shapeFillColor) out.push(rec.shapeFillColor);
-      if (rec.shapeHasStroke && rec.shapeStrokeColor) out.push(rec.shapeStrokeColor);
+      if (rec.shapeHasFill && rec.shapeFillColor) {
+        for (const { hex } of this._expandInk(rec.shapeFillColor)) {
+          if (!out.some(c => c.toUpperCase() === hex.toUpperCase())) out.push(hex);
+        }
+      }
+      if (rec.shapeHasStroke && rec.shapeStrokeColor) {
+        for (const { hex } of this._expandInk(rec.shapeStrokeColor)) {
+          if (!out.some(c => c.toUpperCase() === hex.toUpperCase())) out.push(hex);
+        }
+      }
       return out;
     }
     if (rec.colorMode === 'gradient' && rec.gradient?.stops?.length >= 2) {
-      return rec.gradient.stops.map(s => s.color);
+      const out = [];
+      for (const stop of rec.gradient.stops) {
+        for (const { hex } of this._expandInk(stop.color)) {
+          if (!out.some(c => c.toUpperCase() === hex.toUpperCase())) out.push(hex);
+        }
+      }
+      return out;
     }
     if (rec.colorMode === 'pattern' && rec.pattern) {
-      return [rec.pattern.color1, rec.pattern.color2];
+      const out = [];
+      for (const hex of [rec.pattern.color1, rec.pattern.color2]) {
+        for (const { hex: plateHex } of this._expandInk(hex)) {
+          if (!out.some(c => c.toUpperCase() === plateHex.toUpperCase())) out.push(plateHex);
+        }
+      }
+      return out;
     }
     const mixed = this._mixedInkEntries(rec);
     if (mixed) return mixed.map(m => m.hex);
