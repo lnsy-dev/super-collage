@@ -33,27 +33,41 @@ test('export all pages as booklet downloads sheets', async ({ page }) => {
   await page.selectOption('#export-target-size', 'letter');
   await page.locator('input[name="export-booklet-layout"][value="folio"]').click();
 
-  // Wait for downloads.
-  const [download1] = await Promise.all([
-    page.waitForEvent('download'),
-    page.click('#btn-export-go'),
-  ]);
+  // Collect every download until the export completes. Blank-plate skipping
+  // means the file count is not sides × inks: an ink with nothing printed on
+  // a sheet side saves no file, so waiting for a fixed total would block
+  // forever once the real files have all arrived.
+  const downloads = [];
+  page.on('download', d => downloads.push(d));
+  await page.click('#btn-export-go');
 
   // The export progress shows a determinate bar while sheets stream out.
   await expect(page.locator('#export-progress .export-progress-bar')).toBeVisible();
 
-  // Saddle-stitch folio with 4 pages and 4 colors yields 2 sheets per color.
-  const downloads = [download1];
-  for (let i = 0; i < 7; i++) {
-    downloads.push(await page.waitForEvent('download', { timeout: 10000 }));
-  }
+  // Saddle-stitch folio imposes 4 pages on 1 sheet: side 1 carries pages 4
+  // and 1, side 2 pages 2 and 3. Each ink here prints on exactly one reader
+  // page, so each ink yields one file — and the three sides where it has
+  // nothing to print are skipped as blank plates.
+  await expect(page.locator('#export-progress .export-progress-label'))
+    .toContainText('Done!', { timeout: 60000 });
 
-  expect(downloads.length).toBe(8);
-  for (const d of downloads) {
-    expect(d.suggestedFilename()).toMatch(/\.png$/);
+  expect(downloads).toHaveLength(4);
+  const names = downloads.map(d => d.suggestedFilename());
+  for (const name of names) {
+    expect(name).toMatch(/\.png$/);
   }
+  expect(names.sort()).toEqual([
+    'booklet-download-aqua-sheet-1.png',
+    'booklet-download-blue-sheet-2.png',
+    'booklet-download-red-sheet-1.png',
+    'booklet-download-yellow-sheet-2.png',
+  ]);
 
-  // Completion summary with metrics (elapsed time, downloaded size).
-  await expect(page.locator('#export-progress .export-progress-label')).toContainText('Done!', { timeout: 10000 });
+  // Completion summary with metrics (elapsed time, downloaded size). Only
+  // real sheets are counted; the skipped blanks are reported separately.
+  const label = await page.locator('#export-progress .export-progress-label').textContent();
+  expect(label).toContain('Done! 4 sheets');
+  expect(label).toContain('4 blank plates skipped');
+  expect(label).toContain('4 pages');
   await expect(page.locator('#export-progress .export-progress-metrics')).toContainText('⏱');
 });
