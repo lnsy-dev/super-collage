@@ -98,48 +98,21 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   await expect(nextBtn).toHaveText('Create');
 
   // The final click kicks off project creation (IndexedDB writes + serialized
-  // page-op queue + first render). Under load or with intermittent UI
-  // handling, the wizard can remain on the last step; retry a few interaction
-  // strategies, then fall back to programmatic creation/opening so tests are
-  // not blocked by a flaky dialog transition.
+  // page-op queue + first render). Click exactly once and give the app a
+  // generous window to hide the wizard: under suite load the creation routinely
+  // stretches past a short wait. Never re-click — a second Create click pends
+  // on the button the first creation disabled, then either crashes on the
+  // hidden dialog or fires after the project opened, and the retry machinery
+  // can re-open the wizard over the editor (where it intercepts the test's
+  // first File-menu click). If the wizard is still stuck after the wait, fall
+  // through to the deterministic programmatic fallback below.
   let opened = false;
-  for (let attempt = 0; attempt < 5 && !opened; attempt++) {
-    if (await createDialog.isVisible()) {
-      // If the wizard drifted off the final step, re-run from a clean state.
-      const onPages = await step('pages').evaluate(el => el.classList.contains('active')).catch(() => false);
-      if (!onPages) {
-        await openFreshWizard();
-        await page.fill('#create-project-name', name);
-        await nextBtn.click();
-        await expect(step('page-size')).toHaveClass(/active/);
-        await page.locator(`label:has(input[name="create-page-size"][value="${pageSize}"])`).click();
-        await nextBtn.click();
-        await expect(step('pages')).toHaveClass(/active/);
-        if (pageCount !== 1) {
-          await page.locator(`label:has(input[name="create-page-count"][value="${pageCount}"])`).click();
-        }
-      }
-      await expect(nextBtn).toHaveText('Create');
-      if (attempt === 0 || attempt === 1) {
-        await nextBtn.click();
-      } else if (attempt === 2) {
-        await nextBtn.focus();
-        await page.keyboard.press('Enter');
-      } else if (attempt === 3) {
-        await page.evaluate(() => document.getElementById('btn-create-next')?.click());
-      } else {
-        await page.locator('#create-project-name').focus();
-        await page.keyboard.press('Enter');
-      }
-    }
-    try {
-      await expect(createDialog).toBeHidden({ timeout: 6000 });
-      opened = true;
-    } catch (e) {
-      if (attempt === 4) {
-        // Fall through to programmatic fallback below.
-      }
-    }
+  try {
+    await nextBtn.click({ timeout: 15000 });
+    await expect(createDialog).toBeHidden({ timeout: 30000 });
+    opened = true;
+  } catch (e) {
+    // Fall through to programmatic fallback below.
   }
 
   if (!(await createDialog.isHidden().catch(() => false))) {
@@ -182,6 +155,7 @@ export async function createProject(page, name, { pageSize = 'half-letter', orie
   }
 
   await expect(createDialog).toBeHidden({ timeout: 15000 });
+  await expect(projectDialog).toBeHidden({ timeout: 15000 });
   await expect(page.locator('#main-app')).toBeVisible({ timeout: 30000 });
 
   // The create/open flow finishes its initial unit load asynchronously after
