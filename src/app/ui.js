@@ -12,6 +12,7 @@ import { FONT_WEIGHTS, italicWeights, snapWeight } from 'type-set';
 import { allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { isTwoToneShape } from './shape-utils.js';
 import { syncTextLayerName } from './layer.js';
+import { isTouchDevice } from './touch.js';
 
 const ALL_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 const WEIGHT_NAMES = { 100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium', 600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black' };
@@ -305,6 +306,19 @@ function onLockDragEnd(e) {
 
 export const UI = {
   _suppressLockClickUntil: 0,
+  // Set once at module load: touch devices get the layer multi-select
+  // checkbox (shift-click multi-select is unavailable on a tablet).
+  touchUI: isTouchDevice(),
+
+  /**
+   * True while the touch multi-select checkbox is checked, which makes
+   * layer taps behave like shift-clicks (toggle in/out of the selection).
+   */
+  isLayerMultiSelectActive() {
+    const box = document.getElementById('layer-multiselect-checkbox');
+    return Boolean(box && box.checked);
+  },
+
   refreshColorSwatches() {
     const container = document.getElementById('color-swatches');
     if (!container) return;
@@ -436,7 +450,7 @@ export const UI = {
       row.addEventListener('click', e => {
         if (UI._suppressLayerClick) return;
         if (l.locked) return;
-        if (e.shiftKey) {
+        if (e.shiftKey || UI.isLayerMultiSelectActive()) {
           const idx = State.selectedIds.indexOf(l.id);
           if (idx === -1) {
             State.selectedIds.push(l.id);

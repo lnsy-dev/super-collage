@@ -912,6 +912,31 @@ export function wireControls() {
 
   /* ─── LAYER LIST DRAG-AND-DROP REORDERING ──────────────────────── */
   const layerList = document.getElementById('layer-list');
+
+  /* ─── TOUCH MULTI-SELECT CHECKBOX ────────────────────────────────
+     Tablets have no shift key, so on touch devices the layers panel
+     shows a checkbox; while it is checked, tapping a layer row toggles
+     it in/out of the multi-selection (the same mechanism shift-click
+     uses on desktop). */
+  const multiSelectToggle = document.getElementById('layer-multiselect');
+  const multiSelectCheckbox = document.getElementById('layer-multiselect-checkbox');
+  if (multiSelectToggle) {
+    multiSelectToggle.style.display = UI.touchUI ? '' : 'none';
+  }
+  if (multiSelectCheckbox) {
+    multiSelectCheckbox.addEventListener('change', () => {
+      if (multiSelectCheckbox.checked) return;
+      // Unchecking returns to single-select: keep only the primary layer.
+      const keep = State.selectedIds.includes(State.selectedId)
+        ? [State.selectedId]
+        : State.selectedIds.slice(-1);
+      State.selectedIds = keep.filter(Boolean);
+      UI.refreshLayerList();
+      UI.refreshProperties();
+      Renderer.drawOverlay();
+    });
+  }
+
   let draggedLayerId = null;
 
   function clearDragIndicators() {
