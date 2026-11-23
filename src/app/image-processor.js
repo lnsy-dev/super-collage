@@ -206,12 +206,12 @@ export const ImageProcessor = {
     return { w: targetW, h: targetH };
   },
 
-  async processLayer(layer, { forExport = false, colorOverride = null } = {}) {
+  async processLayer(layer, { forExport = false, colorOverride = null, pixelWidth = 0, pixelHeight = 0, patternScale = 1 } = {}) {
     if (layer.isText) {
       return await this.processTextLayer(layer, forExport);
     }
     if (layer.isColorSeparation) {
-      return this.processColorSeparation(layer, forExport);
+      return this.processColorSeparation(layer, forExport, pixelWidth, pixelHeight, patternScale);
     }
     if (!layer._originalCanvas && !(layer.isSvg && layer._svgImage)) return null;
     this._processCallCount++;
@@ -245,6 +245,14 @@ export const ImageProcessor = {
       targetW = res.w;
       targetH = res.h;
     }
+    // Caller-requested composite resolution: merging renders patterned
+    // content (dither cells, screens, dots) at the exact size it will be
+    // composited at, so the pattern is rasterized at final scale and then
+    // blitted 1:1 instead of being resampled after the fact.
+    if (pixelWidth > 0 && pixelHeight > 0) {
+      targetW = pixelWidth;
+      targetH = pixelHeight;
+    }
     // Export/display targets derive from geometry that can outgrow the
     // browser canvas cap (resized text/SVG layers); allocate live only.
     ({ w: targetW, h: targetH } = fitTarget(targetW, targetH));
@@ -271,8 +279,8 @@ export const ImageProcessor = {
       // brightness/contrast/invert → halftone → colorize — once per ink, then
       // merge with the border over the body. No special-case artwork, so the
       // screen render and the exported plates cannot drift apart.
-      const merged = this.processShapePart(layer, 'fill', targetW, targetH);
-      const strokePart = this.processShapePart(layer, 'stroke', targetW, targetH);
+      const merged = this.processShapePart(layer, 'fill', targetW, targetH, patternScale);
+      const strokePart = this.processShapePart(layer, 'stroke', targetW, targetH, patternScale);
       if (merged && strokePart) {
         merged.getContext('2d').drawImage(strokePart, 0, 0);
       }
@@ -352,7 +360,12 @@ export const ImageProcessor = {
           }
         }
         px = this.posterize(px, 6);
-        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+        // Pattern sizes (dither cells, dot grids) are anchored to the
+        // layer's natural-resolution pixels; scale them with the render
+        // ratio so a pattern rasterized at a custom target keeps its
+        // on-page size instead of shrinking/stretching with the bitmap.
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType,
+          this._scaledPatternSize(layer.halftoneSize, patternScale), layer.halftoneAngle);
       }
       px = this.colorize(px, colorOverride || layer.color, colorOverride ? null : layer);
     }
@@ -373,7 +386,7 @@ export const ImageProcessor = {
    * riso ink. Shared by screen rendering (processLayer) and plate export so
    * both use identical output by construction.
    */
-  processShapePart(layer, part, targetW, targetH) {
+  processShapePart(layer, part, targetW, targetH, patternScale = 1) {
     const src = renderShapeLayerBitmap(layer, part);
     if (!src) return null;
     const work = new OffscreenCanvas(targetW, targetH);
@@ -385,7 +398,8 @@ export const ImageProcessor = {
     px = this.applyContrast(px, layer.contrast);
     if (layer.invert) px = this.applyInvert(px);
     if (layer.halftoneType !== 'none') {
-      px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+      px = this.applyHalftone(px, targetW, targetH, layer.halftoneType,
+        this._scaledPatternSize(layer.halftoneSize, patternScale), layer.halftoneAngle);
     }
     // Per-part inks are always solid; gradient/pattern color modes apply to
     // single-ink layers only.
@@ -781,11 +795,24 @@ export const ImageProcessor = {
     '#ffe800': 90, '#ff48b0': 105, '#5ec8e5': 30, '#0078bf': 60,
   },
 
+  /**
+   * Scale a pattern-size knob (halftone/dither cell, dot grid spacing)
+   * from the layer's natural-resolution pixels to a render at
+   * `patternScale` × that resolution. Patterned output (dither cells,
+   * screens, dots) is anchored to natural pixels: rendering the same
+   * layer at a different bitmap resolution must scale the pattern with
+   * the bitmap or the on-page pattern size changes.
+   */
+  _scaledPatternSize(size, patternScale) {
+    if (!patternScale || patternScale === 1) return size;
+    return Math.max(1, Math.round(size * patternScale));
+  },
+
   // Spectrolite-style per-plate styling, shared by preview
   // (processColorSeparation) and export (export-engine).
   // Input: grayscale separation plate (0 = full ink, 255 = no ink).
   // Returns a colorized ImageData ready for compositing.
-  _styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH) {
+  _styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH, patternScale = 1) {
     const type = layer.halftoneType;
 
     // Spectrolite inkOpacityMultipliers: rescale the grayscale ink amount
@@ -815,7 +842,7 @@ export const ImageProcessor = {
       // Spectrolite AM screen: per-ink angle + cell size (halftoneSize px)
       // + circle/square dot.  Screens the raw grayscale — no posterize.
       const angle = sepAngleFor(layer, colorHex, colorIdx, this._separationAngles);
-      const cellSize = Math.max(2, Math.round(layer.halftoneSize));
+      const cellSize = Math.max(2, this._scaledPatternSize(layer.halftoneSize, patternScale));
       const screened = window.spectroliteHalftoneScreen(px.data, targetW, targetH,
         cellSize, angle, layer.halftoneShape || 'circle');
       return this.colorize(toImageData(screened, targetW, targetH), colorHex, null);
@@ -823,10 +850,12 @@ export const ImageProcessor = {
 
     if (type === 'errordiff') {
       // Spectrolite error-diffusion dithering: kernel + scale + threshold,
-      // applied to the raw grayscale plate.
+      // applied to the raw grayscale plate. ditherScale is chunky-dot size
+      // in plate pixels, so it scales with the render ratio too.
       const mi = ditherMethodIndex(layer.ditherMethod);
+      const ditherScale = (layer.ditherScale ?? 1) * (patternScale && patternScale !== 1 ? patternScale : 1);
       const dithered = window.spectroliteDitherPlate(px.data, targetW, targetH,
-        mi, layer.ditherScale ?? 1, layer.ditherThreshold ?? 0.5);
+        mi, ditherScale, layer.ditherThreshold ?? 0.5);
       return this.colorize(toImageData(dithered, targetW, targetH), colorHex, null);
     }
 
@@ -835,14 +864,18 @@ export const ImageProcessor = {
     const offsetAngle = this._separationAngles[colorHex] || 0;
     const angle = (baseAngle + offsetAngle) % 180;
     px = this.posterize(px, 6);
-    px = this.applyHalftone(px, targetW, targetH, type, layer.halftoneSize, angle);
+    px = this.applyHalftone(px, targetW, targetH, type, this._scaledPatternSize(layer.halftoneSize, patternScale), angle);
     return this.colorize(px, colorHex, null);
   },
 
-  processColorSeparation(layer, forExport) {
+  processColorSeparation(layer, forExport, pixelWidth = 0, pixelHeight = 0, patternScale = 1) {
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     let targetW, targetH;
-    if (forExport) {
+    if (pixelWidth > 0 && pixelHeight > 0) {
+      // Caller-requested composite resolution (see processLayer).
+      targetW = pixelWidth;
+      targetH = pixelHeight;
+    } else if (forExport) {
       targetW = nw;
       targetH = nh;
     } else {
@@ -865,7 +898,7 @@ export const ImageProcessor = {
       pCtx.drawImage(plateCanvas, 0, 0, targetW, targetH);
 
       let px = pCtx.getImageData(0, 0, targetW, targetH);
-      px = this._styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH);
+      px = this._styleSepPlate(px, layer, colorHex, colorIdx, targetW, targetH, patternScale);
       pCtx.putImageData(px, 0, 0);
 
       ctx.globalCompositeOperation = 'multiply';
