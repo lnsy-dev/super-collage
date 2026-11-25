@@ -10,6 +10,7 @@ import { isTwoToneShape, renderShapeLayerBitmap } from './shape-utils.js';
 import { TypeSetRenderer } from 'type-set';
 import { sepAngleFor, ditherMethodIndex, toImageData, sepPlateToCanvas } from './separation-methods.js';
 import { clampDims } from './canvas-limits.js';
+import { MIN_CELL_DEVICE_PX, minCellForRender } from './pattern-size.js';
 
 /**
  * Cap a processing target into the browser's canvas allocation envelope.
@@ -206,7 +207,7 @@ export const ImageProcessor = {
     return { w: targetW, h: targetH };
   },
 
-  async processLayer(layer, { forExport = false, colorOverride = null, pixelWidth = 0, pixelHeight = 0, patternScale = 1 } = {}) {
+  async processLayer(layer, { forExport = false, colorOverride = null, pixelWidth = 0, pixelHeight = 0, patternScale = 0 } = {}) {
     if (layer.isText) {
       return await this.processTextLayer(layer, forExport);
     }
@@ -256,6 +257,12 @@ export const ImageProcessor = {
     // Export/display targets derive from geometry that can outgrow the
     // browser canvas cap (resized text/SVG layers); allocate live only.
     ({ w: targetW, h: targetH } = fitTarget(targetW, targetH));
+    // Pattern knobs (dither cells, dot grids, screens) are anchored to the
+    // layer's natural-resolution pixels; a render at a different bitmap
+    // resolution scales them by targetW/naturalWidth so the pattern keeps
+    // its on-page size. The merge composite passes its own ratio via
+    // patternScale; everything else derives it from the resolved target.
+    const renderRatio = this._renderRatio(patternScale, nw, targetW);
     // A zoom-band refresh (_zoomRefreshNeeded, set when the zoom settled
     // outside a layer's processed fidelity band) is NOT a content change:
     // when the processed resolution lands identical across the crossing
@@ -279,8 +286,8 @@ export const ImageProcessor = {
       // brightness/contrast/invert → halftone → colorize — once per ink, then
       // merge with the border over the body. No special-case artwork, so the
       // screen render and the exported plates cannot drift apart.
-      const merged = this.processShapePart(layer, 'fill', targetW, targetH, patternScale);
-      const strokePart = this.processShapePart(layer, 'stroke', targetW, targetH, patternScale);
+      const merged = this.processShapePart(layer, 'fill', targetW, targetH, renderRatio);
+      const strokePart = this.processShapePart(layer, 'stroke', targetW, targetH, renderRatio);
       if (merged && strokePart) {
         merged.getContext('2d').drawImage(strokePart, 0, 0);
       }
@@ -365,7 +372,7 @@ export const ImageProcessor = {
         // ratio so a pattern rasterized at a custom target keeps its
         // on-page size instead of shrinking/stretching with the bitmap.
         px = this.applyHalftone(px, targetW, targetH, layer.halftoneType,
-          this._scaledPatternSize(layer.halftoneSize, patternScale), layer.halftoneAngle);
+          this._halftoneCell(layer, renderRatio, targetW), layer.halftoneAngle);
       }
       px = this.colorize(px, colorOverride || layer.color, colorOverride ? null : layer);
     }
@@ -399,7 +406,7 @@ export const ImageProcessor = {
     if (layer.invert) px = this.applyInvert(px);
     if (layer.halftoneType !== 'none') {
       px = this.applyHalftone(px, targetW, targetH, layer.halftoneType,
-        this._scaledPatternSize(layer.halftoneSize, patternScale), layer.halftoneAngle);
+        this._halftoneCell(layer, patternScale, targetW), layer.halftoneAngle);
     }
     // Per-part inks are always solid; gradient/pattern color modes apply to
     // single-ink layers only.
@@ -689,6 +696,10 @@ export const ImageProcessor = {
     const targetW = Math.max(1, Math.round(layoutW * renderScale * shrink));
     const targetH = Math.max(1, Math.round(layoutH * renderScale * shrink));
     const drawScale = renderScale * shrink;
+    // Pattern knobs are anchored to natural-resolution pixels; the display
+    // path renders at 2x and export at 1x, so scale the knob with the
+    // render ratio to keep the pattern's on-page size consistent.
+    const renderRatio = this._renderRatio(0, layer.naturalWidth, targetW);
 
     // Use separate base-render caches for display (2x) and export (1x) to prevent invalidation.
     const cacheKey = forExport ? '_exportOriginalCanvas' : '_originalCanvas';
@@ -774,7 +785,8 @@ export const ImageProcessor = {
     } else {
       if (layer.halftoneType !== 'none') {
         px = this.posterize(px, 6);
-        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType, layer.halftoneSize, layer.halftoneAngle);
+        px = this.applyHalftone(px, targetW, targetH, layer.halftoneType,
+          this._halftoneCell(layer, renderRatio, targetW), layer.halftoneAngle);
       }
       px = this.colorize(px, layer.color, layer);
     }
@@ -806,6 +818,36 @@ export const ImageProcessor = {
   _scaledPatternSize(size, patternScale) {
     if (!patternScale || patternScale === 1) return size;
     return Math.max(1, Math.round(size * patternScale));
+  },
+
+  /**
+   * Effective halftone cell size (bitmap px) for a render.
+   *
+   * The knob is anchored to the layer's natural-resolution pixels and
+   * scaled by the render ratio (`patternScale`). Dot screens (magazine
+   * "Dots" and "Grunge") are additionally floored at the magazine-size
+   * anchor: pages rasterize at 600 dpi and a magazine screen (133–150 lpi)
+   * spans ~4 device px per cell (600/150 = 4), so knob settings below that
+   * keep rendering at the magazine pitch instead of collapsing into
+   * sub-pixel noise (see pattern-size.js for the lpi/dpi math).
+   */
+  _halftoneCell(layer, patternScale, targetW) {
+    const scaled = this._scaledPatternSize(layer.halftoneSize, patternScale);
+    const isDotScreen = layer.halftoneType === 'magazine' || layer.halftoneType === 'grunge';
+    if (!isDotScreen) return scaled;
+    return Math.max(1, scaled, Math.round(minCellForRender(targetW, layer.width)));
+  },
+
+  /**
+   * Render-ratio fallback for pattern knobs: callers that render at a
+   * different bitmap resolution than the layer's natural size (previews,
+   * custom composite targets) scale the knobs by targetW/naturalWidth so
+   * patterns keep their on-page size. Callers that already computed a
+   * ratio (e.g. the merge composite) pass it explicitly.
+   */
+  _renderRatio(patternScale, naturalWidth, targetW) {
+    if (patternScale) return patternScale;
+    return naturalWidth > 0 ? targetW / naturalWidth : 1;
   },
 
   // Spectrolite-style per-plate styling, shared by preview
@@ -864,11 +906,11 @@ export const ImageProcessor = {
     const offsetAngle = this._separationAngles[colorHex] || 0;
     const angle = (baseAngle + offsetAngle) % 180;
     px = this.posterize(px, 6);
-    px = this.applyHalftone(px, targetW, targetH, type, this._scaledPatternSize(layer.halftoneSize, patternScale), angle);
+    px = this.applyHalftone(px, targetW, targetH, type, this._halftoneCell(layer, patternScale, targetW), angle);
     return this.colorize(px, colorHex, null);
   },
 
-  processColorSeparation(layer, forExport, pixelWidth = 0, pixelHeight = 0, patternScale = 1) {
+  processColorSeparation(layer, forExport, pixelWidth = 0, pixelHeight = 0, patternScale = 0) {
     const nw = layer.naturalWidth, nh = layer.naturalHeight;
     let targetW, targetH;
     if (pixelWidth > 0 && pixelHeight > 0) {
@@ -883,6 +925,10 @@ export const ImageProcessor = {
       targetW = res.w;
       targetH = res.h;
     }
+    // Pattern knobs are anchored to natural-resolution pixels; scale them
+    // with the render ratio so patterns keep their on-page size (see
+    // processLayer). The merge composite passes its own ratio.
+    patternScale = this._renderRatio(patternScale, nw, targetW);
     const work = new OffscreenCanvas(targetW, targetH);
     const ctx = work.getContext('2d');
 

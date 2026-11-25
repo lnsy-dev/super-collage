@@ -221,4 +221,106 @@ test.describe('Halftone', () => {
     });
     expect(angle).toBe(90);
   });
+
+  test('size slider reaches the new minimum (1) for dot screens', async ({ page }) => {
+    await createProject(page, 'Halftone Min Size Test');
+    await addImage(page, TEST_IMAGE);
+
+    await page.click('.halftone-opt[data-halftone="grunge"]');
+    await page.fill('#prop-halftone-size', '1');
+    await page.keyboard.press('Tab');
+
+    expect(await page.locator('#prop-halftone-size').getAttribute('min')).toBe('1');
+    const size = await page.evaluate(() => {
+      // @ts-ignore
+      return State.layers[0].halftoneSize;
+    });
+    expect(size).toBe(1);
+  });
+
+  test('smallest dot-screen cell is floored at the magazine pitch (600 dpi / 150 lpi = 4 device px)', async ({ page }) => {
+    const cell = await page.evaluate(async () => {
+      const { ImageProcessor } = await import('/src/app/image-processor.js');
+      const layer = {
+        halftoneType: 'grunge',
+        halftoneSize: 1, // new slider minimum
+        width: 512,      // on-page footprint in 600-dpi document px
+        naturalWidth: 512,
+      };
+      // Knob 1 would be a 1 px cell; the magazine anchor must floor it to
+      // 4 device px at 600 dpi (600/150 lpi).
+      const grunge = ImageProcessor._halftoneCell(layer, 1, 512);
+      layer.halftoneType = 'magazine';
+      const magazine = ImageProcessor._halftoneCell(layer, 1, 512);
+      return { grunge, magazine };
+    });
+    expect(cell.grunge).toBe(4);
+    expect(cell.magazine).toBe(4);
+  });
+
+  test('magazine dots render at the floored pitch across a row', async ({ page }) => {
+    // Render the real magazineDots at the floored minimum cell (4 px) over
+    // a mid-gray ramp and measure the horizontal dot pitch: at angle 0 the
+    // grid is axis-aligned, so dark runs must repeat every ~4 px = one
+    // 150 lpi cell at 600 dpi.
+    const pitch = await page.evaluate(async () => {
+      const { ImageProcessor } = await import('/src/app/image-processor.js');
+      const w = 256, h = 64;
+      const c = new OffscreenCanvas(w, h);
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = 102; // mid gray
+        img.data[i * 4 + 3] = 255;
+      }
+      const out = ImageProcessor.magazineDots(img, w, h, 4, 0);
+      const d = out.data;
+      // Average spacing between dark-run starts over the rows that pass
+      // through dot centers.
+      const spacings = [];
+      for (let y = 0; y < h; y++) {
+        const starts = [];
+        for (let x = 1; x < w; x++) {
+          const prev = d[(y * w + x - 1) * 4];
+          const cur = d[(y * w + x) * 4];
+          if (prev >= 128 && cur < 128) starts.push(x);
+        }
+        for (let s = 1; s < starts.length; s++) spacings.push(starts[s] - starts[s - 1]);
+      }
+      if (!spacings.length) return 0;
+      return spacings.reduce((a, s) => a + s, 0) / spacings.length;
+    });
+    expect(pitch).toBeGreaterThan(3);
+    expect(pitch).toBeLessThan(5.5);
+  });
+
+  test('dot-screen size scales with the render ratio and keeps its on-page pitch', async ({ page }) => {
+    // The scaling contract: a knob anchored to natural-resolution pixels
+    // renders the same on-page pitch at any bitmap resolution, and the
+    // magazine floor applies in device pixels at every resolution.
+    const pitches = await page.evaluate(async () => {
+      const { ImageProcessor } = await import('/src/app/image-processor.js');
+      const layer = {
+        halftoneType: 'grunge',
+        width: 1024,     // on-page footprint in 600-dpi document px
+        naturalWidth: 2048,
+      };
+      const onPage = (size, ratio, targetW) =>
+        ImageProcessor._halftoneCell({ ...layer, halftoneSize: size }, ratio, targetW) * 1024 / targetW;
+      return {
+        // Knob 8: natural render (2048 px) and half-res render (1024 px)
+        // must land on the same on-page pitch.
+        knob8Natural: onPage(8, 1, 2048),
+        knob8Half: onPage(8, 0.5, 1024),
+        // Knob 1 (the new minimum): both renders floor to the magazine
+        // pitch in device px, staying equal to each other.
+        knob1Natural: onPage(1, 1, 2048),
+        knob1Half: onPage(1, 0.5, 1024),
+      };
+    });
+    expect(pitches.knob8Natural).toBeCloseTo(pitches.knob8Half, 6);
+    expect(pitches.knob1Natural).toBeCloseTo(pitches.knob1Half, 6);
+    // The lowest knob setting lands on the magazine anchor: 4 device px.
+    expect(pitches.knob1Natural).toBeCloseTo(4, 6);
+  });
 });
