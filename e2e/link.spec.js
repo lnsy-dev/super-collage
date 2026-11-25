@@ -86,6 +86,51 @@ test.describe('Layer Linking', () => {
     expect(positions.bx).toBe(positions.ax + 200);
   });
 
+  test('links persist across save and reload', async ({ page }) => {
+    await createProject(page, 'Link Persist');
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'a.png' });
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'b.png' });
+
+    await page.evaluate(async () => {
+      const [a, b] = window.State.layers;
+      a.x = 300; a.y = 400;
+      b.x = 500; b.y = 400;
+      await window.DB.saveLayer(a);
+      await window.DB.saveLayer(b);
+    });
+
+    const rows = page.locator('#layer-list .layer-row');
+    const linkBtn = page.locator('#layer-buttons [data-action="link-layers"]');
+    await rows.nth(0).click();
+    await rows.nth(1).click({ modifiers: ['Shift'] });
+    await clickLink(page);
+    await expect(linkBtn).toHaveText('Unlink');
+
+    await page.reload();
+    await page.locator('.project-entry', { hasText: 'Link Persist' }).click();
+    await page.click('#btn-open-project');
+    await expect(page.locator('#main-app')).toBeVisible({ timeout: 20000 });
+    await page.waitForFunction(() => !!(window.State.project && window.State.unitId), null, { timeout: 30000 });
+
+    const persisted = await page.evaluate(() => {
+      // @ts-ignore
+      const [a, b] = window.State.layers;
+      return { aId: a.id, aLinks: a.linkedIds, bLinks: b.linkedIds, bId: b.id };
+    });
+    expect(persisted.aLinks).toContain(persisted.bId);
+    expect(persisted.bLinks).toContain(persisted.aId);
+
+    // The persisted link still moves layers together.
+    await rows.nth(0).click();
+    await page.keyboard.press('ArrowRight');
+    const positions = await page.evaluate(() => {
+      // @ts-ignore
+      const [a, b] = window.State.layers;
+      return { ax: a.x, bx: b.x };
+    });
+    expect(positions.bx).toBe(positions.ax + 200);
+  });
+
   test('mask actions propagate through links', async ({ page }) => {
     await createProject(page, 'Link Mask');
     await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'a.png' });

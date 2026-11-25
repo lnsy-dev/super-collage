@@ -1,32 +1,31 @@
 // @ts-check
 /* ═══════════════════════════════════════════════════════════════════
-   Mask brush responsiveness on projects with many diffed masks
+   Mask brush responsiveness on projects with many difference masks
    ═══════════════════════════════════════════════════════════════════
    Regression coverage for the report:
 
      "If there are many layers of diffed masks and I try to use the
       brush to add to the mask the software is not responsive."
 
-   "Diffed masks" are difference-mask layers: a base layer with an
-   image-mask layer (isMaskFor) plus the linked "(diff)" copy of that
-   mask, each carrying their own painted mask canvas. One difference-
-   mask click creates all three from a duplicate, so a fan-out of pairs
-   leaves the BASE layer masked through *several* image-mask layers
-   (imageMaskIds = [m1, m2, …]) — every one of them contributing its
-   own slice buffer, alpha inversion and bitmask application to the
-   compositing cost of every redraw.
+   "Diffed masks" are difference-mask layers: a base layer with N
+   image-mask layers (isMaskFor) linked to it — one per difference
+   mask, each carrying its own painted mask canvas. One difference-
+   mask click creates only that mask layer (the original image stays
+   its own layer), so a fan-out leaves the BASE layer masked through
+   *several* image-mask layers (imageMaskIds = [m1, m2, …]) — every
+   one of them contributing its own slice buffer, alpha inversion and
+   bitmask application to the compositing cost of every redraw.
 
-   The stack here mirrors the real workflow: a solid base plate, and
-   diff copies recolored so they are visually distinct (the layer-pair
-   dialog selects the diff for recoloring right after creation).
+   The stack here mirrors the real workflow: a solid base plate plus a
+   fan of linked mask layers created through the real pipeline.
 
    Each brush dab bumps the painted mask revision, which invalidates
-   both the painted-mask composites of the brushed layers and the
-   base's image-mask composite cache — so a brush stroke is effectively
-   a per-frame worst case for masked rendering. The tests assert:
+   the brushed mask's composites and the base's image-mask composite
+   cache — so a brush stroke is effectively a per-frame worst case for
+   masked rendering. The tests assert:
 
-     1. the stroke WORKS end to end (mask hole lands in the mask layer
-        and its linked diff copy, and shows on screen through the real
+     1. the stroke WORKS end to end (the painted hole lands in the
+        brushed mask layer only and shows on screen through the real
         pipeline);
      2. per-redraw frame time during the stroke stays in a bound that
         keeps the UI responsive, under CPU throttling (emulating weak
@@ -46,20 +45,14 @@ const DIFF_COLOR = '#00a95c';
 /* ─── Shared helpers ────────────────────────────────────────────── */
 
 /**
- * Fan `pairs` difference-mask pairs out of the single imported image
- * layer through the real pipeline (duplicate-layer + create-difference-
- * mask handleAction). Returns baseId + masks/diffs id lists *in layer
- * order*: the masks were inserted in creation order (masks[0] = first
- * pair), the diff copies after each pair in reverse (diffs[PAIRS-1] =
- * the painted pair's copy).
- *
- * When `hideOtherDiffs` is set, the diff copies of the *non-painted*
- * pairs are hidden so the rendered stack can be probed for the punched
- * hole (normal layers fully cover it otherwise, identically pre- and
- * post-punch).
+ * Fan `pairs` difference masks out of the single imported image layer
+ * through the real pipeline (duplicate-layer + create-difference-mask
+ * handleAction). Returns baseId + the mask layer ids in creation order:
+ * every mask is a linked isMaskFor layer of the base; the original
+ * image stays its own layer and no "(diff)" copies exist.
  */
-async function buildDiffMaskStack(page, pairs, { hideOtherDiffs = false } = {}) {
-  return page.evaluate(async ({ pairs: n, hideOtherDiffs: hide }) => {
+async function buildDiffMaskStack(page, pairs) {
+  return page.evaluate(async ({ pairs: n }) => {
     const baseId = State.layers[0].id;
     for (let i = 0; i < n; i++) {
       await LayerManager.duplicate(baseId); // the copy is selected after this
@@ -68,19 +61,12 @@ async function buildDiffMaskStack(page, pairs, { hideOtherDiffs = false } = {}) 
       await handleAction('create-difference-mask');
       await PageManager.queueIdle();
     }
-    const diffs = State.layers.filter(l => l.name.includes('(diff)'));
-    if (hide) {
-      // The painted pair is diffs[n-1]; hide every other diff so the hole
-      // can be probed on screen.
-      diffs.forEach((d, i) => { if (i < n - 1) d.visible = false; });
-    }
     Renderer.schedule();
     return {
       baseId,
       masks: State.layers.filter(l => l.isMaskFor === baseId).map(l => l.id),
-      diffs: diffs.map(l => l.id),
     };
-  }, { pairs, hideOtherDiffs });
+  }, { pairs });
 }
 
 /**
@@ -172,28 +158,20 @@ function screenPixelAt(page, layerId, fx, fy) {
 }
 
 /**
- * Recolor the base plate and the diff copies (a user recolors the diffs
- * right after creating a pair) so pixels are clearly distinct: red base,
- * cyan diffs.
+ * Recolor the base plate so its pixels are clearly distinct from paper
+ * (red). The mask layers do not render as layers — only their ink cuts
+ * the base — so there is nothing else to recolor.
  */
 async function recolorStack(page, stack) {
-  await page.evaluate(({ baseId, diffColor }) => {
+  await page.evaluate(({ baseId }) => {
     for (const l of State.layers) {
-      // Skip hidden layers: nothing below image-processor draws them, so
-      // a _dirty flag there would never drain.
-      if (!l.visible) continue;
-      if (l.name.includes('(diff)')) {
-        l.color = diffColor;
-      } else if (l.id === baseId) {
-        l.color = '#cc0000';
-      } else {
-        continue;
-      }
+      if (l.id !== baseId) continue;
+      l.color = '#cc0000';
       l.colorMode = 'solid';
       l._dirty = true;
     }
     Renderer.schedule();
-  }, { baseId: stack.baseId, diffColor: DIFF_COLOR });
+  }, { baseId: stack.baseId });
 }
 
 /** Select a layer by id through the selection pipeline. */
@@ -237,9 +215,9 @@ test.beforeEach(async ({ page }) => {
    ══════════════════════════════════════════════════════════════════ */
 
 test.describe('Mask brush responsiveness', () => {
-  test('brushing a mask with a fan of diffed masks paints through and stays responsive', async ({ page, browserName }) => {
+  test('brushing a mask with a fan of difference masks paints through and stays responsive', async ({ page, browserName }) => {
     test.skip(browserName === 'firefox', 'CPU throttling via CDP is not available in Firefox');
-    const PAIRS = 5;
+    const MASKS = 5;
     const CPU_THROTTLE = 4;
     // Per-frame redraw budget during the stroke (ms of Renderer.draw),
     // measured under 4× CPU throttling — the emulation for the reported
@@ -250,12 +228,11 @@ test.describe('Mask brush responsiveness', () => {
 
     await createProject(page, 'Brush Many Diff Masks');
     await addImageFromBuffer(page, BASE_PNG(), { name: 'plate.png' });
-    const stack = await buildDiffMaskStack(page, PAIRS, { hideOtherDiffs: true });
+    const stack = await buildDiffMaskStack(page, MASKS);
     await recolorStack(page, stack);
     // Heavy fan-out setup — give the real pipeline's actions room.
     page.setDefaultTimeout(30_000);
-    expect(stack.masks).toHaveLength(PAIRS);
-    expect(stack.diffs).toHaveLength(PAIRS);
+    expect(stack.masks).toHaveLength(MASKS);
 
     // Weak-hardware emulation, as performance.spec.js does.
     await throttleCPU(page, CPU_THROTTLE);
@@ -269,8 +246,9 @@ test.describe('Mask brush responsiveness', () => {
     await page.waitForTimeout(500);
     await installDrawProfiler(page);
 
-    // Paint on the FIRST mask layer: its link group paints it and its
-    // diff copy, and the base re-composites through all PAIRS masks.
+    // Paint on the FIRST mask layer: only its own canvas is painted (the
+    // masked base and the sibling masks are never painted by a stroke on
+    // a mask), and the base re-composites through all MASKS masks.
     await selectLayer(page, stack.masks[0]);
     await selectToolQuiet(page, 'mask-draw');
 
@@ -290,25 +268,18 @@ test.describe('Mask brush responsiveness', () => {
     expect(stats.p95, 'worst stroke redraws stay bounded').toBeLessThan(MAX_P95_DRAW_MS);
 
     // ── Correctness of the stroke itself ────────────────────────────
-    // The hole must land in BOTH linked masks (brush paints the link
-    // group). The base masks stack in creation order (m1 first), while
-    // their diff copies are inserted after the group in reverse (dN
-    // first) — painted pair = masks[0] ↔ diffs[PAIRS-1]; the untouched
-    // pair is masks[N-1] ↔ diffs[0].
+    // The hole lands ONLY in the brushed mask layer; the untouched
+    // masks keep their opaque canvases.
     await expect.poll(() => maskAlpha(page, stack.masks[0], FX, FY), { timeout: 10000 }).toBe(0);
-    await expect.poll(() => maskAlpha(page, stack.diffs[PAIRS - 1], FX, FY), { timeout: 10000 }).toBe(0);
-    expect(await maskAlpha(page, stack.masks[PAIRS - 1], FX, FY)).toBe(255);
-    expect(await maskAlpha(page, stack.diffs[0], FX, FY)).toBe(255);
+    expect(await maskAlpha(page, stack.masks[MASKS - 1], FX, FY)).toBe(255);
 
-    // On screen: with the other diffs hidden, the punched hole exposes
-    // paper; the untouched area still shows the visible diff copy's ink.
+    // On screen: the sibling masks still cut the base at the hole, so
+    // the punched spot shows paper — proof the composite of all MASKS
+    // masks ran through the real pipeline without breaking.
     const punched = await screenPixelAt(page, stack.baseId, FX, FY);
     expect(punched.r).toBeGreaterThan(200);
     expect(punched.g).toBeGreaterThan(200);
     expect(punched.b).toBeGreaterThan(200);
-    const untouched = await screenPixelAt(page, stack.baseId, FX + 0.4, FY + 0.4);
-    expect(untouched.r).toBeLessThan(200); // cyan diff ink, not paper
-    expect(untouched.g).toBeGreaterThan(100);
 
     expect(pageErrors.length, 'no uncaught page errors during the stroke').toBe(0);
   });
@@ -326,7 +297,7 @@ test.describe('Mask brush responsiveness', () => {
     );
     await page.waitForTimeout(300);
 
-    await selectLayer(page, stack.diffs[0]);
+    await selectLayer(page, stack.masks[0]);
     await selectToolQuiet(page, 'mask-draw');
 
     const FX = 0.5, FY = 0.5;
@@ -335,16 +306,20 @@ test.describe('Mask brush responsiveness', () => {
     await page.mouse.down();
     await page.mouse.up();
 
-    // Link group: the hole lands in the mask layer and the diff copy.
+    // The hole lands in the mask layer's own canvas — and in nothing
+    // else: the base's own painted mask must not be painted by a stroke
+    // on its mask layer.
     await expect.poll(() => maskAlpha(page, stack.masks[0], FX, FY), { timeout: 10000 }).toBe(0);
-    await expect.poll(() => maskAlpha(page, stack.diffs[0], FX, FY), { timeout: 10000 }).toBe(0);
 
-    // Single pair: un-masking the base's one mask exposes the base plate
-    // — red shows where the hole was punched.
+    // Un-masking the base's one mask exposes the base plate — red shows
+    // where the hole was punched.
     await settle(page, 300);
     const pixel = await screenPixelAt(page, stack.baseId, FX, FY);
     expect(pixel.r).toBeGreaterThan(150);
     expect(pixel.g).toBeLessThan(150);
+
+    const baseCanvasPunched = await maskAlpha(page, stack.baseId, FX, FY);
+    expect(baseCanvasPunched).toBe(255);
     expect(pageErrors.length).toBe(0);
   });
 });

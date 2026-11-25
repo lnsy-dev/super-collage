@@ -169,3 +169,34 @@ export function areDifferenceMaskPair(a, b) {
   }
   return false;
 }
+
+/**
+ * Layers a MASK-BRUSH stroke (or fill/clear/invert mask) must paint
+ * together with `layer`:
+ *   - a plain linked layer paints with its whole link group (legacy
+ *     behavior: linked diff copies paint together with their mask);
+ *   - the mask layer of a difference mask paints ALONE — its canvas
+ *     restricts where its ink cuts the base; erasing the base's own
+ *     pixels or rewriting the base's other mask layers there would
+ *     destroy the original image the mask is supposed to leave intact;
+ *   - a masked base paints alone for the same reason.
+ */
+export function getPaintGroup(layer) {
+  if (!layer) return [];
+  const group = getLinkGroup(layer);
+  if (layer.isMaskFor) {
+    // Brushing a mask layer: keep itself and non-mask layers DIRECTLY
+    // linked to it (legacy diff copies); drop the masked base, every
+    // sibling mask of the same base, and anything only reachable
+    // through the base's own links.
+    return group.filter(l =>
+      l.id === layer.id ||
+      (!l.isMaskFor && l.id !== layer.isMaskFor && (l.linkedIds || []).includes(layer.id))
+    );
+  }
+  if ((layer.imageMaskIds || []).length) {
+    // Brushing a masked base: only its own canvas.
+    return group.filter(l => l.id === layer.id);
+  }
+  return group;
+}

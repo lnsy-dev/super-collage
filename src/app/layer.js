@@ -89,9 +89,18 @@ export class Layer {
     this.gradientBounds = data.gradientBounds
       ? { x: data.gradientBounds.x, y: data.gradientBounds.y, width: data.gradientBounds.width, height: data.gradientBounds.height }
       : null;
-    this.imageMaskIds = data.imageMaskIds || (data.imageMaskId ? [data.imageMaskId] : []);
+    // Cloned, never aliased: a Layer built from another layer's toRecord()
+    // (duplicate, diff mask, undo) must not share the source's arrays, or a
+    // later link/unlink/delete on one layer silently rewrites the other's.
+    // Self-references are dropped too — a deleted layer's id used to survive
+    // in its own linkedIds when the array was shared.
+    this.imageMaskIds = Array.isArray(data.imageMaskIds)
+      ? data.imageMaskIds.filter(id => id && id !== this.id)
+      : (data.imageMaskId ? [data.imageMaskId] : []);
     this.isMaskFor = data.isMaskFor || null;
-    this.linkedIds = data.linkedIds || [];
+    this.linkedIds = Array.isArray(data.linkedIds)
+      ? data.linkedIds.filter(id => id && id !== this.id)
+      : [];
     // Marks membership in one imported-project group (see Import Menu
     // Project): members of a group move/scale as a unit and can be split
     // apart later. Null for layers created normally.

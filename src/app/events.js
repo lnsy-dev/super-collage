@@ -18,7 +18,7 @@ import { computeViewUnits } from './spread-manager.js';
 import { DB } from './db.js';
 import { ProjectIO } from './project-io.js';
 import { wireSidebars } from './sidebars.js';
-import { getLinkedLayers, getLinkGroup, getScaleGroup } from './layer-link-utils.js';
+import { getLinkedLayers, getPaintGroup, getScaleGroup } from './layer-link-utils.js';
 import { TextEditor } from './text-editor.js';
 import { TypeSetRenderer } from 'type-set';
 import { defaultSepAngles, defaultPosterizeConfig, defaultCmykishConfig, rebuildLayerSepPlates } from './separation-methods.js';
@@ -470,7 +470,7 @@ async function onPointerDown(e) {
     // Shift-drag draws a straight line snapped to a 45° multiple: the
     // anchor is the stroke's start point (cleared again in onPointerUp).
     State.maskShiftAnchor = e.shiftKey ? { x, y } : null;
-    const group = getLinkGroup(layer);
+    const group = getPaintGroup(layer);
     for (const l of group) pushUndoWithMask(l);
     for (const l of group) {
       const local = Transform.toLocal(x, y, l, State.zoom);
@@ -661,7 +661,7 @@ function onPointerMove(e) {
     } else if (State.maskShiftAnchor) {
       State.maskShiftAnchor = null; // shift released: back to a free stroke
     }
-    const group = getLinkGroup(layer);
+    const group = getPaintGroup(layer);
     for (const l of group) {
       const local = Transform.toLocal(tx, ty, l, State.zoom);
       const lx = local.x * (l.naturalWidth / l.width);
@@ -849,7 +849,7 @@ async function onPointerUp(e) {
     State.maskShiftAnchor = null;
     const layer = selectedLayer();
     if (layer) {
-      const group = getLinkGroup(layer);
+      const group = getPaintGroup(layer);
       for (const l of group) {
         if (l._maskCanvas && (e.type !== 'pointerleave' || e.buttons === 0)) DB.saveMask(l);
       }

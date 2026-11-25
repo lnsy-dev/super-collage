@@ -7,7 +7,6 @@ import { UI } from './ui.js';
 import { Renderer } from './renderer.js';
 import { LayerManager } from './layer-manager.js';
 import { MaskEngine } from './mask-engine.js';
-import { Layer } from './layer.js';
 import { undo, redo, pushUndo, snapshotLayer, pushUndoWithMask, pushUndoState } from './undo.js';
 import { showProjectDialog, showExportDialog, showCompositeExportDialog } from './project-manager.js';
 import { ProjectIO } from './project-io.js';
@@ -18,7 +17,7 @@ import { DB } from './db.js';
 import { PageManager } from './page-manager.js';
 import { projectGridUnit, pxToGridUnit, gridUnitToPx, formatGridUnitValue, unitLabel } from './grid-units.js';
 import { computeViewUnits, findUnitForPage } from './spread-manager.js';
-import { getLinkGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
+import { getPaintGroup, linkLayers, unlinkLayers, allSelectedAreLinked, areDifferenceMaskPair } from './layer-link-utils.js';
 import { generateOutline } from './outline.js';
 import { isTwoToneShape } from './shape-utils.js';
 
@@ -444,7 +443,7 @@ export async function handleAction(action, value = null) {
     }
     case 'clear-mask': {
       if (!layer) break;
-      for (const l of getLinkGroup(layer)) {
+      for (const l of getPaintGroup(layer)) {
         pushUndoWithMask(l);
         MaskEngine.clearMask(l);
         DB.saveMask(l);
@@ -454,7 +453,7 @@ export async function handleAction(action, value = null) {
     }
     case 'fill-mask': {
       if (!layer) break;
-      for (const l of getLinkGroup(layer)) {
+      for (const l of getPaintGroup(layer)) {
         pushUndoWithMask(l);
         MaskEngine.fillMask(l);
         DB.saveMask(l);
@@ -464,7 +463,7 @@ export async function handleAction(action, value = null) {
     }
     case 'invert-mask': {
       if (!layer) break;
-      for (const l of getLinkGroup(layer)) {
+      for (const l of getPaintGroup(layer)) {
         pushUndoWithMask(l);
         MaskEngine.invertMask(l);
         DB.saveMask(l);
@@ -521,10 +520,14 @@ export async function handleAction(action, value = null) {
       // Don't recreate a difference mask if these layers are already paired.
       if (areDifferenceMaskPair(baseLayer, maskLayerObj)) break;
 
-      // Set up image mask relationship (same as create-image-mask)
+      // Difference-mask model: the original image layer REMAINS as its own
+      // layer and the only thing this creates is the mask relationship —
+      // no duplicated "(diff)" copy. The base and its mask layer are linked
+      // so they move and scale as one unit until the user unlinks them.
       if (!baseLayer.imageMaskIds) baseLayer.imageMaskIds = [];
       baseLayer.imageMaskIds.push(maskLayerObj.id);
       maskLayerObj.isMaskFor = baseLayer.id;
+      linkLayers(baseLayer, maskLayerObj);
 
       // Place mask layer at end of this base's mask group
       State.layers.splice(maskIdx, 1);
@@ -535,55 +538,13 @@ export async function handleAction(action, value = null) {
       }
       State.layers.splice(insertPos, 0, maskLayerObj);
 
-      // Duplicate the mask layer as a normal visible layer
-      const dup = new Layer({
-        ...maskLayerObj.toRecord(),
-        id: undefined,
-        name: maskLayerObj.name + ' (diff)',
-        imageMaskIds: [],
-        isMaskFor: null,
-      });
-      // Deep-clone canvases
-      if (maskLayerObj._originalCanvas) {
-        const orig = new OffscreenCanvas(maskLayerObj._originalCanvas.width, maskLayerObj._originalCanvas.height);
-        orig.getContext('2d').drawImage(maskLayerObj._originalCanvas, 0, 0);
-        dup._originalCanvas = orig;
-      }
-      if (maskLayerObj._processedCanvas) {
-        const proc = new OffscreenCanvas(maskLayerObj._processedCanvas.width, maskLayerObj._processedCanvas.height);
-        proc.getContext('2d').drawImage(maskLayerObj._processedCanvas, 0, 0);
-        dup._processedCanvas = proc;
-      }
-      if (maskLayerObj._maskCanvas) {
-        const mc = new OffscreenCanvas(maskLayerObj._maskCanvas.width, maskLayerObj._maskCanvas.height);
-        mc.getContext('2d').drawImage(maskLayerObj._maskCanvas, 0, 0);
-        dup._maskCanvas = mc;
-      }
-      dup._dirty = false;
-
-      // Insert duplicate right after the mask group
-      State.layers.splice(insertPos + 1, 0, dup);
-
-      // Keep the mask and its colored diff copy in sync so painted masks match.
-      linkLayers(dup, maskLayerObj);
-
-      // Persist duplicate
-      await DB.put('layers', dup.toRecord());
-      if (dup._originalCanvas) {
-        const blob = await dup._originalCanvas.convertToBlob({ type: 'image/png' });
-        await DB.put('imageBlobs', { layerId: dup.id, blob });
-      }
-      if (dup._maskCanvas) {
-        await DB.saveMask(dup);
-      }
-
       await DB.saveLayer(baseLayer);
       await DB.saveLayer(maskLayerObj);
       await PageManager.saveActivePage();
 
-      // Select the duplicated layer so user can change its color immediately
-      State.selectedId = dup.id;
-      State.selectedIds = [dup.id];
+      // Select the mask layer so the user can paint it right away
+      State.selectedId = maskLayerObj.id;
+      State.selectedIds = [maskLayerObj.id];
       UI.refreshLayerList();
       UI.refreshProperties();
       Renderer.schedule();

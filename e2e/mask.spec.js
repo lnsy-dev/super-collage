@@ -156,22 +156,27 @@ test.describe('Masking', () => {
     const diffState = await page.evaluate(() => {
       // @ts-ignore
       const layers = State.layers;
+      const mask = layers.find(l => l.isMaskFor);
+      const base = layers.find(l => (l.imageMaskIds || []).includes(mask?.id));
       return {
         layerCount: layers.length,
-        hasMaskFor: layers.some(l => l.isMaskFor),
-        hasMaskIds: layers.some(l => l.imageMaskIds?.length > 0),
-        diffLayerName: layers.find(l => l.name.includes('(diff)'))?.name,
+        baseId: base?.id,
+        maskId: mask?.id,
+        linked: !!base && !!mask && (base.linkedIds || []).includes(mask.id) && (mask.linkedIds || []).includes(base.id),
+        diffLayerCount: layers.filter(l => l.name.includes('(diff)')).length,
       };
     });
 
-    // Should have 3 layers (base, mask, duplicate)
-    expect(diffState.layerCount).toBe(3);
-    expect(diffState.hasMaskFor).toBe(true);
-    expect(diffState.hasMaskIds).toBe(true);
-    expect(diffState.diffLayerName).toContain('(diff)');
+    // The original image remains; the only thing created is the mask
+    // layer — no "(diff)" duplicate. The two layers are linked.
+    expect(diffState.layerCount).toBe(2);
+    expect(diffState.baseId).toBeTruthy();
+    expect(diffState.maskId).toBeTruthy();
+    expect(diffState.linked).toBe(true);
+    expect(diffState.diffLayerCount).toBe(0);
 
     // Select the mask layer so we can release it
-    await expect(page.locator('.layer-row')).toHaveCount(3);
+    await expect(page.locator('.layer-row')).toHaveCount(2);
     await page.locator('.layer-row--mask').click();
     await expect(page.locator('#btn-release-image-mask')).toBeVisible();
 
@@ -272,7 +277,7 @@ test.describe('Masking', () => {
     expect(centerPixel.a).toBe(255);
   });
 
-  test('difference mask layer stays in sync with diff layer mask', async ({ page }) => {
+  test('difference mask mask painting does not touch the base canvas', async ({ page }) => {
     await createProject(page, 'Difference Mask Sync Test');
     await addImage(page, TEST_IMAGE);
     await page.locator('#layer-buttons [data-action="duplicate-layer"]').click();
@@ -285,65 +290,65 @@ test.describe('Masking', () => {
     await expect(page.locator('#btn-create-difference-mask')).toBeVisible();
     await page.click('#btn-create-difference-mask');
 
-    // The mask and diff layers should be linked together
+    // The base and its mask layer should be linked together
     const linkState = await page.evaluate(() => {
       // @ts-ignore
       const layers = State.layers;
-      const diff = layers.find(l => l.name.includes('(diff)'));
       const mask = layers.find(l => l.isMaskFor);
       const base = layers.find(l => l.imageMaskIds?.includes(mask?.id));
       return {
         baseId: base?.id,
         maskId: mask?.id,
-        diffId: diff?.id,
-        diffLinkedToMask: diff?.linkedIds?.includes(mask?.id),
-        maskLinkedToDiff: mask?.linkedIds?.includes(diff?.id),
+        baseLinkedToMask: !!base && (base.linkedIds || []).includes(mask?.id),
+        maskLinkedToBase: !!mask && (mask.linkedIds || []).includes(base?.id),
       };
     });
-    expect(linkState.diffLinkedToMask).toBe(true);
-    expect(linkState.maskLinkedToDiff).toBe(true);
+    expect(linkState.baseLinkedToMask).toBe(true);
+    expect(linkState.maskLinkedToBase).toBe(true);
 
-    // Select the diff layer (top row after creation) and fill its mask
+    // Select the mask layer (top row after creation) and fill its mask
     await page.locator('.layer-row').nth(0).click();
     await page.locator('#properties-content [data-action="fill-mask"]').click();
 
-    // Both the diff layer and the mask layer should now have transparent masks
-    const filledState = await page.evaluate(() => {
+    // The mask layer's canvas is now transparent; the base's own painted
+    // mask is untouched — painting the mask layer must never erase the
+    // original image's pixels.
+    const filledState = await page.evaluate(({ baseId, maskId }) => {
       // @ts-ignore
       const layers = State.layers;
-      const diff = layers.find(l => l.name.includes('(diff)'));
-      const mask = layers.find(l => l.isMaskFor);
+      const mask = layers.find(l => l.id === maskId);
+      const base = layers.find(l => l.id === baseId);
       const getCenterAlpha = (layer) => {
         const ctx = layer._maskCanvas?.getContext('2d');
         if (!ctx) return null;
         const d = ctx.getImageData(Math.floor(layer.naturalWidth / 2), Math.floor(layer.naturalHeight / 2), 1, 1).data;
         return d[3];
       };
-      return { diffAlpha: getCenterAlpha(diff), maskAlpha: getCenterAlpha(mask) };
-    });
-    expect(filledState.diffAlpha).toBe(0);
+      return { baseAlpha: getCenterAlpha(base), maskAlpha: getCenterAlpha(mask) };
+    }, { baseId: linkState.baseId, maskId: linkState.maskId });
     expect(filledState.maskAlpha).toBe(0);
+    expect(filledState.baseAlpha).toBe(255);
 
     // Select the mask layer and clear its mask
     await page.locator('.layer-row--mask').click();
     await page.locator('#properties-content [data-action="clear-mask"]').click();
 
-    // Both masks should now be white again
-    const clearedState = await page.evaluate(() => {
+    // The mask layer's mask is white again; the base's canvas is still clean
+    const clearedState = await page.evaluate(({ baseId, maskId }) => {
       // @ts-ignore
       const layers = State.layers;
-      const diff = layers.find(l => l.name.includes('(diff)'));
-      const mask = layers.find(l => l.isMaskFor);
+      const mask = layers.find(l => l.id === maskId);
+      const base = layers.find(l => l.id === baseId);
       const getCenterAlpha = (layer) => {
         const ctx = layer._maskCanvas?.getContext('2d');
         if (!ctx) return null;
         const d = ctx.getImageData(Math.floor(layer.naturalWidth / 2), Math.floor(layer.naturalHeight / 2), 1, 1).data;
         return d[3];
       };
-      return { diffAlpha: getCenterAlpha(diff), maskAlpha: getCenterAlpha(mask) };
-    });
-    expect(clearedState.diffAlpha).toBe(255);
+      return { baseAlpha: getCenterAlpha(base), maskAlpha: getCenterAlpha(mask) };
+    }, { baseId: linkState.baseId, maskId: linkState.maskId });
     expect(clearedState.maskAlpha).toBe(255);
+    expect(clearedState.baseAlpha).toBe(255);
   });
 
   test('difference mask does not duplicate when re-selected', async ({ page }) => {
@@ -356,14 +361,14 @@ test.describe('Masking', () => {
     await page.locator('.layer-row').nth(0).click();
     await page.locator('.layer-row').nth(1).click({ modifiers: ['Shift'] });
     await page.click('#btn-create-difference-mask');
-    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
 
-    // Select the base layer and the diff layer; Create Difference Mask should be hidden
-    await page.locator('.layer-row').nth(2).click();
+    // Select the base layer and the mask layer; Create Difference Mask should be hidden
+    await page.locator('.layer-row').nth(1).click();
     await page.locator('.layer-row').nth(0).click({ modifiers: ['Shift'] });
     await expect(page.locator('#btn-create-difference-mask')).toBeHidden();
 
-    // Layer count should remain 3 (no new layers created)
-    await expect(page.locator('#layer-list .layer-row')).toHaveCount(3);
+    // Layer count should remain 2 (no new layers created)
+    await expect(page.locator('#layer-list .layer-row')).toHaveCount(2);
   });
 });

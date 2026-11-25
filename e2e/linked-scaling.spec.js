@@ -151,7 +151,8 @@ async function setupTrio(page, { linkGamma = true } = {}) {
 }
 
 // An aligned base+mask pair (100×100 both at (400,400)) with an image-mask
-// relationship; createDifferenceMask also spawns a linked "(diff)" layer.
+// relationship; createDifferenceMask also links the base and its mask layer
+// so they transform as one unit.
 async function setupMaskPair(page, { difference = false } = {}) {
   await createProject(page, difference ? 'Linked Diff Mask' : 'Linked Image Mask');
   await addImageFromBuffer(page, createSolidPngBuffer('#000000', 100, 100), { name: 'base.png' });
@@ -383,45 +384,39 @@ test.describe('Linked scaling: link chains', () => {
    ═══════════════════════════════════════════════════════════════════ */
 
 test.describe('Linked scaling: image-mask groups', () => {
-  test('resizing the base scales its mask layer and diff copy in lockstep', async ({ page }) => {
+  test('resizing the base scales its linked mask layer in lockstep', async ({ page }) => {
     await setupMaskPair(page, { difference: true });
 
     const ids = await page.evaluate(() => {
       const mask = window.State.layers.find(l => l.isMaskFor);
       const base = window.State.layers.find(l => (l.imageMaskIds || []).includes(mask.id));
-      const diff = window.State.layers.find(l => l.name.includes('(diff)'));
-      return { baseId: base.id, maskId: mask.id, diffId: diff.id };
+      return { baseId: base.id, maskId: mask.id };
     });
     await selectLayer(page, 'base');
 
     await setProp(page, 'w', 200);
 
-    const state = await page.evaluate(({ baseId, maskId, diffId }) => {
+    const state = await page.evaluate(({ baseId, maskId }) => {
       const byId = id => window.State.layers.find(l => l.id === id);
-      const base = byId(baseId), mask = byId(maskId), diff = byId(diffId);
+      const base = byId(baseId), mask = byId(maskId);
       const center = l => ({ x: l.x + l.width / 2, y: l.y + l.height / 2 });
       return {
         base: { w: base.width, h: base.height, c: center(base) },
         mask: { w: mask.width, h: mask.height, c: center(mask) },
-        diff: { w: diff.width, h: diff.height, c: center(diff) },
         stillMasked: (base.imageMaskIds || []).includes(mask.id) && mask.isMaskFor === base.id,
-        diffStillLinked: (diff.linkedIds || []).includes(mask.id) && (mask.linkedIds || []).includes(diff.id),
+        stillLinked: (base.linkedIds || []).includes(mask.id) && (mask.linkedIds || []).includes(base.id),
       };
     }, ids);
 
-    // All three layers scale together and stay perfectly aligned.
+    // Both layers scale together and stay perfectly aligned.
     expect(state.base.w).toBe(200);
     expect(state.mask.w).toBe(200);
-    expect(state.diff.w).toBe(200);
     expect(state.mask.h).toBe(state.base.h);
-    expect(state.diff.h).toBe(state.base.h);
     expect(state.mask.c.x).toBeCloseTo(state.base.c.x, 6);
     expect(state.mask.c.y).toBeCloseTo(state.base.c.y, 6);
-    expect(state.diff.c.x).toBeCloseTo(state.base.c.x, 6);
-    expect(state.diff.c.y).toBeCloseTo(state.base.c.y, 6);
-    // The resize must not have disturbed the mask relationships.
+    // The resize must not have disturbed the mask relationship or the link.
     expect(state.stillMasked).toBe(true);
-    expect(state.diffStillLinked).toBe(true);
+    expect(state.stillLinked).toBe(true);
   });
 
   test('painted mask content stays aligned with the base after a group scale', async ({ page }) => {
