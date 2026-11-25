@@ -837,6 +837,18 @@ test.describe('Mask storage ordering', () => {
     await createProject(page, 'Mask Save Race');
     await addImageFromBuffer(page, createSolidPngBuffer('#000000', 3000, 3000), { name: 'race.png' });
 
+    // The import path saves the initial all-white mask fire-and-forget from
+    // addFromFile (layer-manager.js), and addImageFromBuffer only waits for
+    // the layer row — under full-suite load that save's convertToBlob + put
+    // can still be pending when this test queues its own ops, so it lands in
+    // the per-layer mask queue *behind* the del below and resurrects the
+    // record. Wait for that save to drain (its record exists — the queue is
+    // strictly serial per layer and the app issues no further save for a
+    // freshly imported layer) so the save/del pair raced below is the queue
+    // tail.
+    const probe = await maskProbe(page);
+    await expect.poll(() => persistedMask(page, probe.id), { timeout: 15000 }).not.toBeNull();
+
     // The paint handler kicks off saveMask() without awaiting it, and
     // converting a 3000×3000 mask to PNG takes long enough that a delete
     // issued right after (flatten bakes the mask in, then drops the record)
