@@ -338,10 +338,12 @@ export const ExportEngine = {
 
     // A solid layer colored with a saved custom ink prints as its
     // component inks — the riso has no drum for the mixed color itself.
+    // Resolve recursively: a recipe component that is itself a custom ink
+    // decomposes further, and repeated inks fold their coverages.
     const mode = l.colorMode || 'solid';
     if (mode === 'solid') {
       const custom = this._customInkComponents(l.color);
-      if (custom) return custom;
+      if (custom) return this._resolveInkEntries(custom);
     }
 
     // Fallback: a solid layer whose color is exactly reproducible as a

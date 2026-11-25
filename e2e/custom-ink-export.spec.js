@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   clearIndexedDB, createProject, addSolidColorImage, addImageFromBuffer,
-  createSolidPngBuffer,
+  createSolidPngBuffer, setLayerColorDirect,
 } from './helpers.js';
 
 const YELLOW = '#ffe800';
@@ -89,6 +89,62 @@ const GREY_30 = 178;
 const GREY_40 = 153;
 const GREY_10 = 229;
 const GREY_FULL = 0;
+// The user's "Mud" repro: Black 35, Red 76, Neon Orange 36.
+const BLACK = '#010101';
+const RED = '#f65058';
+const NEON_ORANGE = '#ff7477';
+const GREY_35 = 166; // 255 − 255×0.35 ≈ 166
+const GREY_76 = 61;  // 255 − 255×0.76 ≈ 61
+const GREY_36 = 163; // 255 − 255×0.36 ≈ 163
+
+// Drive the real Mix Ink dialog the way the user does: open it from the
+// bucket's ink swatch, set the named coverages, save the mix into the
+// palette under `name`, and close the dialog again.
+async function mixInkViaUi(page, name, inks) {
+  await page.click('.tool-btn[data-tool="paint-bucket"]');
+  await page.click('#bucket-color-swatch');
+  await expect(page.locator('#paint-bucket-dialog')).toBeVisible();
+  await page.evaluate(inks => {
+    const set = (hex, value) => {
+      const slider = document.querySelector(`.bucket-ink-row input[data-hex="${hex}"]`);
+      if (!slider) throw new Error(`no Mix Ink slider for ${hex}`);
+      slider.value = value;
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    // Zero every slider first so the mix is exactly the requested recipe.
+    for (const slider of document.querySelectorAll('.bucket-ink-row input[data-hex]')) {
+      set(slider.dataset.hex, '0');
+    }
+    for (const [hex, value] of Object.entries(inks)) set(hex, String(value));
+  }, inks);
+  await page.locator('#bucket-ink-name').fill(name);
+  await page.click('#btn-bucket-save-color');
+  await expect(page.locator(`#color-swatches .color-swatch[title="${name}"]`)).toHaveCount(1);
+  await page.click('#btn-bucket-done');
+  await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
+}
+
+// Fill the whole page with the bucket's current mixed ink (the mixer's
+// active recipe), as the user's fill does, and wait for the Color Layer.
+async function paintBucketFullPage(page) {
+  await page.evaluate(() => window.BucketTool.fillEntireLayer());
+  await page.waitForFunction(() => {
+    const l = window.State.layers.find(l => l.name === 'Color Layer');
+    return !!l && !!l._processedCanvas;
+  });
+}
+
+// Open the Export Plates dialog and read its plate list once populated.
+async function exportDialogPlateList(page) {
+  await page.click('.menu-item[data-menu="file"]');
+  await page.click('[data-action="export"]');
+  await expect(page.locator('#export-dialog')).toBeVisible();
+  await page.waitForFunction(() => {
+    const el = document.getElementById('export-color-list');
+    return !!el && el.textContent.length > 0;
+  });
+  return page.locator('#export-color-list').innerText();
+}
 
 test.describe('Custom ink export', () => {
   test('a saved custom ink exports as its component inks at their densities', async ({ page }) => {
@@ -343,5 +399,102 @@ test.describe('Custom ink export', () => {
     expect(result.colors).toEqual([AQUA.toUpperCase(), YELLOW.toUpperCase()]);
     expect(result.stats[YELLOW.toUpperCase()].near[GREY_20]).toBeGreaterThan(500);
     expect(result.stats[AQUA.toUpperCase()].near[GREY_30]).toBeGreaterThan(500);
+  });
+
+  // ── Inks created through the Mix Ink view (the user's real flow) ──
+
+  test('a Mix Ink-saved recipe ink exports as its component inks at their densities', async ({ page }) => {
+    // The user's exact repro: mix Black 35, Red 76 and Neon Orange 36 in
+    // the Mix Ink view, save it as 'Mud', paint with it, and Export Plates
+    // must produce the three component plates — not a plate for Mud.
+    await createProject(page, 'Mud Plates', { pageSize: 'half-letter' });
+    await mixInkViaUi(page, 'Mud', { [BLACK]: 35, [RED]: 76, [NEON_ORANGE]: 36 });
+    await paintBucketFullPage(page);
+
+    const result = await exportPlateStats(page, [GREY_35, GREY_76, GREY_36]);
+
+    expect(result.colors).toEqual([BLACK, NEON_ORANGE.toUpperCase(), RED.toUpperCase()].sort());
+    expect(result.stats[BLACK].near[GREY_35]).toBeGreaterThan(1000);
+    expect(result.stats[RED.toUpperCase()].near[GREY_76]).toBeGreaterThan(1000);
+    expect(result.stats[NEON_ORANGE.toUpperCase()].near[GREY_36]).toBeGreaterThan(1000);
+  });
+
+  test('the Export Plates dialog lists a Mix Ink recipe ink as its component plates', async ({ page }) => {
+    // The dialog's plate preview must mirror what the export produces: the
+    // component inks, one entry each — never a single entry for the mix.
+    await createProject(page, 'Mud Dialog', { pageSize: 'half-letter' });
+    await mixInkViaUi(page, 'Mud', { [BLACK]: 35, [RED]: 76, [NEON_ORANGE]: 36 });
+    await paintBucketFullPage(page);
+
+    const list = await exportDialogPlateList(page);
+
+    expect(list).toContain('Black');
+    expect(list).toContain('Red');
+    expect(list).toContain('Neon Orange');
+    expect(list).not.toContain('Mud');
+  });
+
+  test('a two-component Mix Ink recipe ink exports as its two component plates', async ({ page }) => {
+    await createProject(page, 'Mix Ink Two', { pageSize: 'half-letter' });
+    await mixInkViaUi(page, 'Custom Green', { [YELLOW]: 20, [AQUA]: 30 });
+    await paintBucketFullPage(page);
+
+    const result = await exportPlateStats(page, [GREY_20, GREY_30]);
+
+    expect(result.colors).toEqual([AQUA.toUpperCase(), YELLOW.toUpperCase()]);
+    expect(result.stats[YELLOW.toUpperCase()].near[GREY_20]).toBeGreaterThan(1000);
+    expect(result.stats[AQUA.toUpperCase()].near[GREY_30]).toBeGreaterThan(1000);
+  });
+
+  test('a recipe ink whose components include another custom ink resolves recursively', async ({ page }) => {
+    await createProject(page, 'Custom Ink Nested', { pageSize: 'half-letter' });
+    const greenHex = await mixHex(page, [
+      { hex: YELLOW, amount: 20 },
+      { hex: AQUA, amount: 30 },
+    ]);
+    const deepHex = await mixHex(page, [
+      { hex: YELLOW, amount: 10 },
+      { hex: greenHex, amount: 50 },
+    ]);
+    await setPalette(page, [
+      { name: 'Custom Green', hex: greenHex, inks: { [YELLOW]: 20, [AQUA]: 30 } },
+      { name: 'Deep Green', hex: deepHex, inks: { [YELLOW]: 10, [greenHex]: 50 } },
+    ]);
+    await addSolidColorImage(page, '#000000', { width: 800, height: 800 });
+
+    const result = await page.evaluate(async customHex => {
+      const layer = State.layers[0];
+      layer.color = customHex;
+      layer.colorMode = 'solid';
+      delete layer.mixedInks;
+      layer._dirty = true;
+    }, deepHex).then(() => exportPlateStats(page, [206, 217]));
+
+    // Deep Green resolves through Custom Green down to factory inks, and
+    // its 10% yellow folds with the 50%×20% yellow carried by Custom Green
+    // (1 − 0.9×0.9 = 19% → grey ≈ 206; aqua 50%×30% = 15% → grey ≈ 217).
+    expect(result.colors).toEqual([AQUA.toUpperCase(), YELLOW.toUpperCase()]);
+    expect(result.stats[YELLOW.toUpperCase()].near[206]).toBeGreaterThan(1000);
+    expect(result.stats[AQUA.toUpperCase()].near[217]).toBeGreaterThan(1000);
+  });
+
+  test('a Mix Ink recipe ink layer folds into the same plate as a plain ink layer', async ({ page }) => {
+    await createProject(page, 'Mud Fold', { pageSize: 'half-letter' });
+    await mixInkViaUi(page, 'Mud', { [BLACK]: 35, [RED]: 76, [NEON_ORANGE]: 36 });
+    await paintBucketFullPage(page);
+    await addImageFromBuffer(page, createSolidPngBuffer('#000000', 800, 800), { name: 'plain.png' });
+    await moveLayer(page, 1, 1600, 100);
+    await setLayerColorDirect(page, RED);
+
+    const result = await exportPlateStats(page, [GREY_35, GREY_76, GREY_36, GREY_FULL]);
+
+    // Three physical inks; the red plate serves both the plain red layer
+    // (full density) and Mud's 76% red component.
+    expect(result.colors).toEqual([BLACK, NEON_ORANGE.toUpperCase(), RED.toUpperCase()].sort());
+    const red = result.stats[RED.toUpperCase()];
+    expect(red.near[GREY_FULL]).toBeGreaterThan(1000);  // plain red layer
+    expect(red.near[GREY_76]).toBeGreaterThan(1000);    // Mud's 76% red
+    expect(result.stats[BLACK].near[GREY_35]).toBeGreaterThan(1000);
+    expect(result.stats[NEON_ORANGE.toUpperCase()].near[GREY_36]).toBeGreaterThan(1000);
   });
 });

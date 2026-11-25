@@ -492,39 +492,27 @@ export async function showExportDialog() {
     ? allLayerRecords.filter(r => r.visible !== false)
     : State.layers.filter(l => l.visible);
 
-  // Collect all plates (solid colors + gradient stop colors + separation colors)
-  const plateMap = new Map(); // hex → { name, layerCount }
+  // Collect all plates the way the export engine actually derives them:
+  // a layer printing in a custom (mixed) ink contributes to its component
+  // inks' plates, not to a plate of the mixed color itself (no drum for
+  // it), so the preview must list the components too — not the mix.
+  const plateMap = new Map(); // hex → { name, layerCount, mode }
   for (const l of layersToInspect) {
-    if (l.isColorSeparation) {
-      for (const c of l.separationColors || []) {
-        if (!plateMap.has(c)) {
-          const name = inkNameForHex(c);
-          plateMap.set(c, { name, layerCount: 0, mode: 'separation' });
-        }
-        plateMap.get(c).layerCount++;
+    if (l.isMaskFor) continue; // the export skips mask layers entirely
+    const mode = l.isColorSeparation
+      ? 'separation'
+      : (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2)
+        ? 'gradient'
+        : (l.colorMode === 'pattern' && l.pattern)
+          ? 'pattern'
+          : 'solid';
+    for (const hex of ExportEngine._plateColorsOfRecord(l)) {
+      // White is paper, not a plate: the exporters never save one for it.
+      if (!hex || hex.toUpperCase() === '#FFFFFF') continue;
+      if (!plateMap.has(hex)) {
+        plateMap.set(hex, { name: inkNameForHex(hex), layerCount: 0, mode });
       }
-    } else if (l.colorMode === 'gradient' && l.gradient?.stops?.length >= 2) {
-      for (const stop of l.gradient.stops) {
-        if (!plateMap.has(stop.color)) {
-          const name = inkNameForHex(stop.color);
-          plateMap.set(stop.color, { name, layerCount: 0, mode: 'gradient' });
-        }
-        plateMap.get(stop.color).layerCount++;
-      }
-    } else if (l.colorMode === 'pattern' && l.pattern) {
-      [l.pattern.color1, l.pattern.color2].forEach(c => {
-        if (!plateMap.has(c)) {
-          const name = inkNameForHex(c);
-          plateMap.set(c, { name, layerCount: 0, mode: 'pattern' });
-        }
-        plateMap.get(c).layerCount++;
-      });
-    } else {
-      if (!plateMap.has(l.color)) {
-        const name = inkNameForHex(l.color);
-        plateMap.set(l.color, { name, layerCount: 0, mode: 'solid' });
-      }
-      plateMap.get(l.color).layerCount++;
+      plateMap.get(hex).layerCount++;
     }
   }
   const listEl = document.getElementById('export-color-list');
