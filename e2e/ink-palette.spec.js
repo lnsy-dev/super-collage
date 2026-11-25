@@ -51,7 +51,7 @@ test.describe('Ink palette', () => {
     await expect(page.locator('#paint-bucket-dialog .dialog-title')).toHaveText('Mix Ink');
     await expect(page.locator('#color-manager-dialog')).toBeHidden();
 
-    await page.click('#btn-bucket-done');
+    await page.click('#btn-bucket-cancel');
     await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
   });
 
@@ -60,8 +60,8 @@ test.describe('Ink palette', () => {
 
     await page.click('.color-swatch-add');
     await expect(page.locator('#paint-bucket-dialog')).toBeVisible();
-    // Reset to a known state, then move the first ink slider to 0%.
-    await page.click('#btn-bucket-reset');
+    // The dialog opens in the known default state (black at 100%); move the
+    // first ink slider to 0%.
     const slider = page.locator('#bucket-ink-sliders .bucket-ink-slider').first();
     await slider.evaluate((el) => {
       el.value = '0';

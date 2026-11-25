@@ -118,9 +118,9 @@ async function mixInkViaUi(page, name, inks) {
     for (const [hex, value] of Object.entries(inks)) set(hex, String(value));
   }, inks);
   await page.locator('#bucket-ink-name').fill(name);
-  await page.click('#btn-bucket-save-color');
+  await page.click('#btn-bucket-save-mix');
+  // Save Ink Mix saves the mix into the palette and closes the dialog.
   await expect(page.locator(`#color-swatches .color-swatch[title="${name}"]`)).toHaveCount(1);
-  await page.click('#btn-bucket-done');
   await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
 }
 

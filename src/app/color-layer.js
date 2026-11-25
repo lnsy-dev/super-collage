@@ -190,6 +190,16 @@ export function resetBucketInks() {
   updateMixPreview();
 }
 
+/**
+ * The Mix Ink dialog's Cancel button: discard the mixer's pending edits —
+ * the sliders write straight through to the live bucket mix, so closing
+ * alone would strand them — then close the dialog without saving.
+ */
+export function cancelBucketMix() {
+  resetBucketInks();
+  hideBucketMixDialog();
+}
+
 /* ─── SAVE COLOR ═══════════════════════════════════════════════════ */
 
 /**
@@ -197,6 +207,9 @@ export function resetBucketInks() {
  * global 'risoColors' setting (so it shows up in every project) and in
  * the open project's `colors` (so it round-trips in downloaded project
  * zips), mirroring how Edit Colors persists its palette.
+ *
+ * @returns {'saved'|'duplicate'|'missing-name'} what happened: 'duplicate'
+ *   means the mix hex is already in the palette and nothing was stored.
  */
 export async function saveBucketInkToPalette() {
   const nameInput = bucketInkNameInput();
@@ -206,13 +219,13 @@ export async function saveBucketInkToPalette() {
   if (!name) {
     highlightBucketInkName(true);
     nameInput?.focus();
-    return false;
+    return 'missing-name';
   }
 
   const hex = (State.bucketColor || currentBucketColor()).toUpperCase();
 
   // Already in the palette — nothing to add.
-  if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex)) return false;
+  if (RISO_COLORS.some(c => c.hex.toUpperCase() === hex)) return 'duplicate';
 
   // Store the active recipe with the color: export decomposes layers that
   // print in this custom ink into exactly these component inks.
@@ -248,13 +261,17 @@ export async function saveBucketInkToPalette() {
     highlightBucketInkName(false);
   }
 
-  // Flash the button so the user can see the save happened.
-  const btn = document.getElementById('btn-bucket-save-color');
-  if (btn) {
-    btn.textContent = 'Saved ✓';
-    setTimeout(() => { btn.textContent = 'Save Color'; }, 1200);
-  }
-  return true;
+  return 'saved';
+}
+
+/**
+ * The Mix Ink dialog's primary button: save the mixed ink under its name
+ * and close the dialog. Naming is mandatory, so a blocked save (missing
+ * name) keeps the dialog open; a duplicate mix closes it unchanged.
+ */
+export async function saveInkMix() {
+  const result = await saveBucketInkToPalette();
+  if (result !== 'missing-name') hideBucketMixDialog();
 }
 
 /* ─── FLOOD FILL ─────────────────────────────────────────────────── */

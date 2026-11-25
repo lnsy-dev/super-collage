@@ -47,6 +47,17 @@ async function waitForColorLayer(page, name = 'Color Layer') {
   }, name);
 }
 
+/**
+ * Close the Mix Ink dialog with its primary button: save the mix under
+ * `name` ("Save Ink Mix" is the only close path that keeps the mixed ink;
+ * Cancel reverts the mixer to the default black-only mix).
+ */
+async function saveMixAndClose(page, name = 'Test Mix') {
+  await page.locator('#bucket-ink-name').fill(name);
+  await page.click('#btn-bucket-save-mix');
+  await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
+}
+
 test.describe('Color Layer (paint bucket)', () => {
   test('selecting the tool shows the ink swatch below the bucket', async ({ page }) => {
     await createProject(page, 'Bucket Tool Test');
@@ -67,7 +78,7 @@ test.describe('Color Layer (paint bucket)', () => {
     // Only the ink swatch opens it.
     await page.click('#bucket-color-swatch');
     await expect(page.locator('#paint-bucket-dialog')).toBeVisible();
-    await page.click('#btn-bucket-done');
+    await page.click('#btn-bucket-cancel');
     await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
   });
 
@@ -99,9 +110,8 @@ test.describe('Color Layer (paint bucket)', () => {
     await expect(page.locator('#bucket-mix-hex')).toHaveText('#FFE800');
     await expect(page.locator('#bucket-color-swatch')).toHaveCSS('background-color', 'rgb(255, 232, 0)');
 
-    // Done closes the dialog; the mixed ink is remembered.
-    await page.click('#btn-bucket-done');
-    await expect(page.locator('#paint-bucket-dialog')).toBeHidden();
+    // Save Ink Mix closes the dialog; the mixed ink is remembered.
+    await saveMixAndClose(page, 'Riso Yellow');
     const bucketColor = await page.evaluate(() => window.State.bucketColor);
     expect(bucketColor).toBe('#ffe800');
   });
@@ -299,7 +309,7 @@ test.describe('Color Layer (paint bucket)', () => {
       ink.value = '100';
       ink.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await page.click('#btn-bucket-done');
+    await saveMixAndClose(page);
     await bucketClick(page, pageSize.w / 2, pageSize.h / 2);
     await page.waitForFunction(() =>
       window.State.layers.filter(l => l.name === 'Color Layer').length === 2 &&
@@ -448,7 +458,7 @@ test.describe('Color Layer (paint bucket)', () => {
       set('#ffe800', 50);
       set('#5ec8e5', 10);
     });
-    await page.click('#btn-bucket-done');
+    await saveMixAndClose(page);
     await bucketClick(page, 1600, 2500, { clickCount: 2 });
     await waitForColorLayer(page);
 
@@ -478,7 +488,7 @@ test.describe('Color Layer (paint bucket)', () => {
       set('#ffe800', 50);
       set('#5ec8e5', 10);
     });
-    await page.click('#btn-bucket-done');
+    await saveMixAndClose(page);
     await bucketClick(page, 1600, 2500, { clickCount: 2 });
     await waitForColorLayer(page);
 
@@ -521,7 +531,7 @@ test.describe('Color Layer (paint bucket)', () => {
       };
       set('#010101', 30);
     });
-    await page.click('#btn-bucket-done');
+    await saveMixAndClose(page);
     await bucketClick(page, 1600, 2500, { clickCount: 2 });
     await waitForColorLayer(page);
 
@@ -562,7 +572,7 @@ test.describe('Color Layer (paint bucket)', () => {
       set('#010101', 50);
       set('#ffe800', 50);
     });
-    await page.click('#btn-bucket-done');
+    await saveMixAndClose(page);
     await bucketClick(page, pageSize.w / 2 - 700, pageSize.h / 2);
     await waitForColorLayer(page);
 
