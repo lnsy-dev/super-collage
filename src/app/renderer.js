@@ -438,10 +438,16 @@ export const Renderer = {
       cache._srcMaskRev === rev
     ) {
       if (!sliceMode) return cache; // full mode is zoom-invariant
-      const ratio = z / cache._zoomRef;
+      // Slice buffers bake zoom-scaled geometry and are blitted 1:1, so a
+      // reuse is only valid at the SAME zoom. The old zoom-fidelity band
+      // (reuse within 0.7×..1.3×) was wrong here: when the layer covers the
+      // viewport the slice bounds equal the viewport clip rect, which does
+      // not scale with zoom — so bounds equality held across an in-band
+      // zoom change and the stale-geometry buffer was blitted, shifting the
+      // rendered pair until a scroll/zoom rebuild.
       if (
         cache._boundsLeft === rect.left && cache._boundsTop === rect.top &&
-        !(ratio > 1.3 || ratio < 0.7)
+        z === cache._zoomRef
       ) {
         return cache;
       }
@@ -588,22 +594,21 @@ export const Renderer = {
     let cache = layer._imageMaskComposite;
     // The cache covers the compositing slice it was built for: its origin
     // (which moves on scroll/pan) must match, otherwise the stale buffer
-    // would be blitted at the wrong place. Zoom drift within the band only
-    // rescales the same content, which is the fidelity band's job.
+    // would be blitted at the wrong place. The zoom must match exactly:
+    // the buffer's geometry is baked for its zoom, and the bounds origin
+    // does NOT scale with zoom when the layer covers the viewport (slice
+    // == viewport clip rect) — the old in-band reuse rendered stale zoom
+    // geometry, shifting the pair until a scroll/zoom rebuild.
     if (
       cache && sameRefs(cache._srcRefs, currentRefs()) &&
-      cache._boundsLeft === b.left && cache._boundsTop === b.top
+      cache._boundsLeft === b.left && cache._boundsTop === b.top &&
+      z === cache._zoomRef
     ) {
-      const ratio = z / cache._zoomRef;
-      if (!(ratio > 1.3 || ratio < 0.7)) {
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.drawImage(cache, b.left, b.top, cw, ch);
-        return;
-      }
-      // zoom moved beyond the fidelity band — recompute geometry below
-    } else {
-      cache = null;
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.drawImage(cache, b.left, b.top, cw, ch);
+      return;
     }
+    cache = null;
 
     // Make sure every mask layer has a processed bitmap before building.
     for (const maskLayer of maskLayers) {
@@ -632,7 +637,17 @@ export const Renderer = {
       // strokes it is the zoom-invariant full composite drawn scaled.
       const comp = this._paintedCompFor(layer, z, b);
       if (comp._isSlice) {
+        // The slice composite has the layer transform baked in for this
+        // rect (origin at rect.left/top), like the blit in _compositeLayer.
+        // Drawing it under the transform above would apply the transform
+        // a second time and displace the base by its own top-left offset
+        // within the viewport — the reported "mask shifts when I paint
+        // after zooming in" (the displaced stroke frame persists until a
+        // scroll/zoom redraw, since pointerup schedules no repaint).
+        lCtx.save();
+        lCtx.setTransform(1, 0, 0, 1, 0, 0);
         lCtx.drawImage(comp, 0, 0);
+        lCtx.restore();
       } else {
         lCtx.drawImage(comp, 0, 0, dw, dh);
       }
@@ -699,10 +714,12 @@ export const Renderer = {
       cache._srcMask === maskLayer._maskCanvas &&
       cache._srcMaskRev === rev
     ) {
-      const ratio = z / cache._zoomRef;
+      // Exact-zoom reuse only: the buffer's geometry is baked for its zoom
+      // (see _paintedCompFor — bounds can coincide across an in-band zoom
+      // when the slice degenerates to the viewport clip rect).
       if (
         cache._boundsLeft === rect.left && cache._boundsTop === rect.top &&
-        !(ratio > 1.3 || ratio < 0.7)
+        z === cache._zoomRef
       ) {
         return cache.buf;
       }
