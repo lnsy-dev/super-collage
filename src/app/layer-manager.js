@@ -20,6 +20,7 @@ import { PageManager } from './page-manager.js';
 import { computeViewUnits } from './spread-manager.js';
 import { ProjectIO } from './project-io.js';
 import { defaultSepAngles, rebuildLayerSepPlates, makeSepPlate, sepPlateToCanvas } from './separation-methods.js';
+import { processWorkerClient } from './process-worker-client.js';
 
 // Long-edge cap for flatten's mask/bbox working resolution. Matches
 // MaskEngine's mask cap so a painted mask can be read back 1:1.
@@ -101,15 +102,39 @@ export const LayerManager = {
     State.layers.push(layer);
     State.selectedId = layer.id;
     State.selectedIds = [layer.id];
-    const blob = await layer._originalCanvas.convertToBlob({ type: 'image/png' });
-    await DB.put('layers', layer.toRecord());
-    await DB.put('imageBlobs', { layerId: layer.id, blob });
-    await DB.put('maskBlobs', { layerId: layer.id, blob: await layer._maskCanvas.convertToBlob({ type: 'image/png' }) });
-    await PageManager.saveActivePage();
+    // The layer is fully live for rendering and interaction right now; its
+    // PNG encodes + IndexedDB writes run in the background (the encodes via
+    // the process worker) so a full-page shape does not stall the commit
+    // between mouseup and the first repaint. The persistence landing a
+    // moment later mirrors DB.saveMask's existing fire-and-forget cadence.
     document.getElementById('no-layer-msg').style.display = 'none';
     UI.refreshLayerList();
     UI.refreshProperties();
     Renderer.schedule();
+    this._persistNewLayer(layer).catch(err => console.error('shape persist failed:', err));
+  },
+
+  /**
+   * Encode + persist a freshly created layer without blocking the
+   * committing gesture. Encodes run in the process worker (PNG encode of
+   * megapixel-class bitmaps); the IndexedDB writes and the page save fire
+   * once both blobs are ready.
+   */
+  async _persistNewLayer(layer) {
+    const [imageBlob, maskBlob] = await Promise.all([
+      layer._originalCanvas
+        ? processWorkerClient.encodeCanvas(layer._originalCanvas)
+          .catch(() => layer._originalCanvas.convertToBlob({ type: 'image/png' }))
+        : Promise.resolve(null),
+      layer._maskCanvas
+        ? processWorkerClient.encodeCanvas(layer._maskCanvas)
+          .catch(() => layer._maskCanvas.convertToBlob({ type: 'image/png' }))
+        : Promise.resolve(null),
+    ]);
+    await DB.put('layers', layer.toRecord());
+    if (imageBlob) await DB.put('imageBlobs', { layerId: layer.id, blob: imageBlob });
+    if (maskBlob) await DB.put('maskBlobs', { layerId: layer.id, blob: maskBlob });
+    await PageManager.saveActivePage();
   },
 
   async addFromFile(file) {

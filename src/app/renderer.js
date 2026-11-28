@@ -215,10 +215,12 @@ export const Renderer = {
     const run = async () => {
       try {
         await this.draw();
-      } catch (_e) {
+      } catch (err) {
         // Firefox can put a canvas context into a persistent error state
         // during extreme resize/zoom operations; drop the frame instead
-        // of surfacing an uncaught page error.
+        // of surfacing an uncaught page error — but log it, because a
+        // silent dropped frame leaves the canvas blank with no trace.
+        console.warn('[renderer] draw frame dropped:', err && err.message || err);
       }
       State.renderPending = false;
       this._lastDrawAt = performance.now();
@@ -591,6 +593,17 @@ export const Renderer = {
         ml._processedCanvas ?? null, ml._maskCanvas ?? null, ml._maskRev || 0,
       ]),
     ];
+    // Mask layers of this base are only processed HERE (drawLayers skips
+    // isMaskFor layers), so a dirty mask must be processed BEFORE the
+    // cache check: processing is async (process worker), and if the job
+    // had not landed when the cache was first built, the cached refs
+    // would pin the stale (null) processed bitmap and the mask would
+    // never render. Processing here lets the next draw retry until the
+    // flag clears.
+    for (const maskLayer of maskLayers) {
+      if (maskLayer._dirty) await ImageProcessor.processLayer(maskLayer);
+    }
+
     let cache = layer._imageMaskComposite;
     // The cache covers the compositing slice it was built for: its origin
     // (which moves on scroll/pan) must match, otherwise the stale buffer
@@ -609,11 +622,6 @@ export const Renderer = {
       return;
     }
     cache = null;
-
-    // Make sure every mask layer has a processed bitmap before building.
-    for (const maskLayer of maskLayers) {
-      if (maskLayer._dirty) await ImageProcessor.processLayer(maskLayer);
-    }
 
     // Buffer A: render base layer at tight bounds (source-over on transparent),
     // at the current zoom's fidelity level

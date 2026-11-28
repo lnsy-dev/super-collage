@@ -15,6 +15,7 @@
     "test:grid": "node --test src/app/grid-snap.test.js",
     "test:colors": "node --test src/app/constants.test.js",
     "test:touch": "node --test src/app/touch.test.js",
+    "test:pipeline": "node --test src/app/pixel-pipeline.test.js",
     "test:color-separation": "node scripts/test-color-separation.cjs"
   },
   "devDependencies": {

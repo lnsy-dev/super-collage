@@ -10,6 +10,7 @@ import { PageManager } from './page-manager.js';
 import { rerenderShapeLayer } from './shape-utils.js';
 import { restoreSvgLayer } from './svg-utils.js';
 import { MaskEngine } from './mask-engine.js';
+import { processWorkerClient } from './process-worker-client.js';
 
 
 export function snapshotLayer(layer) { return layer.toRecord(); }
@@ -20,6 +21,24 @@ export function pushUndo(snap) {
   State.redoStack = [];
 }
 
+/**
+ * Copy a mask canvas to ImageData off the main thread: the canvas is
+ * cloned synchronously (cheap drawImage — the clone pins this exact
+ * point-in-time) and the megapixel readback runs in the process worker.
+ * Falls back to a direct getImageData when the worker is unavailable.
+ */
+async function copyMaskImageData(maskCanvas) {
+  if (processWorkerClient.available !== false) {
+    try {
+      return await processWorkerClient.readImageData(maskCanvas);
+    } catch (_e) {
+      // fall through to the inline readback
+    }
+  }
+  return maskCanvas.getContext('2d')
+    .getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+}
+
 export function pushUndoWithMask(layer) {
   const snap = snapshotLayer(layer);
   // An SVG layer's vector source is not part of its record (it lives in the
@@ -27,12 +46,17 @@ export function pushUndoWithMask(layer) {
   // so carry it in the snapshot for undo to put back.
   if (layer.isSvg && layer._svgText) snap._svgText = layer._svgText;
   if (layer._maskCanvas) {
-    try {
-      const ctx = layer._maskCanvas.getContext('2d');
-      snap._maskImageData = ctx.getImageData(0, 0, layer._maskCanvas.width, layer._maskCanvas.height);
-    } catch (_e) {
-      // ignore
-    }
+    // The mask readback used to be a synchronous full-canvas getImageData
+    // (~44 MB per full-page layer) on the pointerdown critical path. The
+    // clone is taken synchronously; the copy fills the snapshot in as soon
+    // as the worker readback lands. applySnapshot awaits a pending copy,
+    // so an undo within milliseconds of the stroke start still restores.
+    snap._maskImageData = null;
+    snap._maskImageDataReady = copyMaskImageData(layer._maskCanvas)
+      .then(data => { snap._maskImageData = data; })
+      .catch(err => {
+        console.warn('mask undo copy failed:', err && err.message || err);
+      });
   }
   pushUndo(snap);
 }
@@ -125,6 +149,12 @@ export async function applySnapshot(layer, snap) {
     textLineHeight: snap.textLineHeight,
     textAlign: snap.textAlign,
   });
+
+  // The mask copy may still be in flight (pushUndoWithMask fills the
+  // snapshot asynchronously off the stroke-start critical path).
+  if (snap._maskImageDataReady) {
+    await snap._maskImageDataReady;
+  }
 
   // Restore mask canvas if image data was saved
   if (snap._maskImageData && layer._maskCanvas) {

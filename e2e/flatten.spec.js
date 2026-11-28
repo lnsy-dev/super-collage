@@ -110,6 +110,11 @@ test.describe('Flatten layer', () => {
     await page.locator('.layer-row').nth(0).click();
     await page.locator('#layer-buttons [data-action="flatten-layer"]').click();
 
+    // Flatten is async (the bake runs in the process worker) — wait for it.
+    await expect.poll(async () => page.evaluate(() => window.State.layers.length), {
+      timeout: 15000,
+    }).toBe(1);
+
     const after = await page.evaluate(() => {
       const l = window.State.layers[0];
       return {

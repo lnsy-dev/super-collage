@@ -315,6 +315,11 @@ test.describe('Shapes', () => {
       l.shapeStrokeColor = '#f65058';
       l.color = '#5ec8e5';
       await rerenderShapeLayer(l);
+      // The Split button's visibility is computed in refreshLayerList —
+      // this synthetic legacy-record mutation must refresh it (the real
+      // mutation paths do; previously it only worked because addShape's
+      // slow inline persistence raced this evaluate).
+      UI.refreshLayerList();
     });
 
     // The Split button becomes available for two-tone shapes.
